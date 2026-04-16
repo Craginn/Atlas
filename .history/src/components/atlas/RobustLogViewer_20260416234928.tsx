@@ -1,4 +1,4 @@
-e import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+eimport React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight, Search, Maximize2, Minimize2, AlertCircle, Terminal, Bot, User, Info, AlertTriangle } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';

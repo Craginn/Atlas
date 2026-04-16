@@ -1,18 +1,14 @@
-e import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight, Search, Maximize2, Minimize2, AlertCircle, Terminal, Bot, User, Info, AlertTriangle } from 'lucide-react';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { LogEntry, LogType, TruncatedLogEntry, LogGroup } from '@/types';
 import { cn } from '@/lib/utils';
 
 const MAX_MESSAGE_LENGTH = 500;
 const MAX_VISIBLE_ENTRIES_PER_GROUP = 100;
-const MAX_ENTRY_LINES = 5;
-const MAX_ENTRY_HEIGHT = 32; // lines approx
 
 interface RobustLogViewerProps {
   logs: LogEntry[];
@@ -55,8 +51,6 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
     new Set(initiallyCollapsed.map(t => t))
   );
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [collapseLong, setCollapseLong] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
 
@@ -75,10 +69,10 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
   }, []);
 
   const scrollToBottom = useCallback(() => {
-    if (viewportRef.current && autoScroll) {
+    if (viewportRef.current && isNearBottom) {
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
-  }, [autoScroll]);
+  }, [isNearBottom]);
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups(prev => {
@@ -117,13 +111,10 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
     const groupsMap = new Map<LogType, TruncatedLogEntry[]>();
 
     logs.forEach((log) => {
-      const fullMessage = log.message;
-      const truncated = fullMessage.length > MAX_MESSAGE_LENGTH;
+      const truncated = log.message.length > MAX_MESSAGE_LENGTH;
       const displayMessage = truncated
-        ? fullMessage.slice(0, MAX_MESSAGE_LENGTH) + '...'
-        : fullMessage;
-      const lineCount = fullMessage.split('\n').length;
-      const isMultiLine = lineCount > MAX_ENTRY_LINES;
+        ? log.message.slice(0, MAX_MESSAGE_LENGTH) + '...'
+        : log.message;
 
       const entry: TruncatedLogEntry = {
         id: `${log.id}-${log.timestamp}`,
@@ -131,11 +122,9 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
         message: displayMessage,
         timestamp: log.timestamp,
         truncated,
-        originalLength: fullMessage.length,
+        originalLength: log.message.length,
         groupId: log.type,
-        lineCount,
-        isMultiLine,
-      } as TruncatedLogEntry;
+      };
 
       const existing = groupsMap.get(log.type) || [];
       existing.push(entry);

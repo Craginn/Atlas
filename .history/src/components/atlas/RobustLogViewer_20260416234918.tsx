@@ -1,4 +1,4 @@
-e import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronRight, Search, Maximize2, Minimize2, AlertCircle, Terminal, Bot, User, Info, AlertTriangle } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
@@ -117,13 +117,10 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
     const groupsMap = new Map<LogType, TruncatedLogEntry[]>();
 
     logs.forEach((log) => {
-      const fullMessage = log.message;
-      const truncated = fullMessage.length > MAX_MESSAGE_LENGTH;
+      const truncated = log.message.length > MAX_MESSAGE_LENGTH;
       const displayMessage = truncated
-        ? fullMessage.slice(0, MAX_MESSAGE_LENGTH) + '...'
-        : fullMessage;
-      const lineCount = fullMessage.split('\n').length;
-      const isMultiLine = lineCount > MAX_ENTRY_LINES;
+        ? log.message.slice(0, MAX_MESSAGE_LENGTH) + '...'
+        : log.message;
 
       const entry: TruncatedLogEntry = {
         id: `${log.id}-${log.timestamp}`,
@@ -131,11 +128,9 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
         message: displayMessage,
         timestamp: log.timestamp,
         truncated,
-        originalLength: fullMessage.length,
+        originalLength: log.message.length,
         groupId: log.type,
-        lineCount,
-        isMultiLine,
-      } as TruncatedLogEntry;
+      };
 
       const existing = groupsMap.get(log.type) || [];
       existing.push(entry);

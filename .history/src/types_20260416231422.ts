@@ -46,8 +46,6 @@ export interface TruncatedLogEntry {
   truncated: boolean;
   originalLength: number;
   groupId: string;
-  lineCount?: number;
-  isMultiLine?: boolean;
 }
 
 export interface LogGroup {
