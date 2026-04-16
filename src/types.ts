@@ -1,0 +1,112 @@
+export type SimulationMode = 'remote' | 'local' | 'hybrid';
+export type ExecutionMode = SimulationMode;
+
+export interface WorldState {}
+
+export interface Script {
+  id: string;
+  name: string;
+  trigger: string;
+  description: string;
+  code: string;
+  active: boolean;
+  lastModified?: string;
+}
+
+export interface StoryCard {
+  id: string;
+  title: string;
+  content: string;
+  keywords: string[];
+  type: 'Character' | 'Location' | 'Faction' |  'Class' | 'Custom' |  'Race';
+  notes: string;
+}
+
+export enum LogType {
+  SYSTEM = 'system',
+  AI = 'ai',
+  ERROR = 'error',
+  USER = 'user',
+  INFO = 'info'
+}
+
+export interface LogEntry {
+  id: number;
+  type: LogType;
+  message: string;
+  timestamp: string;
+}
+
+export interface Agent {
+  name: string;
+  label: string;
+  status: 'Running' | 'Idle' | 'Complete' | 'Error' | 'Disabled';
+}
+
+export interface KnowledgeBase {
+  aiInstructions: string;
+  plotEssentials: string;
+  storyCards: StoryCard[];
+  storySummary: string;
+  memoryBank: string;
+  recentHistory: string;
+  authorsNote: string;
+}
+
+export interface SimulationResult {
+  narration: string;
+  influenceLevel?: number;
+  triggeredCards?: string[];
+  updatedAuthorsNote?: string;
+  reasoning?: string;
+  triggeredScriptIds?: string[];
+  newState?: WorldState;
+  output?: string;
+  executedCode?: { [scriptName: string]: string };
+}
+
+export interface LastSimData extends SimulationResult {
+  input: string;
+  context?: string;
+  previousState: WorldState;
+  isProcessing: boolean;
+  triggeredScripts: Script[];
+}
+
+export interface SentinelReport {
+  status: 'healthy' | 'warning' | 'error';
+  errors: SentinelError[];
+  suggestions: string[];
+  message: string;
+  executionTrace?: any;
+  executedCode?: { [scriptName: string]: string };
+}
+
+export interface SentinelError {
+  file: string;
+  line: number;
+  reason: string | { message: string };
+  originalCode: string;
+  fixedCode: string;
+}
+
+export interface LogEvent {
+  source: 'system' | 'input' | 'output' | 'context' | 'simulation';
+  content: any;
+  code?: string;
+}
+
+export interface SimulationLog {
+  id: string;
+  timestamp: number;
+  type: 'input' | 'output' | 'system';
+  content: string;
+  stateSnapshot?: WorldState;
+  reasoning?: string;
+  triggeredScriptIds?: string[];
+}
+
+export interface ScriptSnippet {
+  id: string;
+  name: string;
+}
