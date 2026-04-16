@@ -37,6 +37,36 @@ export interface LogEntry {
   timestamp: string;
 }
 
+// Robust logging extension
+export interface TruncatedLogEntry {
+  id: string;
+  type: LogType;
+  message: string;
+  timestamp: string;
+  truncated: boolean;
+  originalLength: number;
+  groupId: string;
+}
+
+export interface LogGroup {
+  id: string;
+  type: LogType;
+  label: string;
+  colorClass: string;
+  icon: React.ReactNode;
+  bgClass: string;
+  entries: TruncatedLogEntry[];
+  collapsed: boolean;
+  totalCount: number;
+  visibleCount: number;
+}
+
+export interface LogViewerState {
+  groups: LogGroup[];
+  searchQuery: string;
+  autoScroll: boolean;
+}
+
 export interface Agent {
   name: string;
   label: string;
