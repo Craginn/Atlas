@@ -1,36 +1,51 @@
-import { SimulationResult, WorldState, KnowledgeBase } from '../types';
-
-const mockWorldState: WorldState = {
-  location: 'Nexus',
-  characters: [],
-  inventory: [],
-  attributes: { day: 1 },
-  narrativeContext: 'The simulation has just begun.',
-};
+import { INITIAL_KB, INITIAL_WORLD_STATE } from '../constants';
+import { SimulationResult, KnowledgeBase } from '../types';
 
 export async function runSimulation(input: string, knowledgeBase?: KnowledgeBase): Promise<SimulationResult> {
+  const activeKnowledgeBase = knowledgeBase ?? INITIAL_KB;
   await new Promise(resolve => setTimeout(resolve, 1500));
 
-  const newNarrativeContext = `The user performed the action: "${input}". The world is now in a new state.`;
+  const currentDay = typeof INITIAL_WORLD_STATE.attributes?.day === 'number'
+    ? INITIAL_WORLD_STATE.attributes.day
+    : 1;
+  const nextDay = currentDay + 1;
+  const triggeredCards = activeKnowledgeBase.storyCards
+    .filter(card =>
+      card.keywords.some(keyword => input.toLowerCase().includes(keyword.toLowerCase()))
+    )
+    .map(card => card.id);
+
+  const storySummary = activeKnowledgeBase.storySummary
+    ? `Current summary: ${activeKnowledgeBase.storySummary}`
+    : 'The world is waiting for the next move.';
+  const plotDirection = activeKnowledgeBase.plotEssentials
+    ? `Plot focus: ${activeKnowledgeBase.plotEssentials}`
+    : 'Plot focus is still being defined.';
+  const newNarrativeContext = `${storySummary} ${plotDirection} The user performed the action: "${input}".`;
 
   return {
-    narration: `AI-generated narration for: "${input}".`,
+    narration: `${newNarrativeContext} Day ${nextDay} begins.`,
     influenceLevel: Math.random(),
-    triggeredCards: [],
+    triggeredCards,
     newState: {
-      ...mockWorldState,
+      ...INITIAL_WORLD_STATE,
       narrativeContext: newNarrativeContext,
-      attributes: { day: (mockWorldState.attributes.day as number) + 1 },
+      history: [...(INITIAL_WORLD_STATE.history ?? []), input],
+      attributes: {
+        ...(INITIAL_WORLD_STATE.attributes ?? {}),
+        day: nextDay,
+      },
     },
     output: newNarrativeContext,
     reasoning: JSON.stringify({
-      thought: "The user is trying to interact with the world. Updating narrative context.",
-      confidence: 0.95
+      thought: `Updated the story state using plot context and matched ${triggeredCards.length} story card(s).`,
+      confidence: 0.95,
+      day: nextDay,
     }, null, 2)
   };
 }
 
-export async function runAnalysis(code: string): Promise<any> {
+export async function runAnalysis(_code: string): Promise<any> {
   await new Promise(resolve => setTimeout(resolve, 1000));
   return {
     suggestions: [

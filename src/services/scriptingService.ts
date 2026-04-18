@@ -3,6 +3,61 @@ import { runSimulation as runRemoteSimulation } from './aiService';
 import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase } from '../types';
 
 const SCRIPT_EXECUTION_ORDER = ['Library', 'Input Modifier', 'Context Modifier', 'Output Modifier'];
+const MEMORY_HEADING = 'Memories:\n';
+const RECENT_STORY_HEADING = 'Recent Story:\n';
+const AUTHORS_NOTE_HEADING = "[Author's note: ";
+
+const formatStoryCards = (storyCards: KnowledgeBase['storyCards']): string => {
+  if (storyCards.length === 0) {
+    return 'No story cards defined.';
+  }
+
+  return storyCards
+    .map(card => [
+      `Title: ${card.title}`,
+      `Type: ${card.type}`,
+      card.keywords.length > 0 ? `Keywords: ${card.keywords.join(', ')}` : '',
+      `Content: ${card.content}`,
+      card.notes ? `Notes: ${card.notes}` : '',
+    ].filter(Boolean).join('\n'))
+    .join('\n\n');
+};
+
+const buildContextModifierInput = (knowledgeBase?: KnowledgeBase): string => {
+  if (!knowledgeBase) {
+    return '';
+  }
+
+  const promptContext = [knowledgeBase.aiInstructions, knowledgeBase.plotEssentials]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return [
+    promptContext,
+    `World Lore:\n${formatStoryCards(knowledgeBase.storyCards)}`,
+    `Story Summary:\n${knowledgeBase.storySummary}`,
+    `${MEMORY_HEADING}${knowledgeBase.memoryBank}`,
+    `${RECENT_STORY_HEADING}${knowledgeBase.recentHistory}`,
+    `${AUTHORS_NOTE_HEADING}${knowledgeBase.authorsNote}]`,
+    '',
+  ].join('\n');
+};
+
+const extractMemoryBank = (contextText: string, fallback: string): string => {
+  const memoryStart = contextText.indexOf(MEMORY_HEADING);
+  if (memoryStart === -1) {
+    return fallback;
+  }
+
+  const memoryContentStart = memoryStart + MEMORY_HEADING.length;
+  const recentStoryStart = contextText.indexOf(RECENT_STORY_HEADING, memoryContentStart);
+  const authorsNoteStart = contextText.indexOf(AUTHORS_NOTE_HEADING, memoryContentStart);
+  const end = [recentStoryStart, authorsNoteStart]
+    .filter(index => index !== -1)
+    .sort((left, right) => left - right)[0] ?? contextText.length;
+
+  return contextText.slice(memoryContentStart, end).trim();
+};
 
 const simulateStep = async (
   input: string,
@@ -19,7 +74,7 @@ const simulateStep = async (
   const executedCode: { [scriptName: string]: string } = {};
   let reasoningLog: string | undefined = undefined;
   let modifiedInput = input;
-  let modifiedContext = knowledgeBase?.memoryBank || '';
+  let modifiedContext = buildContextModifierInput(knowledgeBase);
   let modifiedOutput = '';
 
   if (mode === 'local' || mode === 'hybrid') {
@@ -107,7 +162,12 @@ const simulateStep = async (
     };
   }
 
-  const updatedKnowledgeBase = { ...knowledgeBase, memoryBank: modifiedContext };
+  const updatedKnowledgeBase = knowledgeBase
+    ? {
+        ...knowledgeBase,
+        memoryBank: extractMemoryBank(modifiedContext, knowledgeBase.memoryBank),
+      }
+    : knowledgeBase;
   const remoteResult = await runRemoteSimulation(modifiedInput, updatedKnowledgeBase);
   const finalReasoning = mode === 'hybrid' && reasoningLog ? reasoningLog : remoteResult.reasoning;
 

@@ -1,6 +1,16 @@
 import { WorldState, Script, StoryCard, KnowledgeBase } from './types';
 
-export const INITIAL_WORLD_STATE: WorldState = {};
+export const INITIAL_WORLD_STATE: WorldState = {
+  location: 'Nexus',
+  narrativeContext: 'The simulation has just begun.',
+  history: [],
+  characters: [],
+  inventory: [],
+  attributes: {
+    day: 1,
+  },
+  flags: {},
+};
 
 export const DEFAULT_SCRIPTS: Script[] = [
   {

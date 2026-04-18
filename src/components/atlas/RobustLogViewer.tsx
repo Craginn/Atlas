@@ -64,6 +64,7 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
     [LogType.SYSTEM]: { label: 'SYSTEM', colorClass: 'text-cyan-400', icon: <Terminal className="h-3 w-3" />, bgClass: 'bg-cyan-950/30' },
     [LogType.AI]: { label: 'AI', colorClass: 'text-purple-400', icon: <Bot className="h-3 w-3" />, bgClass: 'bg-purple-950/30' },
     [LogType.ERROR]: { label: 'ERROR', colorClass: 'text-red-400', icon: <AlertTriangle className="h-3 w-3" />, bgClass: 'bg-red-950/30' },
+    [LogType.WARN]: { label: 'WARN', colorClass: 'text-amber-400', icon: <AlertCircle className="h-3 w-3" />, bgClass: 'bg-amber-950/30' },
     [LogType.USER]: { label: 'USER', colorClass: 'text-green-400', icon: <User className="h-3 w-3" />, bgClass: 'bg-green-950/30' },
     [LogType.INFO]: { label: 'INFO', colorClass: 'text-blue-400', icon: <Info className="h-3 w-3" />, bgClass: 'bg-blue-950/30' },
   };

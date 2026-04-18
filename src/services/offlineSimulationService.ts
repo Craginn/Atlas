@@ -234,6 +234,66 @@ function getContextWithCaret(code: string, line: number, column: number, context
   return context;
 }
 
+function isRegexLiteralStart(code: string, position: number): boolean {
+  let cursor = position - 1;
+
+  while (cursor >= 0 && /\s/.test(code[cursor])) {
+    cursor--;
+  }
+
+  if (cursor < 0) {
+    return true;
+  }
+
+  const previousChar = code[cursor];
+  if ('=([{,:;!?&|+-*%~<>'.includes(previousChar)) {
+    return true;
+  }
+
+  const previousWordMatch = code.substring(0, cursor + 1).match(/([A-Za-z_$][\w$]*)$/);
+  const previousWord = previousWordMatch?.[1];
+
+  return previousWord !== undefined && [
+    'case',
+    'delete',
+    'in',
+    'instanceof',
+    'new',
+    'of',
+    'return',
+    'throw',
+    'typeof',
+    'void',
+  ].includes(previousWord);
+}
+
+function getParserSyntaxError(code: string): ValidationError | null {
+  try {
+    new Function(code);
+    return null;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown syntax error';
+    const stack = error instanceof Error ? error.stack ?? '' : '';
+    const locationMatch =
+      stack.match(/<anonymous>:(\d+):(\d+)/) ??
+      stack.match(/Function:(\d+):(\d+)/) ??
+      message.match(/line (\d+)/i);
+
+    const line = locationMatch ? parseInt(locationMatch[1], 10) : 1;
+    const column = locationMatch && locationMatch[2] ? parseInt(locationMatch[2], 10) : 1;
+
+    return {
+      type: 'SYNTAX_ERROR',
+      message,
+      line,
+      column,
+      severity: 'error',
+      codeSnippet: getLineOfCode(code, line),
+      context: getContextWithCaret(code, line, column)
+    };
+  }
+}
+
 export const validateScriptSyntax = (code: string): ValidationResult => {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
@@ -245,11 +305,27 @@ export const validateScriptSyntax = (code: string): ValidationResult => {
     let inString = false;
     let stringChar = '';
     let inRegex = false;
+    let inLineComment = false;
+    let inBlockComment = false;
+    let inRegexCharClass = false;
 
     for (let i = 0; i < code.length; i++) {
       const char = code[i];
       const prevChar = i > 0 ? code[i - 1] : '';
-      const prevTwoChars = i > 1 ? code.substring(i - 2, i) : '';
+
+      if (inLineComment) {
+        if (char === '\n') {
+          inLineComment = false;
+        }
+        continue;
+      }
+
+      if (inBlockComment) {
+        if (prevChar === '*' && char === '/') {
+          inBlockComment = false;
+        }
+        continue;
+      }
 
       if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
         if (!inString) {
@@ -261,17 +337,47 @@ export const validateScriptSyntax = (code: string): ValidationResult => {
       }
 
       if (!inString) {
-        // Detect regex literals: /pattern/flags
-        // Regex appears after: =, (, [, {, ,, :, !, &, |, ?, +, -, *, /, %, return, etc.
+        if (!inRegex && char === '/' && code[i + 1] === '/') {
+          inLineComment = true;
+          i++;
+          continue;
+        }
+
+        if (!inRegex && char === '/' && code[i + 1] === '*') {
+          inBlockComment = true;
+          i++;
+          continue;
+        }
+
         if (char === '/' && !inRegex) {
-          const regexStart = /[=\(\[{,:\!&|?+\-*/%\s]\s*$/.test(code.substring(0, i));
-          if (regexStart) inRegex = true;
-        } else if (char === '/' && inRegex && prevChar !== '\\') {
+          if (isRegexLiteralStart(code, i)) {
+            inRegex = true;
+            inRegexCharClass = false;
+            continue;
+          }
+        } else if (inRegex) {
+          if (char === '[' && prevChar !== '\\') {
+            inRegexCharClass = true;
+            continue;
+          }
+
+          if (char === ']' && prevChar !== '\\') {
+            inRegexCharClass = false;
+            continue;
+          }
+
+          if (char !== '/' || prevChar === '\\' || inRegexCharClass) {
+            continue;
+          }
+
           inRegex = false;
-          // Skip past flags (gimsuvy)
+
           let j = i + 1;
-          while (j < code.length && /[gimsuvy]/.test(code[j])) j++;
+          while (j < code.length && /[dgimsuvy]/.test(code[j])) {
+            j++;
+          }
           i = j - 1;
+          continue;
         }
 
         if (!inRegex) {
@@ -319,10 +425,38 @@ export const validateScriptSyntax = (code: string): ValidationResult => {
     let inString = false;
     let stringChar = '';
     let stringStart = 0;
+    let inLineComment = false;
+    let inBlockComment = false;
 
     for (let i = 0; i < code.length; i++) {
       const char = code[i];
       const prevChar = i > 0 ? code[i - 1] : '';
+
+      if (inLineComment) {
+        if (char === '\n') {
+          inLineComment = false;
+        }
+        continue;
+      }
+
+      if (inBlockComment) {
+        if (prevChar === '*' && char === '/') {
+          inBlockComment = false;
+        }
+        continue;
+      }
+
+      if (!inString && char === '/' && code[i + 1] === '/') {
+        inLineComment = true;
+        i++;
+        continue;
+      }
+
+      if (!inString && char === '/' && code[i + 1] === '*') {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
 
       if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
         if (!inString) {
@@ -349,72 +483,7 @@ export const validateScriptSyntax = (code: string): ValidationResult => {
     }
   };
 
-  // ============ 3. MISSING COMMAS IN ARRAYS/OBJECTS ============
-  const checkMissingCommas = () => {
-    let inString = false;
-    let stringChar = '';
-    let lastStringEnd = -1;
-    let consecutiveStrings = 0;
-
-    for (let i = 0; i < code.length; i++) {
-      const char = code[i];
-      const prevChar = i > 0 ? code[i - 1] : '';
-
-      if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
-        if (!inString) {
-          inString = true;
-          stringChar = char;
-          
-          // Check if this string immediately follows another (after whitespace)
-          const textBetween = code.substring(lastStringEnd, i).trim();
-          if (lastStringEnd !== -1 && textBetween === '' && consecutiveStrings > 0) {
-            const { line, column } = getLineColumn(code, i);
-            warnings.push({
-              type: 'MISSING_COMMA',
-              message: `Possible missing comma between array/object elements`,
-              line,
-              column,
-              severity: 'warning',
-              codeSnippet: getLineOfCode(code, line),
-              context: getContextWithCaret(code, line, column)
-            });
-          }
-          consecutiveStrings++;
-        } else if (char === stringChar) {
-          inString = false;
-          lastStringEnd = i + 1;
-        }
-      } else if (!inString && char !== ' ' && char !== '\n' && char !== '\t' && char !== ',') {
-        consecutiveStrings = 0;
-      }
-    }
-  };
-
-  // ============ 4. FUNCTION SYNTAX VALIDATION ============
-  const checkFunctionSyntax = () => {
-    try {
-      new Function(code);
-    } catch (err: any) {
-      const message = err.message;
-      let lineNum = 1;
-      const lineMatch = message.match(/line (\d+)/);
-      if (lineMatch) {
-        lineNum = parseInt(lineMatch[1]);
-      }
-      
-      errors.push({
-        type: 'SYNTAX_ERROR',
-        message: `${message}`,
-        line: lineNum,
-        column: 1,
-        severity: 'error',
-        codeSnippet: getLineOfCode(code, lineNum),
-        context: getContextWithCaret(code, lineNum, 1)
-      });
-    }
-  };
-
-  // ============ 5. COMMON TYPOS & PATTERNS ============
+  // ============ 3. COMMON TYPOS & PATTERNS ============
   const checkCommonErrors = () => {
     lines.forEach((line, idx) => {
       const lineNum = idx + 1;
@@ -524,12 +593,18 @@ export const validateScriptSyntax = (code: string): ValidationResult => {
     });
   };
 
-  // Run all validators
-  checkBracketBalance();
-  checkStrings();
-  checkMissingCommas();
-  checkFunctionSyntax();
-  checkCommonErrors();
+  const parserSyntaxError = getParserSyntaxError(code);
+
+  if (parserSyntaxError) {
+    checkStrings();
+    checkBracketBalance();
+
+    if (errors.length === 0) {
+      errors.push(parserSyntaxError);
+    }
+  } else {
+    checkCommonErrors();
+  }
 
   return {
     valid: errors.length === 0,

@@ -1,7 +1,32 @@
 export type SimulationMode = 'remote' | 'local' | 'hybrid';
 export type ExecutionMode = SimulationMode;
 
-export interface WorldState {}
+export type WorldAttributeValue = string | number | boolean | null;
+
+export interface Character {
+  id?: string;
+  name: string;
+  role?: string;
+  description?: string;
+  location?: string;
+  status?: string;
+  notes?: string;
+  traits?: string[];
+  inventory?: string[];
+  [key: string]: unknown;
+}
+
+export interface WorldState {
+  location?: string;
+  narrativeContext?: string;
+  history?: string[];
+  characters?: Character[];
+  inventory?: string[];
+  attributes?: Record<string, WorldAttributeValue>;
+  activeMonsters?: string[];
+  flags?: Record<string, boolean>;
+  [key: string]: unknown;
+}
 
 export interface Script {
   id: string;
@@ -26,6 +51,7 @@ export enum LogType {
   SYSTEM = 'system',
   AI = 'ai',
   ERROR = 'error',
+  WARN = 'warn',
   USER = 'user',
   INFO = 'info'
 }
