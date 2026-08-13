@@ -1,0 +1,59 @@
+{
+  "kind": "OBJECT",
+  "name": "PineconeMetadata",
+  "description": null,
+  "fields": [
+    {
+      "name": "aid",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "cloudflareUuid",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "bunnyUuid",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "genre",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "inputFields": null,
+  "interfaces": [],
+  "enumValues": null,
+  "possibleTypes": null
+}

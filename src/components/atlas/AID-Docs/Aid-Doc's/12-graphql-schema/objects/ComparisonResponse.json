@@ -1,0 +1,47 @@
+{
+  "kind": "OBJECT",
+  "name": "ComparisonResponse",
+  "description": null,
+  "fields": [
+    {
+      "name": "completionA",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "OBJECT",
+        "name": "Comparison",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "completionB",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "OBJECT",
+        "name": "Comparison",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "actionInput",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "OBJECT",
+        "name": "Action",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "inputFields": null,
+  "interfaces": [],
+  "enumValues": null,
+  "possibleTypes": null
+}

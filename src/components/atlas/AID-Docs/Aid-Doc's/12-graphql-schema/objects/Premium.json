@@ -1,0 +1,175 @@
+{
+  "kind": "OBJECT",
+  "name": "Premium",
+  "description": null,
+  "fields": [
+    {
+      "name": "userId",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "name",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "title",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "status",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "platform",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "gem",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "color",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "activeUntil",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "DateTime",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "accessUntil",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "DateTime",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "subscriptionId",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "ID",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "planDetails",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "JSONObject",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "planSettings",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "SCALAR",
+        "name": "JSONObject",
+        "ofType": null
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "inputFields": null,
+  "interfaces": [],
+  "enumValues": null,
+  "possibleTypes": null
+}

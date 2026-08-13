@@ -1,0 +1,29 @@
+{
+  "kind": "ENUM",
+  "name": "ExportStatus",
+  "description": null,
+  "fields": null,
+  "inputFields": null,
+  "interfaces": null,
+  "enumValues": [
+    {
+      "name": "none",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "generating",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "ready",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "possibleTypes": null
+}

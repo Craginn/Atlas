@@ -1,0 +1,580 @@
+{
+  "kind": "INTERFACE",
+  "name": "MutationResponse",
+  "description": null,
+  "fields": [
+    {
+      "name": "code",
+      "description": "Similar to HTTP status code, represents the status of the mutation",
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Int",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "success",
+      "description": "Indicates whether the mutation was successful",
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "message",
+      "description": "Human-readable message for the UI",
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "inputFields": null,
+  "interfaces": [],
+  "enumValues": null,
+  "possibleTypes": [
+    {
+      "kind": "OBJECT",
+      "name": "SendUserEventResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SendSystemEventResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SendExperimentEventResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SendEventResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SubmitActionFeedbackResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesCommandResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesSaveGameResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesDeleteGameResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesLogStatesResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesLoadGameResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesRunAITaskResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesSubmitFeedbackResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesWorldConfigResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesLoadFeedbackResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "HeroesWebSocketServerResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AIConfigResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DevModelConfigResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CompiledConfigResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateUserResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AddDeviceTokenResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "VerifyEmailResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "OptInResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "OptOutResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "PlayAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DuplicateAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "JoinMultiplayerAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "LeaveMultiplayerAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateAdventureDetailsResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateAdventurePlotResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateAdventureStateResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateAdventureImageResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AdventureVisibilityResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ExportAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DeleteAdventureExportResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CreateCommentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DeleteCommentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateCommentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SubmitFeedbackResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ReportContentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SelfReportContentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ModerateContentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AiModerationDataResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AiModerationUsageResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AiModerateScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SaveContentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "VoteContentResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SetContentPreferenceResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SaveContentResponsesResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CreateScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CreateScenarioOptionsResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DuplicateScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateScenarioImageResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ScenarioVisibilityResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CharacterCreationResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DeleteScenarioPublishedResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "PublishScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ImportStoryCardsResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CreateStoryCardResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "GenerateStoryCardResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateStoryCardResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DeleteStoryCardResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DeleteAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DestroyAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "RestoreAdventureResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DeleteScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DestroyScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "RestoreScenarioResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "EmptyTrashResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SendHeroesEventResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ScaleToTipResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "LinkDiscordResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UnlinkDiscordResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SubmitFormResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "NotificationsSeenResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "NotificationsPressedResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateProfileResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateAvatarResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "GetRewardResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SaveSettingsResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "SaveVersionSettingsResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "BlockUserResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "BlockContentsUserResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "FollowUserResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UnblockUserResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UnfollowUserResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AddFriendRequestResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CancelFriendRequestResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ConfirmFriendRequestResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UnfriendUserResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "EditMemoryResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "DeleteMemoryResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdatePlayerResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "RemovePlayerResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "MarkAsTypingResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "TestCustomFunctionResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateScenarioScriptsResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "ActionRequestResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "GetImageResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "UpdateActionsResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CancelActionRequestResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "AddActionResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "RetryActionResponse",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "CheckActionRequestResponse",
+      "ofType": null
+    }
+  ]
+}

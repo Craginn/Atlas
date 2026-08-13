@@ -1,0 +1,107 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "CharacterCreationInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "shortId",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "key",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "imageUrl",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "name",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "gender",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "choices",
+      "description": null,
+      "type": {
+        "kind": "LIST",
+        "name": null,
+        "ofType": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "thirdPerson",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Boolean",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "viewPublished",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Boolean",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

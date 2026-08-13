@@ -1,0 +1,93 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "AdventureDetailsInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "shortId",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "title",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "description",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "image",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "tags",
+      "description": null,
+      "type": {
+        "kind": "LIST",
+        "name": null,
+        "ofType": {
+          "kind": "NON_NULL",
+          "name": null,
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          }
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "contentRating",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "allowComments",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Boolean",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

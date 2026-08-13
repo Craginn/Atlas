@@ -1,0 +1,29 @@
+{
+  "kind": "ENUM",
+  "name": "AiModerationStep",
+  "description": null,
+  "fields": null,
+  "inputFields": null,
+  "interfaces": null,
+  "enumValues": [
+    {
+      "name": "ANALYSIS_STARTED",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "ANALYSIS_COMPLETED",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "FINAL_SCORING_STARTED",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "possibleTypes": null
+}

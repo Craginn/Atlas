@@ -1,0 +1,31 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "UserInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "reviewedAt",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "DateTime",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "promptedToReviewAt",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "DateTime",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

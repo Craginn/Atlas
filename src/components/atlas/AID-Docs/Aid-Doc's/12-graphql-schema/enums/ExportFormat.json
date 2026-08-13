@@ -1,0 +1,23 @@
+{
+  "kind": "ENUM",
+  "name": "ExportFormat",
+  "description": null,
+  "fields": null,
+  "inputFields": null,
+  "interfaces": null,
+  "enumValues": [
+    {
+      "name": "json",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "markdown",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "possibleTypes": null
+}

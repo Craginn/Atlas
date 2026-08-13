@@ -1,0 +1,61 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "HeroesWorldSearchInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "searchTerm",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "limit",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Int",
+        "ofType": null
+      },
+      "defaultValue": "20"
+    },
+    {
+      "name": "offset",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Int",
+        "ofType": null
+      },
+      "defaultValue": "0"
+    },
+    {
+      "name": "published",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Boolean",
+        "ofType": null
+      },
+      "defaultValue": "true"
+    },
+    {
+      "name": "sortOrder",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": "\"updated\""
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

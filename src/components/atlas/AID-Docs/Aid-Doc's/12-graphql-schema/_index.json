@@ -1,0 +1,1334 @@
+{
+  "queryType": {
+    "name": "Query"
+  },
+  "mutationType": {
+    "name": "Mutation"
+  },
+  "subscriptionType": {
+    "name": "Subscription"
+  },
+  "directives": [
+    {
+      "name": "include",
+      "description": "Directs the executor to include this field or fragment only when the `if` argument is true.",
+      "locations": [
+        "FIELD",
+        "FRAGMENT_SPREAD",
+        "INLINE_FRAGMENT"
+      ],
+      "args": [
+        {
+          "name": "if",
+          "description": "Included when true.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          "defaultValue": null
+        }
+      ]
+    },
+    {
+      "name": "skip",
+      "description": "Directs the executor to skip this field or fragment when the `if` argument is true.",
+      "locations": [
+        "FIELD",
+        "FRAGMENT_SPREAD",
+        "INLINE_FRAGMENT"
+      ],
+      "args": [
+        {
+          "name": "if",
+          "description": "Skipped when true.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "Boolean",
+              "ofType": null
+            }
+          },
+          "defaultValue": null
+        }
+      ]
+    },
+    {
+      "name": "deprecated",
+      "description": "Marks an element of a GraphQL schema as no longer supported.",
+      "locations": [
+        "FIELD_DEFINITION",
+        "ARGUMENT_DEFINITION",
+        "INPUT_FIELD_DEFINITION",
+        "ENUM_VALUE"
+      ],
+      "args": [
+        {
+          "name": "reason",
+          "description": "Explains why this element was deprecated, usually also including a suggestion for how to access supported similar data. Formatted using the Markdown syntax, as specified by [CommonMark](https://commonmark.org/).",
+          "type": {
+            "kind": "SCALAR",
+            "name": "String",
+            "ofType": null
+          },
+          "defaultValue": "\"No longer supported\""
+        }
+      ]
+    },
+    {
+      "name": "specifiedBy",
+      "description": "Exposes a URL that specifies the behavior of this scalar.",
+      "locations": [
+        "SCALAR"
+      ],
+      "args": [
+        {
+          "name": "url",
+          "description": "The URL that specifies the behavior of this scalar.",
+          "type": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "SCALAR",
+              "name": "String",
+              "ofType": null
+            }
+          },
+          "defaultValue": null
+        }
+      ]
+    },
+    {
+      "name": "oneOf",
+      "description": "Indicates exactly one field must be supplied and this field must not be `null`.",
+      "locations": [
+        "INPUT_OBJECT"
+      ],
+      "args": []
+    }
+  ],
+  "typeSummary": {
+    "scalars": [
+      {
+        "name": "JSONObject",
+        "description": null
+      },
+      {
+        "name": "DateTime",
+        "description": "DateTime custom scalar type"
+      },
+      {
+        "name": "Boolean",
+        "description": "The `Boolean` scalar type represents `true` or `false`."
+      },
+      {
+        "name": "String",
+        "description": "The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text."
+      },
+      {
+        "name": "ID",
+        "description": "The `ID` scalar type represents a unique identifier, often used to refetch an object or as key for a cache. The ID type appears in a JSON response as a String; however, it is not intended to be human-readable. When expected as an input type, any string (such as `\"4\"`) or integer (such as `4`) input value will be accepted as an ID."
+      },
+      {
+        "name": "Int",
+        "description": "The `Int` scalar type represents non-fractional signed whole numeric values. Int can represent values between -(2^31) and 2^31 - 1."
+      },
+      {
+        "name": "Float",
+        "description": "The `Float` scalar type represents signed double-precision fractional values as specified by [IEEE 754](https://en.wikipedia.org/wiki/IEEE_floating_point)."
+      }
+    ],
+    "enums": [
+      {
+        "name": "ExportFormat",
+        "description": null
+      },
+      {
+        "name": "ExportStatus",
+        "description": null
+      },
+      {
+        "name": "TimeRange",
+        "description": null
+      },
+      {
+        "name": "AiModerationStep",
+        "description": null
+      },
+      {
+        "name": "__TypeKind",
+        "description": "An enum describing what kind of type a given `__Type` is."
+      },
+      {
+        "name": "__DirectiveLocation",
+        "description": "A Directive can be adjacent to many parts of the GraphQL language, a __DirectiveLocation describes one such possible adjacencies."
+      }
+    ],
+    "objects": [
+      {
+        "name": "Subscription",
+        "description": null
+      },
+      {
+        "name": "Query",
+        "description": null
+      },
+      {
+        "name": "Mutation",
+        "description": null
+      },
+      {
+        "name": "FlagVariation",
+        "description": null
+      },
+      {
+        "name": "FlagVariationsResponse",
+        "description": null
+      },
+      {
+        "name": "SendUserEventResponse",
+        "description": null
+      },
+      {
+        "name": "SendSystemEventResponse",
+        "description": null
+      },
+      {
+        "name": "SendExperimentEventResponse",
+        "description": null
+      },
+      {
+        "name": "SendEventResponse",
+        "description": null
+      },
+      {
+        "name": "SubmitActionFeedbackResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesCommandResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesSaveGameResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesDeleteGameResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesLogStatesResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldSearchable",
+        "description": null
+      },
+      {
+        "name": "HeroesLoadGameResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesRunAITaskResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesSubmitFeedbackResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldConfigResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldConfig",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldBasic",
+        "description": null
+      },
+      {
+        "name": "Achievement",
+        "description": null
+      },
+      {
+        "name": "HeroesFeedback",
+        "description": null
+      },
+      {
+        "name": "HeroesLoadFeedbackResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldsResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesWebSocketServerResponse",
+        "description": null
+      },
+      {
+        "name": "HeroesWebSocketServer",
+        "description": null
+      },
+      {
+        "name": "AIConfigResponse",
+        "description": null
+      },
+      {
+        "name": "DevModelConfigResponse",
+        "description": null
+      },
+      {
+        "name": "CompiledConfigResponse",
+        "description": null
+      },
+      {
+        "name": "PaymentPlan",
+        "description": null
+      },
+      {
+        "name": "PaymentPlanEngine",
+        "description": null
+      },
+      {
+        "name": "PaymentPlanPrice",
+        "description": null
+      },
+      {
+        "name": "PaymentProductPrice",
+        "description": null
+      },
+      {
+        "name": "SearchableContent",
+        "description": "Concrete implementation of ContentDocument for search results"
+      },
+      {
+        "name": "ContentMetrics",
+        "description": "Engagement and quality metrics for content"
+      },
+      {
+        "name": "SearchResults",
+        "description": null
+      },
+      {
+        "name": "UpdateUserResponse",
+        "description": null
+      },
+      {
+        "name": "AddDeviceTokenResponse",
+        "description": null
+      },
+      {
+        "name": "VerifyEmailResponse",
+        "description": null
+      },
+      {
+        "name": "OptInResponse",
+        "description": null
+      },
+      {
+        "name": "OptOutResponse",
+        "description": null
+      },
+      {
+        "name": "DeleteAccountResponse",
+        "description": null
+      },
+      {
+        "name": "User",
+        "description": null
+      },
+      {
+        "name": "CacheInvalidationResponse",
+        "description": null
+      },
+      {
+        "name": "PlayAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "DuplicateAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "JoinMultiplayerAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "LeaveMultiplayerAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateAdventureDetailsResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateAdventurePlotResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateAdventureStateResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateAdventureImageResponse",
+        "description": null
+      },
+      {
+        "name": "AdventureVisibilityResponse",
+        "description": null
+      },
+      {
+        "name": "AdventureExportStatus",
+        "description": null
+      },
+      {
+        "name": "ExportAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "DeleteAdventureExportResponse",
+        "description": null
+      },
+      {
+        "name": "PageInfo",
+        "description": null
+      },
+      {
+        "name": "ActionConnection",
+        "description": null
+      },
+      {
+        "name": "ActionBatchUrl",
+        "description": null
+      },
+      {
+        "name": "ActionBatchConnection",
+        "description": null
+      },
+      {
+        "name": "ActionBatchInfo",
+        "description": null
+      },
+      {
+        "name": "Adventure",
+        "description": null
+      },
+      {
+        "name": "AdventureState",
+        "description": null
+      },
+      {
+        "name": "CreatorAnalytics",
+        "description": null
+      },
+      {
+        "name": "AnalyticsSummary",
+        "description": null
+      },
+      {
+        "name": "SummaryTrends",
+        "description": null
+      },
+      {
+        "name": "TimeSeriesData",
+        "description": null
+      },
+      {
+        "name": "TimePoint",
+        "description": null
+      },
+      {
+        "name": "ScenarioPerformance",
+        "description": null
+      },
+      {
+        "name": "PlayerWrapped",
+        "description": null
+      },
+      {
+        "name": "PlayerWrappedMetadata",
+        "description": null
+      },
+      {
+        "name": "PlayerWrappedS3ReadStats",
+        "description": null
+      },
+      {
+        "name": "ActionTypeBreakdown",
+        "description": null
+      },
+      {
+        "name": "LongestAdventure",
+        "description": null
+      },
+      {
+        "name": "ModelStats",
+        "description": null
+      },
+      {
+        "name": "ScenarioStats",
+        "description": null
+      },
+      {
+        "name": "Banner",
+        "description": null
+      },
+      {
+        "name": "Carousel",
+        "description": null
+      },
+      {
+        "name": "CreateCommentResponse",
+        "description": null
+      },
+      {
+        "name": "DeleteCommentResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateCommentResponse",
+        "description": null
+      },
+      {
+        "name": "Comment",
+        "description": null
+      },
+      {
+        "name": "SubmitFeedbackResponse",
+        "description": null
+      },
+      {
+        "name": "UploadAllowance",
+        "description": null
+      },
+      {
+        "name": "Content",
+        "description": null
+      },
+      {
+        "name": "PineconeMetadata",
+        "description": null
+      },
+      {
+        "name": "AiVisibleVersionResponse",
+        "description": null
+      },
+      {
+        "name": "VisibleModelEngine",
+        "description": null
+      },
+      {
+        "name": "StoryStyle",
+        "description": null
+      },
+      {
+        "name": "AiVersionSettings",
+        "description": null
+      },
+      {
+        "name": "AiVisibleVersion",
+        "description": null
+      },
+      {
+        "name": "ReportContentResponse",
+        "description": null
+      },
+      {
+        "name": "SelfReportContentResponse",
+        "description": null
+      },
+      {
+        "name": "ModerateContentResponse",
+        "description": null
+      },
+      {
+        "name": "AiModerationDataResponse",
+        "description": null
+      },
+      {
+        "name": "AiModerationUsageResponse",
+        "description": null
+      },
+      {
+        "name": "ReportResponse",
+        "description": null
+      },
+      {
+        "name": "AiModerateScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "AiModerationProgressUpdate",
+        "description": null
+      },
+      {
+        "name": "AiModerationResultPayload",
+        "description": null
+      },
+      {
+        "name": "ContentResponses",
+        "description": null
+      },
+      {
+        "name": "SaveContentResponse",
+        "description": null
+      },
+      {
+        "name": "VoteContentResponse",
+        "description": null
+      },
+      {
+        "name": "SetContentPreferenceResponse",
+        "description": null
+      },
+      {
+        "name": "SaveContentResponsesResponse",
+        "description": null
+      },
+      {
+        "name": "Scenario",
+        "description": null
+      },
+      {
+        "name": "CreateScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "CreateScenarioOptionsResponse",
+        "description": null
+      },
+      {
+        "name": "DuplicateScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateScenarioImageResponse",
+        "description": null
+      },
+      {
+        "name": "ScenarioVisibilityResponse",
+        "description": null
+      },
+      {
+        "name": "CharacterCreationResponse",
+        "description": null
+      },
+      {
+        "name": "Scripts",
+        "description": null
+      },
+      {
+        "name": "ScenarioState",
+        "description": null
+      },
+      {
+        "name": "DeleteScenarioPublishedResponse",
+        "description": null
+      },
+      {
+        "name": "PublishScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "ScenarioPublished",
+        "description": null
+      },
+      {
+        "name": "SEOAdventure",
+        "description": "SEO metadata for adventures (no auth required, public content only)"
+      },
+      {
+        "name": "SEOScenario",
+        "description": "SEO metadata for scenarios (no auth required, public content only)"
+      },
+      {
+        "name": "SEOVisualFile",
+        "description": "SEO metadata for visual generation files (no auth required, public content only)"
+      },
+      {
+        "name": "SEOWorld",
+        "description": "SEO metadata for worlds (no auth required, public content only)"
+      },
+      {
+        "name": "SEOMod",
+        "description": "SEO metadata for mods (no auth required, public content only)"
+      },
+      {
+        "name": "StoryCard",
+        "description": null
+      },
+      {
+        "name": "ImportStoryCardsResponse",
+        "description": null
+      },
+      {
+        "name": "CreateStoryCardResponse",
+        "description": null
+      },
+      {
+        "name": "GenerateStoryCardResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateStoryCardResponse",
+        "description": null
+      },
+      {
+        "name": "DeleteStoryCardResponse",
+        "description": null
+      },
+      {
+        "name": "DeleteAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "DestroyAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "RestoreAdventureResponse",
+        "description": null
+      },
+      {
+        "name": "DeleteScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "DestroyScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "RestoreScenarioResponse",
+        "description": null
+      },
+      {
+        "name": "EmptyTrashResponse",
+        "description": null
+      },
+      {
+        "name": "SendHeroesEventResponse",
+        "description": null
+      },
+      {
+        "name": "ChurnkeyResponse",
+        "description": null
+      },
+      {
+        "name": "Premium",
+        "description": null
+      },
+      {
+        "name": "Product",
+        "description": null
+      },
+      {
+        "name": "Resources",
+        "description": null
+      },
+      {
+        "name": "ResourceBalance",
+        "description": null
+      },
+      {
+        "name": "Resource",
+        "description": null
+      },
+      {
+        "name": "TradeResourcesResponse",
+        "description": null
+      },
+      {
+        "name": "StripePortalResponse",
+        "description": null
+      },
+      {
+        "name": "ScaleToTipResponse",
+        "description": null
+      },
+      {
+        "name": "Transfer",
+        "description": null
+      },
+      {
+        "name": "LinkedDiscordAccount",
+        "description": null
+      },
+      {
+        "name": "LinkDiscordResponse",
+        "description": null
+      },
+      {
+        "name": "UnlinkDiscordResponse",
+        "description": null
+      },
+      {
+        "name": "SubmitFormResponse",
+        "description": null
+      },
+      {
+        "name": "NotificationsSeenResponse",
+        "description": null
+      },
+      {
+        "name": "NotificationsPressedResponse",
+        "description": null
+      },
+      {
+        "name": "OnlineNotification",
+        "description": null
+      },
+      {
+        "name": "Notification",
+        "description": null
+      },
+      {
+        "name": "UpdateProfileResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateAvatarResponse",
+        "description": null
+      },
+      {
+        "name": "Profile",
+        "description": null
+      },
+      {
+        "name": "RewardCalendar",
+        "description": null
+      },
+      {
+        "name": "Reward",
+        "description": null
+      },
+      {
+        "name": "GetRewardResponse",
+        "description": null
+      },
+      {
+        "name": "SaveSettingsResponse",
+        "description": null
+      },
+      {
+        "name": "SaveVersionSettingsResponse",
+        "description": null
+      },
+      {
+        "name": "BlockUserResponse",
+        "description": null
+      },
+      {
+        "name": "BlockContentsUserResponse",
+        "description": null
+      },
+      {
+        "name": "FollowUserResponse",
+        "description": null
+      },
+      {
+        "name": "UnblockUserResponse",
+        "description": null
+      },
+      {
+        "name": "UnfollowUserResponse",
+        "description": null
+      },
+      {
+        "name": "AddFriendRequestResponse",
+        "description": null
+      },
+      {
+        "name": "CancelFriendRequestResponse",
+        "description": null
+      },
+      {
+        "name": "ConfirmFriendRequestResponse",
+        "description": null
+      },
+      {
+        "name": "UnfriendUserResponse",
+        "description": null
+      },
+      {
+        "name": "DislikedContent",
+        "description": null
+      },
+      {
+        "name": "Action",
+        "description": null
+      },
+      {
+        "name": "ComparisonResponse",
+        "description": null
+      },
+      {
+        "name": "Comparison",
+        "description": null
+      },
+      {
+        "name": "EditMemoryResponse",
+        "description": null
+      },
+      {
+        "name": "DeleteMemoryResponse",
+        "description": null
+      },
+      {
+        "name": "Memory",
+        "description": null
+      },
+      {
+        "name": "Message",
+        "description": null
+      },
+      {
+        "name": "UpdatePlayerResponse",
+        "description": null
+      },
+      {
+        "name": "RemovePlayerResponse",
+        "description": null
+      },
+      {
+        "name": "MarkAsTypingResponse",
+        "description": null
+      },
+      {
+        "name": "Player",
+        "description": null
+      },
+      {
+        "name": "TestCustomFunctionResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateScenarioScriptsResponse",
+        "description": null
+      },
+      {
+        "name": "Boost",
+        "description": null
+      },
+      {
+        "name": "PurchaseBoostResponse",
+        "description": null
+      },
+      {
+        "name": "MessagePayload",
+        "description": null
+      },
+      {
+        "name": "ActionEventPayload",
+        "description": null
+      },
+      {
+        "name": "ActionUpdatePayload",
+        "description": null
+      },
+      {
+        "name": "ComparisonResponsePayload",
+        "description": null
+      },
+      {
+        "name": "AudioPayload",
+        "description": null
+      },
+      {
+        "name": "ContextUpdatePayload",
+        "description": null
+      },
+      {
+        "name": "ResourceUpdatePayload",
+        "description": null
+      },
+      {
+        "name": "AdventureStoryCardsUpdatePayload",
+        "description": null
+      },
+      {
+        "name": "AdventureMemoriesUpdatePayload",
+        "description": null
+      },
+      {
+        "name": "AdventureStateMetadataUpdatePayload",
+        "description": null
+      },
+      {
+        "name": "AdventureMetadataUpdatePayload",
+        "description": null
+      },
+      {
+        "name": "InstructionDetails",
+        "description": null
+      },
+      {
+        "name": "StartNarrationPayload",
+        "description": null
+      },
+      {
+        "name": "NarrationStarted",
+        "description": null
+      },
+      {
+        "name": "NarrationProgress",
+        "description": null
+      },
+      {
+        "name": "NarrationCompleted",
+        "description": null
+      },
+      {
+        "name": "NarrationError",
+        "description": null
+      },
+      {
+        "name": "ActionResponse",
+        "description": null
+      },
+      {
+        "name": "ActionRequestResponse",
+        "description": null
+      },
+      {
+        "name": "GetImageResponse",
+        "description": null
+      },
+      {
+        "name": "UpdateActionsResponse",
+        "description": null
+      },
+      {
+        "name": "CancelActionRequestResponse",
+        "description": null
+      },
+      {
+        "name": "AddActionResponse",
+        "description": null
+      },
+      {
+        "name": "RetryActionResponse",
+        "description": null
+      },
+      {
+        "name": "CheckActionRequestResponse",
+        "description": null
+      },
+      {
+        "name": "Theme",
+        "description": null
+      },
+      {
+        "name": "__Schema",
+        "description": "A GraphQL Schema defines the capabilities of a GraphQL server. It exposes all available types and directives on the server, as well as the entry points for query, mutation, and subscription operations."
+      },
+      {
+        "name": "__Type",
+        "description": "The fundamental unit of any GraphQL Schema is the type. There are many kinds of types in GraphQL as represented by the `__TypeKind` enum.\n\nDepending on the kind of a type, certain fields describe information about that type. Scalar types provide no information beyond a name, description and optional `specifiedByURL`, while Enum types provide their values. Object and Interface types provide the fields they describe. Abstract types, Union and Interface, provide the Object types possible at runtime. List and NonNull types compose other types."
+      },
+      {
+        "name": "__Field",
+        "description": "Object and Interface types are described by a list of Fields, each of which has a name, potentially a list of arguments, and a return type."
+      },
+      {
+        "name": "__InputValue",
+        "description": "Arguments provided to Fields or Directives and the input fields of an InputObject are represented as Input Values which describe their type and optionally a default value."
+      },
+      {
+        "name": "__EnumValue",
+        "description": "One possible value for a given Enum. Enum values are unique values, not a placeholder for a string or numeric value. However an Enum value is returned in a JSON response as a string."
+      },
+      {
+        "name": "__Directive",
+        "description": "A Directive provides a way to describe alternate runtime execution and type validation behavior in a GraphQL document.\n\nIn some cases, you need to provide options to alter GraphQL's execution behavior in ways field arguments will not suffice, such as conditionally including or skipping a field. Directives provide this by describing additional information to the executor."
+      }
+    ],
+    "inputObjects": [
+      {
+        "name": "EventInput",
+        "description": null
+      },
+      {
+        "name": "EventStreamInput",
+        "description": null
+      },
+      {
+        "name": "SubmitActionFeedbackInput",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldSearchInput",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldInput",
+        "description": null
+      },
+      {
+        "name": "HeroesWorldDeleteInput",
+        "description": null
+      },
+      {
+        "name": "SearchInput",
+        "description": null
+      },
+      {
+        "name": "UserInput",
+        "description": null
+      },
+      {
+        "name": "AdventureDetailsInput",
+        "description": null
+      },
+      {
+        "name": "AdventurePlotInput",
+        "description": null
+      },
+      {
+        "name": "AdventureStateInput",
+        "description": null
+      },
+      {
+        "name": "SummaryInput",
+        "description": null
+      },
+      {
+        "name": "CommentInput",
+        "description": null
+      },
+      {
+        "name": "SubmitFeedbackInput",
+        "description": null
+      },
+      {
+        "name": "GetAiModerationDataInput",
+        "description": null
+      },
+      {
+        "name": "ReportContentInput",
+        "description": null
+      },
+      {
+        "name": "SelfReportContentInput",
+        "description": null
+      },
+      {
+        "name": "ReportUserInput",
+        "description": null
+      },
+      {
+        "name": "ModerateContentInput",
+        "description": null
+      },
+      {
+        "name": "AiModerateScenarioInput",
+        "description": null
+      },
+      {
+        "name": "GetPublishedAiModerationDataInput",
+        "description": null
+      },
+      {
+        "name": "ContentResponseInput",
+        "description": null
+      },
+      {
+        "name": "ContentPreferenceInput",
+        "description": null
+      },
+      {
+        "name": "ContentPreferenceRemoveInput",
+        "description": null
+      },
+      {
+        "name": "ContentResponseUpdate",
+        "description": null
+      },
+      {
+        "name": "SaveContentResponsesInput",
+        "description": null
+      },
+      {
+        "name": "ScenarioInput",
+        "description": null
+      },
+      {
+        "name": "CharacterCreationInput",
+        "description": null
+      },
+      {
+        "name": "StoryCardStub",
+        "description": null
+      },
+      {
+        "name": "ImportStoryCardsInput",
+        "description": null
+      },
+      {
+        "name": "CreateStoryCardInput",
+        "description": null
+      },
+      {
+        "name": "GenerateStoryCardInput",
+        "description": null
+      },
+      {
+        "name": "UpdateStoryCardInput",
+        "description": null
+      },
+      {
+        "name": "DeleteStoryCardInput",
+        "description": null
+      },
+      {
+        "name": "HeroesEventInput",
+        "description": null
+      },
+      {
+        "name": "SubscribeStripeInput",
+        "description": null
+      },
+      {
+        "name": "SubscribePayPalInput",
+        "description": null
+      },
+      {
+        "name": "UpdateStripeDefault",
+        "description": null
+      },
+      {
+        "name": "CurrencyPurchaseInput",
+        "description": null
+      },
+      {
+        "name": "TradeResourcesInput",
+        "description": null
+      },
+      {
+        "name": "SubmitFormFieldInput",
+        "description": null
+      },
+      {
+        "name": "SubmitFormEmailInput",
+        "description": null
+      },
+      {
+        "name": "SubmitFormInput",
+        "description": null
+      },
+      {
+        "name": "ProfileInput",
+        "description": null
+      },
+      {
+        "name": "SelectComparisonInput",
+        "description": null
+      },
+      {
+        "name": "ComparisonInput",
+        "description": null
+      },
+      {
+        "name": "EditMemoryInput",
+        "description": null
+      },
+      {
+        "name": "DeleteMemoryInput",
+        "description": null
+      },
+      {
+        "name": "PlayerInput",
+        "description": null
+      },
+      {
+        "name": "TTSSettingOverrides",
+        "description": null
+      },
+      {
+        "name": "StartNarrationInput",
+        "description": null
+      },
+      {
+        "name": "ActionRequestInput",
+        "description": null
+      },
+      {
+        "name": "CancelActionRequestInput",
+        "description": null
+      },
+      {
+        "name": "GetImageInput",
+        "description": null
+      },
+      {
+        "name": "ActionStub",
+        "description": null
+      },
+      {
+        "name": "UpdateActionsInput",
+        "description": null
+      },
+      {
+        "name": "ActionInput",
+        "description": null
+      },
+      {
+        "name": "AlterInput",
+        "description": null
+      },
+      {
+        "name": "CheckActionRequestInput",
+        "description": null
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "MutationResponse",
+        "description": null
+      },
+      {
+        "name": "ContentDocument",
+        "description": "Base interface for content documents (matches ContentDocument from @aidungeon/search)\nThis is the unified interface for search results from OpenSearch"
+      },
+      {
+        "name": "Respondable",
+        "description": "Modern interface for content that supports user responses (voting, saving, disliking).\nThis replaces the deprecated Votable and Savable interfaces."
+      },
+      {
+        "name": "Commentable",
+        "description": null
+      },
+      {
+        "name": "Savable",
+        "description": "@deprecated This interface is deprecated. Use the Responses interface instead for new implementations."
+      },
+      {
+        "name": "Searchable",
+        "description": null
+      },
+      {
+        "name": "Votable",
+        "description": "@deprecated This interface is deprecated. Use the Responses interface instead for new implementations."
+      }
+    ],
+    "unions": [
+      {
+        "name": "NarrationEvent",
+        "description": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "SubmitActionFeedbackInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "feedbackType",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "comments",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "metadata",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "JSONObject",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

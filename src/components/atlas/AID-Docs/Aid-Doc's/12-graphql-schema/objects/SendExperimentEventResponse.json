@@ -1,0 +1,65 @@
+{
+  "kind": "OBJECT",
+  "name": "SendExperimentEventResponse",
+  "description": null,
+  "fields": [
+    {
+      "name": "code",
+      "description": "Similar to HTTP status code, represents the status of the mutation",
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Int",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "success",
+      "description": "Indicates whether the mutation was successful",
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "message",
+      "description": "Human-readable message for the UI",
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "inputFields": null,
+  "interfaces": [
+    {
+      "kind": "INTERFACE",
+      "name": "MutationResponse",
+      "ofType": null
+    }
+  ],
+  "enumValues": null,
+  "possibleTypes": null
+}

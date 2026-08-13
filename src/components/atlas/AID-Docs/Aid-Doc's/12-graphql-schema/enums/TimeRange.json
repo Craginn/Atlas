@@ -1,0 +1,53 @@
+{
+  "kind": "ENUM",
+  "name": "TimeRange",
+  "description": null,
+  "fields": null,
+  "inputFields": null,
+  "interfaces": null,
+  "enumValues": [
+    {
+      "name": "OneDay",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "SevenDays",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "ThirtyDays",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "NinetyDays",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "ThisQuarter",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "LastQuarter",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    },
+    {
+      "name": "All",
+      "description": null,
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "possibleTypes": null
+}

@@ -1,0 +1,31 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "PlayerInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "id",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "ID",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "characterName",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

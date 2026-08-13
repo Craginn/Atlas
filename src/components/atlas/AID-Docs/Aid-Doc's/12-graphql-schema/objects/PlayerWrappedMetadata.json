@@ -1,0 +1,27 @@
+{
+  "kind": "OBJECT",
+  "name": "PlayerWrappedMetadata",
+  "description": null,
+  "fields": [
+    {
+      "name": "s3ReadStats",
+      "description": null,
+      "args": [],
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "PlayerWrappedS3ReadStats",
+          "ofType": null
+        }
+      },
+      "isDeprecated": false,
+      "deprecationReason": null
+    }
+  ],
+  "inputFields": null,
+  "interfaces": [],
+  "enumValues": null,
+  "possibleTypes": null
+}

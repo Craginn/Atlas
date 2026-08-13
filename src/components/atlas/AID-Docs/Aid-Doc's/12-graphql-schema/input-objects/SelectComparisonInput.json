@@ -1,0 +1,67 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "SelectComparisonInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "adventureShortId",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String",
+          "ofType": null
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "comparisons",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "LIST",
+          "name": null,
+          "ofType": {
+            "kind": "NON_NULL",
+            "name": null,
+            "ofType": {
+              "kind": "INPUT_OBJECT",
+              "name": "ComparisonInput",
+              "ofType": null
+            }
+          }
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "actionInput",
+      "description": null,
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "ActionStub",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "key",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

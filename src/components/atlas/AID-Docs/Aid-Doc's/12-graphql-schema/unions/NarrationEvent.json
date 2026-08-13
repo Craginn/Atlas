@@ -1,0 +1,31 @@
+{
+  "kind": "UNION",
+  "name": "NarrationEvent",
+  "description": null,
+  "fields": null,
+  "inputFields": null,
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": [
+    {
+      "kind": "OBJECT",
+      "name": "NarrationStarted",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "NarrationProgress",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "NarrationCompleted",
+      "ofType": null
+    },
+    {
+      "kind": "OBJECT",
+      "name": "NarrationError",
+      "ofType": null
+    }
+  ]
+}

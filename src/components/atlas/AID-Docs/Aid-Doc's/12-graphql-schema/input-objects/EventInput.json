@@ -1,0 +1,61 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "EventInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "platform",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "eventName",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "variation",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "value",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Float",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "clientInfo",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "JSONObject",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

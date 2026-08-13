@@ -1,0 +1,41 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "TTSSettingOverrides",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "speed",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Float",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "style",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "String",
+        "ofType": null
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "pitch",
+      "description": null,
+      "type": {
+        "kind": "SCALAR",
+        "name": "Float",
+        "ofType": null
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

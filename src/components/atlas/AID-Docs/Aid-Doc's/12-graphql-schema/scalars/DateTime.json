@@ -1,0 +1,10 @@
+{
+  "kind": "SCALAR",
+  "name": "DateTime",
+  "description": "DateTime custom scalar type",
+  "fields": null,
+  "inputFields": null,
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}

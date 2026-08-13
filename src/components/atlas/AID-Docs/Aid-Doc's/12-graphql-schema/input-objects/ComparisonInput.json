@@ -1,0 +1,39 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "ComparisonInput",
+  "description": null,
+  "fields": null,
+  "inputFields": [
+    {
+      "name": "comparisonId",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID",
+          "ofType": null
+        }
+      },
+      "defaultValue": null
+    },
+    {
+      "name": "isPreferred",
+      "description": null,
+      "type": {
+        "kind": "NON_NULL",
+        "name": null,
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean",
+          "ofType": null
+        }
+      },
+      "defaultValue": null
+    }
+  ],
+  "interfaces": null,
+  "enumValues": null,
+  "possibleTypes": null
+}
