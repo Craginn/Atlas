@@ -19,7 +19,7 @@ import { Script } from '@/types';
  * would make every user pay for a debug feature they will probably never
  * enable. Vite emits it as a separate chunk instead.
  */
-const FIXTURE_FILES = import.meta.glob('../../../Mock Script Test/*.js', {
+const FIXTURE_FILES = import.meta.glob('../../../RPG ENGINE/*.js', {
   query: '?raw',
   import: 'default',
 }) as Record<string, () => Promise<string>>;

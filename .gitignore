@@ -96,9 +96,3 @@ Thumbs.db
 
 # CLI workspace (local state, not shared)
 .atlas/
-
-# Local Portable Toolchains
-git-portable/
-node-v24/
-*.zip
-
