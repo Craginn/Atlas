@@ -87,7 +87,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
           {cards.map(card => {
             const active = activeIds.has(card.id);
             return (
-              <div key={card.id} className={`rounded-xl border p-4 space-y-3 transition-colors ${active ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-zinc-800/60 bg-zinc-900/30'}`}>
+              <div key={card.id} className={`rounded-xl border p-4 space-y-3 transition-colors ${active ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-zinc-800/60 bg-zinc-800/20'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <select
@@ -118,15 +118,16 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Entry <span className="text-emerald-500/60">(sent to AI as "World Lore:")</span></label>
-                  <textarea
-                    value={card.content}
-                    onChange={(e) => update(card.id, { content: e.target.value })}
-                    placeholder="Information-dense prose. Repeat the subject's name (the AI never sees Name). Put key facts first and last."
-                    className="w-full h-24 bg-[#111] border border-white/5 rounded p-3 text-sm font-mono text-zinc-200 placeholder:text-zinc-600 placeholder:italic focus:border-emerald-500 outline-none resize-none"
-                  />
-                </div>
+                 <div>
+                   <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Entry <span className="text-emerald-500/60">(sent to AI as "World Lore:")</span></label>
+                   <textarea
+                     value={card.content}
+                     onChange={(e) => update(card.id, { content: e.target.value })}
+                     placeholder="Information-dense prose. Repeat the subject's name (the AI never sees Name). Put key facts first and last."
+                     className="w-full h-48 bg-[#0a0a0a] border border-white/10 rounded p-3 text-sm font-mono text-zinc-200 placeholder:text-zinc-600 placeholder:italic focus:border-emerald-500 outline-none resize-none"
+                   />
+                 </div>
+
 
                 <div>
                   <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Triggers <span className="text-zinc-700">(comma-separated; case-insensitive substring)</span></label>

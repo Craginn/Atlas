@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Play } from 'lucide-react';
 import { PlayerActionType } from '@/services/scriptingService';
 
@@ -48,6 +48,15 @@ const Director: React.FC<DirectorProps> = ({
   const [action, setAction] = useState<DirectorAction>('do');
   const isContinue = action === 'continue';
 
+  // Handle Enter key to trigger execution
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const runInput = isContinue ? '' : (input.trim() ? input : opening);
+      onExecute(runInput, context, output, action);
+    }
+  }, [isContinue, input, opening, context, output, action, onExecute]);
+
   // Continue never carries new text; every other kind sends the Input, falling
   // back to the Opening when Input is empty (the same one path as before).
   const runInput = isContinue ? '' : (input.trim() ? input : opening);
@@ -58,7 +67,10 @@ const Director: React.FC<DirectorProps> = ({
     : (!input.trim() && opening.trim() ? 'Execute (Opening)' : 'Execute');
 
   return (
-  <div className="h-full flex flex-col bg-zinc-900 text-zinc-300 font-mono">
+  <div 
+    className="h-full flex flex-col bg-zinc-900 text-zinc-300 font-mono"
+    onKeyDown={handleKeyDown}
+  >
     <div className="flex-shrink-0 flex items-center justify-between p-2 border-b border-zinc-800/50">
       <h2 className="text-sm font-semibold text-zinc-200">Director</h2>
     </div>

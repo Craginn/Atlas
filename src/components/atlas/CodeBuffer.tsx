@@ -6,6 +6,7 @@ import 'prismjs/components/prism-javascript';
 import '@/styles/prism-traditional.css';
 import { Copy, Search, X, ChevronUp, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
 import { validateScriptSyntax, AID_GLOBALS } from '@/services/offlineSimulationService';
+import { LineManager } from '@/services/editor/LineManager';
 
 // Normalize the default export (see StateEditor for rationale).
 const Editor = ((EditorDefault as unknown as { default?: typeof EditorDefault })?.default
@@ -19,7 +20,10 @@ const LINE_HEIGHT = 28; // px per row — matches the editor/gutter `leading-7`
 
 // The rainbow-bracket palette (see prism-traditional.css), reused so the indent
 // guides share the exact nesting colors the brackets already use.
-const NEST_COLORS = ['#ffd700', '#da70d6', '#56d4dd', '#f97583', '#85e89d', '#ffab70'];
+const NEST_COLORS = ['#818cf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa', '#22d3ee'];
+
+// Helper to get the rainbow color for a given depth
+const getNestColor = (depth: number) => NEST_COLORS[depth % NEST_COLORS.length];
 
 // Above this many visible rows we skip the per-row indent-guide overlay to keep
 // keystroke reconciliation cheap on very large files (see gutter perf note).
@@ -97,26 +101,25 @@ let bracketDepth = 0;
 
 function stringify(token: string | Prism.Token): string {
   if (typeof token === 'string') {
-    // Non-token text (whitespace etc.) — no bracket handling needed here since
-    // Prism emits brackets as 'punctuation' tokens.
     return escapeHtml(token);
   }
   const content = Array.isArray(token.content)
     ? token.content.map(stringify).join('')
     : stringifyContent(token.content);
 
-  // Add a depth class to bracket punctuation tokens.
   if (token.type === 'punctuation') {
     const raw = typeof token.content === 'string' ? token.content : '';
     if (OPEN.has(raw)) {
+      const color = getNestColor(bracketDepth);
       const cls = `token punctuation bracket-depth-${bracketDepth % RAINBOW_DEPTH}`;
       bracketDepth++;
-      return `<span class="${cls}">${content}</span>`;
+      return `<span class="${cls}" style="color: ${color}">${content}</span>`;
     }
     if (CLOSE.has(raw)) {
       bracketDepth = Math.max(0, bracketDepth - 1);
+      const color = getNestColor(bracketDepth);
       const cls = `token punctuation bracket-depth-${bracketDepth % RAINBOW_DEPTH}`;
-      return `<span class="${cls}">${content}</span>`;
+      return `<span class="${cls}" style="color: ${color}">${content}</span>`;
     }
   }
 
@@ -152,6 +155,61 @@ const highlightWithJs = (code: string): string => {
   bracketDepth = 0;
   const tokens = Prism.tokenize(code, Prism.languages.javascript);
   return tokens.map(stringify).join('');
+};
+
+// Worker-based highlighting to avoid blocking the main thread
+const useHighlightWorker = (code: string) => {
+  const [highlighted, setHighlighted] = useState<string>('');
+  const workerRef = useRef<Worker | null>(null);
+  const requestIdRef = useRef(0);
+
+  useEffect(() => {
+    // In a production environment, this would be a separate file bundled by the build system.
+    // For this implementation, we'll use a Blob to keep it self-contained.
+    const workerCode = `
+      import Prism from 'prismjs';
+      import 'prismjs/components/prism-clike';
+      import 'prismjs/components/prism-javascript';
+      self.onmessage = (e) => {
+        const { code, requestId } = e.data;
+        const tokens = Prism.tokenize(code, Prism.languages.javascript);
+        const stringify = (token) => {
+          if (typeof token === 'string') return token;
+          const content = Array.isArray(token.content)
+            ? token.content.map(stringify).join('')
+            : (typeof token.content === 'string' ? token.content : stringify(token.content));
+          const alias = Array.isArray(token.alias) ? token.alias.join(' ') : token.alias || '';
+          return \`<span class="token \${token.type}\${alias ? ' ' + alias : ''}">\${content}</span>\`;
+        };
+        const html = tokens.map(stringify).join('');
+        self.postMessage({ html, requestId });
+      };
+    `;
+    
+    // This is a simplified worker creation. In a real Vite project, 
+    // we'd use new Worker(new URL('./worker.ts', import.meta.url))
+    // Since we are in a React component, we'll use the existing worker file if possible.
+    // For now, I'll implement the logic to use the worker we just created.
+    workerRef.current = new Worker(new URL('../../services/editor/workers/highlight.worker.ts', import.meta.url));
+    
+    workerRef.current.onmessage = (e) => {
+      const { html, requestId } = e.data;
+      if (requestId === requestIdRef.current) {
+        setHighlighted(html);
+      }
+    };
+
+    return () => workerRef.current?.terminate();
+  }, []);
+
+  useEffect(() => {
+    if (workerRef.current) {
+      const requestId = ++requestIdRef.current;
+      workerRef.current.postMessage({ code, requestId });
+    }
+  }, [code]);
+
+  return highlighted;
 };
 
 // The partial identifier immediately to the left of the caret. Returns null when
@@ -232,18 +290,20 @@ function measureLineTops(ta: HTMLTextAreaElement): { tops: number[]; total: numb
   const div = makeMirror(ta);
   const lines = ta.value.split('\n');
   const markers: HTMLSpanElement[] = [];
+  const fragment = document.createDocumentFragment();
   for (let i = 0; i < lines.length; i++) {
     const m = document.createElement('span');
     markers.push(m);
-    div.appendChild(m);
-    div.appendChild(document.createTextNode(lines[i]));
-    div.appendChild(document.createTextNode('\n'));
+    fragment.appendChild(m);
+    fragment.appendChild(document.createTextNode(lines[i]));
+    fragment.appendChild(document.createTextNode('\n'));
   }
   const end = document.createElement('span');
-  div.appendChild(end);
+  fragment.appendChild(end);
+  div.appendChild(fragment);
   document.body.appendChild(div);
   const tops = markers.map(m => m.offsetTop);
-  const bottom = end.offsetTop; // top of the phantom row = content bottom
+  const bottom = end.offsetTop;
   document.body.removeChild(div);
   return { tops, total: bottom + EDITOR_PADDING };
 }
@@ -252,12 +312,28 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   const safeValue = value || '';
   const gutterRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lineManagerRef = useRef<LineManager | null>(null);
+
+  // Progressive loading state: start with a manageable chunk and expand as user scrolls
+  const [renderLimit, setRenderLimit] = useState(2000);
+
+  // Sync LineManager with the FULL safeValue to maintain correct indexing
+  useEffect(() => {
+    if (!lineManagerRef.current) {
+      lineManagerRef.current = new LineManager(safeValue);
+    } else {
+      lineManagerRef.current.setFullText(safeValue);
+    }
+  }, [safeValue]);
 
   // ── Structure: fold regions + nesting depth ────────────────────────────────
+  // Use full safeValue for structure to allow folding across the whole file
   const structure = useMemo(() => analyzeStructure(safeValue), [safeValue]);
 
   // Which block-opening lines are currently collapsed (keyed by source line).
   const [folded, setFolded] = useState<Set<number>>(new Set());
+  const [scrollTop, setScrollTop] = useState(0);
+  const [virtualScrollTop, setVirtualScrollTop] = useState(0);
 
   // Project the full source down to the visible ("display") text by dropping the
   // interior lines of each collapsed region. `displayToSource` maps each visible
@@ -272,13 +348,16 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     });
     const disp: string[] = [];
     const map: number[] = [];
-    for (let i = 0; i < src.length; i++) {
+    
+    // Only process lines up to the current render limit for DOM stability
+    const limit = Math.min(src.length, renderLimit);
+    for (let i = 0; i < limit; i++) {
       if (hidden.has(i)) continue;
       disp.push(src[i]);
       map.push(i);
     }
     return { displayValue: disp.join('\n'), displayToSource: map, hiddenSet: hidden };
-  }, [safeValue, folded, structure]);
+  }, [safeValue, folded, structure, renderLimit]);
 
   // Measured top offset of each visible row plus the total content height. Because
   // the editor soft-wraps, a row can be taller than one line, so the gutter, fold
@@ -286,8 +365,8 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   // from here. Populated by a layout effect (see below) after each render/resize;
   // until then, and for rows past the measured range, we fall back to LINE_HEIGHT.
   const [rowLayout, setRowLayout] = useState<{ tops: number[]; total: number }>({ tops: [], total: 0 });
-  // Bumped by a ResizeObserver so a width change re-measures the wrap.
   const [measureKey, setMeasureKey] = useState(0);
+  const measureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const rowTop = useCallback((i: number): number => {
     const t = rowLayout.tops;
@@ -400,7 +479,13 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   // guides are positioned before the browser paints — no visible one-frame drift.
   useLayoutEffect(() => {
     const ta = getTextarea();
-    if (ta) setRowLayout(measureLineTops(ta));
+    if (!ta) return;
+    
+    if (measureTimeoutRef.current) clearTimeout(measureTimeoutRef.current);
+    
+    measureTimeoutRef.current = setTimeout(() => {
+      setRowLayout(measureLineTops(ta));
+    }, 10);
   }, [displayValue, measureKey, getTextarea]);
 
   useEffect(() => {
@@ -547,23 +632,55 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   }, [completions, completionIndex, acceptCompletion, closeCompletions, findOpen]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = e.currentTarget.scrollTop;
+    const top = e.currentTarget.scrollTop;
+    
+    if (top + e.currentTarget.clientHeight > contentHeight - 500) {
+      setRenderLimit(prev => prev + 2000);
     }
-    closeCompletions();
-  }, [closeCompletions]);
 
-  // The visible rows that open a foldable block, with their gutter position. The
-  // arrow sits on the row's first visual line (`rowTop`, padding included).
+    // Use a faster update for the gutter offset
+    setVirtualScrollTop(top);
+
+    requestAnimationFrame(() => {
+      setScrollTop(top);
+      if (gutterRef.current) {
+        gutterRef.current.scrollTop = top;
+      }
+    });
+    closeCompletions();
+  }, [closeCompletions, contentHeight]);
+
+  const visibleGutterRange = useMemo(() => {
+    if (rowLayout.tops.length === 0) return { start: 0, end: displayToSource.length };
+    
+    const start = rowLayout.tops.findIndex(top => top > virtualScrollTop - LINE_HEIGHT * 10);
+    const end = rowLayout.tops.findIndex(top => top > virtualScrollTop + 1200);
+    
+    return {
+      start: start === -1 ? 0 : Math.max(0, start - 2),
+      end: end === -1 ? displayToSource.length : Math.min(displayToSource.length, end + 2)
+    };
+  }, [virtualScrollTop, rowLayout.tops, displayToSource.length]);
+
+  const visibleLines = useMemo(() => {
+    if (rowLayout.tops.length === 0) return [];
+    
+    const { start, end } = visibleGutterRange;
+    return displayToSource.slice(start, end).map((src, i) => ({
+      src,
+      row: i + start
+    }));
+  }, [displayToSource, visibleGutterRange, rowLayout.tops]);
   const foldRows = useMemo(() => {
     const rows: { top: number; start: number; collapsed: boolean }[] = [];
-    displayToSource.forEach((src, row) => {
+    for (let row = visibleGutterRange.start; row < visibleGutterRange.end; row++) {
+      const src = displayToSource[row];
       if (structure.regions.has(src)) {
         rows.push({ top: rowTop(row), start: src, collapsed: folded.has(src) });
       }
-    });
+    }
     return rows;
-  }, [displayToSource, structure, folded, rowTop]);
+  }, [displayToSource, structure, folded, rowTop, visibleGutterRange]);
 
   // Indent guides: one thin, depth-colored vertical rule per nesting level on each
   // visible row. Skipped on very large files to keep per-keystroke work bounded.
@@ -571,13 +688,13 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   const guides = useMemo(() => {
     if (!showGuides) return null;
     const bars: React.ReactNode[] = [];
-    displayToSource.forEach((src, row) => {
+    for (let row = visibleGutterRange.start; row < visibleGutterRange.end; row++) {
+      const src = displayToSource[row];
       const depth = structure.guideDepth[src] || 0;
-      // The guides overlay is already shifted by EDITOR_PADDING, so subtract it
-      // back off the measured (padding-inclusive) row top. Height spans all of the
-      // row's visual lines when it wraps.
+      
       const top = rowTop(row) - EDITOR_PADDING;
       const height = rowHeight(row);
+      
       for (let lvl = 0; lvl < depth; lvl++) {
         bars.push(
           <span
@@ -586,16 +703,17 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
             style={{
               top,
               left: `${lvl * 2}ch`,
-              height,
-              background: NEST_COLORS[lvl % NEST_COLORS.length],
-              opacity: 0.22,
+              height: height,
+              background: getNestColor(lvl),
+              opacity: 0.4,
+              zIndex: 0,
             }}
           />
         );
       }
-    });
+    }
     return bars;
-  }, [displayToSource, structure, showGuides, rowTop, rowHeight]);
+  }, [displayToSource, structure, showGuides, rowTop, rowHeight, visibleGutterRange]);
 
   if (!isActive) return null;
 
@@ -674,11 +792,14 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
               stay aligned when a line soft-wraps to several visual rows. The inner
               box carries the full content height so gutter scroll tracks the editor. */}
           <div className="relative" style={{ height: contentHeight }}>
-            {displayToSource.map((src, row) => (
-              <div key={row} className="absolute left-0 right-0 leading-7" style={{ top: rowTop(row) }}>
-                {src + 1}
-              </div>
-            ))}
+            {displayToSource.slice(visibleGutterRange.start, visibleGutterRange.end).map((src, i) => {
+              const row = i + visibleGutterRange.start;
+              return (
+                <div key={row} className="absolute left-0 right-0 leading-7" style={{ top: rowTop(row) }}>
+                  {src + 1}
+                </div>
+              );
+            })}
             {foldRows.map(({ top, start, collapsed }) => (
               <button
                 key={start}
@@ -708,15 +829,15 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
               {guides}
             </div>
           )}
-          <Editor
-            value={displayValue}
-            onValueChange={(code) => { applyDisplayChange(code); requestAnimationFrame(refreshCompletions); }}
-            highlight={highlightWithJs}
-            padding={EDITOR_PADDING}
-            className="atlas-code-editor relative z-10 bg-transparent text-[13px] font-mono focus:outline-none resize-none leading-7 min-h-full"
-            readOnly={isReadOnly}
-            style={editorStyle}
-          />
+            <Editor
+              value={displayValue}
+              onValueChange={(code) => { applyDisplayChange(code); requestAnimationFrame(refreshCompletions); }}
+              highlight={highlightWithJs}
+              padding={EDITOR_PADDING}
+              className="atlas-code-editor relative z-10 bg-transparent text-[13px] font-mono focus:outline-none resize-none leading-7 min-h-full outline-none"
+              readOnly={isReadOnly}
+              style={editorStyle}
+            />
           {completions.length > 0 && completionPos && (
             <div
               className="absolute z-30 bg-zinc-900 border border-zinc-700 rounded-md shadow-xl overflow-hidden text-xs font-mono min-w-[140px]"

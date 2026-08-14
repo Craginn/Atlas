@@ -459,7 +459,7 @@ function tickAbilityCooldowns() {
             if (store[name] <= 0) {
                 delete store[name];
                 const a = getAbility(name);
-                state.logMessages['Output'].push(`🔄 ${a ? a.displayName : name} is ready again.`);
+                state.message.push(`🔄 ${a ? a.displayName : name} is ready again.`);
             }
         }
     }

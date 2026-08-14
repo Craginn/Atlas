@@ -127,6 +127,8 @@ All colors MUST be HSL.
   white-space: pre-wrap !important;
   word-break: normal !important;
   overflow-wrap: anywhere !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* Indent guides are positioned in `ch` units, so they must render at the same
