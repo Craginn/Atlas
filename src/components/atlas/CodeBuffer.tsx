@@ -1,12 +1,9 @@
 import React, { useRef, useCallback, useMemo, useState, useEffect, useLayoutEffect } from 'react';
 import EditorDefault from 'react-simple-code-editor';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-javascript';
 import '@/styles/prism-traditional.css';
 import { Copy, Search, X, ChevronUp, ChevronDown, ChevronRight, AlertCircle } from 'lucide-react';
 import { validateScriptSyntax, AID_GLOBALS } from '@/services/offlineSimulationService';
-import { LineManager } from '@/services/editor/LineManager';
+import { highlightJs, escapeHtml, getNestColor } from '@/services/editor/highlightJs';
 
 // Normalize the default export (see StateEditor for rationale).
 const Editor = ((EditorDefault as unknown as { default?: typeof EditorDefault })?.default
@@ -14,16 +11,18 @@ const Editor = ((EditorDefault as unknown as { default?: typeof EditorDefault })
 
 const OPEN = new Set(['(', '[', '{']);
 const CLOSE = new Set([')', ']', '}']);
-const RAINBOW_DEPTH = 6; // number of distinct nesting colors before cycling
 const EDITOR_PADDING = 24; // must match the Editor `padding` prop
 const LINE_HEIGHT = 28; // px per row — matches the editor/gutter `leading-7`
 
-// The rainbow-bracket palette (see prism-traditional.css), reused so the indent
-// guides share the exact nesting colors the brackets already use.
-const NEST_COLORS = ['#818cf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa', '#22d3ee'];
+// Above this size (chars), highlighting moves to the worker so Prism never
+// blocks a keystroke; below it, synchronous highlighting is instant and keeps
+// colors live while typing.
+const SYNC_HIGHLIGHT_LIMIT = 50_000;
 
-// Helper to get the rainbow color for a given depth
-const getNestColor = (depth: number) => NEST_COLORS[depth % NEST_COLORS.length];
+// Lines shorter than this can't wrap at typical editor widths, so their pixel
+// positions are computed arithmetically instead of measured in the DOM
+// (see measureLineTops).
+const WRAP_RISK_LENGTH = 120;
 
 // Above this many visible rows we skip the per-row indent-guide overlay to keep
 // keystroke reconciliation cheap on very large files (see gutter perf note).
@@ -91,48 +90,6 @@ const JS_KEYWORDS = [
   'includes', 'indexOf', 'length', 'toString', 'stringify', 'parse',
 ];
 
-// Highlight JS while adding bracket-depth classes to (){}[] punctuation so
-// nested brackets get consistent, distinct rainbow colors. Prism's default
-// theme colors all punctuation flat, which made deep nesting hard to read.
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-let bracketDepth = 0;
-
-function stringify(token: string | Prism.Token): string {
-  if (typeof token === 'string') {
-    return escapeHtml(token);
-  }
-  const content = Array.isArray(token.content)
-    ? token.content.map(stringify).join('')
-    : stringifyContent(token.content);
-
-  if (token.type === 'punctuation') {
-    const raw = typeof token.content === 'string' ? token.content : '';
-    if (OPEN.has(raw)) {
-      const color = getNestColor(bracketDepth);
-      const cls = `token punctuation bracket-depth-${bracketDepth % RAINBOW_DEPTH}`;
-      bracketDepth++;
-      return `<span class="${cls}" style="color: ${color}">${content}</span>`;
-    }
-    if (CLOSE.has(raw)) {
-      bracketDepth = Math.max(0, bracketDepth - 1);
-      const color = getNestColor(bracketDepth);
-      const cls = `token punctuation bracket-depth-${bracketDepth % RAINBOW_DEPTH}`;
-      return `<span class="${cls}" style="color: ${color}">${content}</span>`;
-    }
-  }
-
-  const alias = Array.isArray(token.alias) ? token.alias.join(' ') : token.alias || '';
-  return `<span class="token ${token.type}${alias ? ' ' + alias : ''}">${content}</span>`;
-}
-
-function stringifyContent(content: string | Prism.Token | (string | Prism.Token)[]): string {
-  if (typeof content === 'string') return escapeHtml(content);
-  if (Array.isArray(content)) return content.map(stringify).join('');
-  return stringify(content);
-}
-
 interface CodeBufferProps {
   title: string;
   value: string;
@@ -151,65 +108,44 @@ const editorStyle = {
   fontFamily: '"Fira Code", "Fira Mono", monospace',
 };
 
-const highlightWithJs = (code: string): string => {
-  bracketDepth = 0;
-  const tokens = Prism.tokenize(code, Prism.languages.javascript);
-  return tokens.map(stringify).join('');
-};
-
-// Worker-based highlighting to avoid blocking the main thread
-const useHighlightWorker = (code: string) => {
-  const [highlighted, setHighlighted] = useState<string>('');
+// Worker-based highlighting for large buffers: Prism tokenizes off the main
+// thread so keystrokes never block. Posts are debounced — fast typing cancels
+// the pending run, so the worker only tokenizes once input settles — and each
+// result carries the code it was computed for, so a stale result can never be
+// painted over newer text.
+const useHighlightWorker = (code: string, enabled: boolean) => {
+  const [result, setResult] = useState<{ html: string; for: string } | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
+  const postedForRef = useRef('');
 
   useEffect(() => {
-    // In a production environment, this would be a separate file bundled by the build system.
-    // For this implementation, we'll use a Blob to keep it self-contained.
-    const workerCode = `
-      import Prism from 'prismjs';
-      import 'prismjs/components/prism-clike';
-      import 'prismjs/components/prism-javascript';
-      self.onmessage = (e) => {
-        const { code, requestId } = e.data;
-        const tokens = Prism.tokenize(code, Prism.languages.javascript);
-        const stringify = (token) => {
-          if (typeof token === 'string') return token;
-          const content = Array.isArray(token.content)
-            ? token.content.map(stringify).join('')
-            : (typeof token.content === 'string' ? token.content : stringify(token.content));
-          const alias = Array.isArray(token.alias) ? token.alias.join(' ') : token.alias || '';
-          return \`<span class="token \${token.type}\${alias ? ' ' + alias : ''}">\${content}</span>\`;
-        };
-        const html = tokens.map(stringify).join('');
-        self.postMessage({ html, requestId });
-      };
-    `;
-    
-    // This is a simplified worker creation. In a real Vite project, 
-    // we'd use new Worker(new URL('./worker.ts', import.meta.url))
-    // Since we are in a React component, we'll use the existing worker file if possible.
-    // For now, I'll implement the logic to use the worker we just created.
-    workerRef.current = new Worker(new URL('../../services/editor/workers/highlight.worker.ts', import.meta.url));
-    
-    workerRef.current.onmessage = (e) => {
+    // { type: 'module' } is required: the worker imports the shared highlighter
+    // (Vite serves module workers in dev and bundles them for build — a classic
+    // worker can't use import statements).
+    const worker = new Worker(new URL('../../services/editor/workers/highlight.worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent) => {
       const { html, requestId } = e.data;
       if (requestId === requestIdRef.current) {
-        setHighlighted(html);
+        setResult({ html, for: postedForRef.current });
       }
     };
-
-    return () => workerRef.current?.terminate();
+    workerRef.current = worker;
+    return () => worker.terminate();
   }, []);
 
   useEffect(() => {
-    if (workerRef.current) {
-      const requestId = ++requestIdRef.current;
-      workerRef.current.postMessage({ code, requestId });
-    }
-  }, [code]);
+    if (!enabled) return;
+    const worker = workerRef.current;
+    if (!worker) return;
+    const timer = setTimeout(() => {
+      postedForRef.current = code;
+      worker.postMessage({ code, requestId: ++requestIdRef.current });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [code, enabled]);
 
-  return highlighted;
+  return result;
 };
 
 // The partial identifier immediately to the left of the caret. Returns null when
@@ -282,69 +218,66 @@ function caretCoords(ta: HTMLTextAreaElement, position: number): { top: number; 
 }
 
 // The top offset of every source line once wrapping is applied, plus the total
-// content height. Each line is preceded by a zero-width marker whose offsetTop is
-// the line's top; a trailing marker sits on a phantom final row to give the bottom.
-// This is what lets the gutter numbers, fold arrows and indent guides follow lines
-// that wrap to multiple visual rows instead of assuming a fixed row height.
+// content height. Only lines long enough to actually wrap (WRAP_RISK_LENGTH)
+// are measured in an off-screen mirror; every other row has a known fixed
+// height, so its position is computed arithmetically. On a large file this is
+// the difference between laying out the whole document and a handful of long
+// lines, and — because tops are accumulated in one walk — wrapped rows now
+// shift every line below them (previously each short line's offset ignored the
+// extra height of any wrapped line above it, misaligning the gutter).
 function measureLineTops(ta: HTMLTextAreaElement): { tops: number[]; total: number } {
-  const div = makeMirror(ta);
   const lines = ta.value.split('\n');
-  const markers: HTMLSpanElement[] = [];
-  const fragment = document.createDocumentFragment();
-  
-  // Optimization: Only measure lines that are likely to wrap (long lines).
-  // All other lines use the fixed LINE_HEIGHT.
+
+  const longIdx: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].length < 120) {
-      // Push a dummy marker to keep the index alignment, but we'll 
-      // use LINE_HEIGHT for its top calculation.
-      markers.push(document.createElement('span'));
-      fragment.appendChild(markers[markers.length - 1]);
-      fragment.appendChild(document.createTextNode(lines[i]));
-      fragment.appendChild(document.createTextNode('\n'));
-    } else {
-      const m = document.createElement('span');
-      markers.push(m);
-      fragment.appendChild(m);
-      fragment.appendChild(document.createTextNode(lines[i]));
-      fragment.appendChild(document.createTextNode('\n'));
-    }
+    if (lines[i].length >= WRAP_RISK_LENGTH) longIdx.push(i);
+  }
+
+  if (longIdx.length === 0) {
+    const tops = new Array(lines.length);
+    for (let i = 0; i < lines.length; i++) tops[i] = EDITOR_PADDING + i * LINE_HEIGHT;
+    return { tops, total: EDITOR_PADDING * 2 + lines.length * LINE_HEIGHT };
+  }
+
+  // One mirror containing ONLY the wrap-risk lines, each preceded by a marker.
+  // The next marker's top minus this one is the line's wrapped pixel height —
+  // wrapping is per-line with pre-wrap, so leaving the short lines out doesn't
+  // change any measurement.
+  const div = makeMirror(ta);
+  const fragment = document.createDocumentFragment();
+  const markers: HTMLSpanElement[] = [];
+  for (const idx of longIdx) {
+    const m = document.createElement('span');
+    markers.push(m);
+    fragment.appendChild(m);
+    fragment.appendChild(document.createTextNode(lines[idx]));
+    fragment.appendChild(document.createTextNode('\n'));
   }
   const end = document.createElement('span');
   fragment.appendChild(end);
   div.appendChild(fragment);
   document.body.appendChild(div);
-  
-  const tops = markers.map((m, i) => {
-    // If the line is short, don't trust the DOM offsetTop if it's not actually rendered
-    // or if it's just a dummy. Use fixed height.
-    if (lines[i].length < 120) {
-      return EDITOR_PADDING + i * LINE_HEIGHT;
-    }
-    return m.offsetTop;
-  });
-  const bottom = end.offsetTop;
+
+  const heights = new Map<number, number>();
+  for (let k = 0; k < markers.length; k++) {
+    const nextTop = k + 1 < markers.length ? markers[k + 1].offsetTop : end.offsetTop;
+    heights.set(longIdx[k], Math.max(LINE_HEIGHT, nextTop - markers[k].offsetTop));
+  }
   document.body.removeChild(div);
-  return { tops, total: bottom + EDITOR_PADDING };
+
+  const tops = new Array(lines.length);
+  let top = EDITOR_PADDING;
+  for (let i = 0; i < lines.length; i++) {
+    tops[i] = top;
+    top += heights.get(i) ?? LINE_HEIGHT;
+  }
+  return { tops, total: top + EDITOR_PADDING };
 }
 
 const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadOnly = false, isActive, color, findRequest }) => {
   const safeValue = value || '';
   const gutterRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const lineManagerRef = useRef<LineManager | null>(null);
-
-  // Remove the unused renderLimit state
-  // const [renderLimit, setRenderLimit] = useState(2000);
-
-  // Sync LineManager with the FULL safeValue to maintain correct indexing
-  useEffect(() => {
-    if (!lineManagerRef.current) {
-      lineManagerRef.current = new LineManager(safeValue);
-    } else {
-      lineManagerRef.current.setFullText(safeValue);
-    }
-  }, [safeValue]);
 
   // ── Structure: fold regions + nesting depth ────────────────────────────────
   // Use full safeValue for structure to allow folding across the whole file
@@ -352,7 +285,6 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
 
   // Which block-opening lines are currently collapsed (keyed by source line).
   const [folded, setFolded] = useState<Set<number>>(new Set());
-  const [scrollTop, setScrollTop] = useState(0);
   const [virtualScrollTop, setVirtualScrollTop] = useState(0);
 
   // Project the full source down to the visible ("display") text by dropping the
@@ -360,7 +292,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   // row back to its original line so the gutter can show the real line numbers,
   // and `hiddenSet` is the set of source lines currently tucked away.
   const { displayValue, displayToSource, hiddenSet } = useMemo(() => {
-    const lines = lineManagerRef.current?.getFullText().split('\n') || safeValue.split('\n');
+    const lines = safeValue.split('\n');
     const hidden = new Set<number>();
     folded.forEach(start => {
       const end = structure.regions.get(start);
@@ -384,7 +316,6 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   // until then, and for rows past the measured range, we fall back to LINE_HEIGHT.
   const [rowLayout, setRowLayout] = useState<{ tops: number[]; total: number }>({ tops: [], total: 0 });
   const [measureKey, setMeasureKey] = useState(0);
-  const measureTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const rowTop = useCallback((i: number): number => {
     const t = rowLayout.tops;
@@ -504,21 +435,9 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   useLayoutEffect(() => {
     const ta = getTextarea();
     if (!ta) return;
-    
-    if (measureTimeoutRef.current) clearTimeout(measureTimeoutRef.current);
-    
-    measureTimeoutRef.current = setTimeout(() => {
-      // Optimization: Incremental updates.
-      // Only re-measure everything if the total length changed significantly.
-      // Otherwise, we can just update the rowLayout for the visible range.
-      setRowLayout(prev => {
-        const currentTops = measureLineTops(ta).tops;
-        // If the difference is small, we could technically just patch, 
-        // but since we optimized measureLineTops to skip short lines, 
-        // a full call is now much cheaper.
-        return measureLineTops(ta);
-      });
-    }, 10);
+    // Measure synchronously before paint (no one-frame gutter drift). The mirror
+    // only contains wrap-risk lines, so this stays cheap even on huge files.
+    setRowLayout(measureLineTops(ta));
   }, [displayValue, measureKey, getTextarea]);
 
   useEffect(() => {
@@ -665,17 +584,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   }, [completions, completionIndex, acceptCompletion, closeCompletions, findOpen]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const top = e.currentTarget.scrollTop;
-    
-    // Use a faster update for the gutter offset
-    setVirtualScrollTop(top);
-    
-    requestAnimationFrame(() => {
-      setScrollTop(top);
-      if (gutterRef.current) {
-        gutterRef.current.scrollTop = top;
-      }
-    });
+    setVirtualScrollTop(e.currentTarget.scrollTop);
     closeCompletions();
   }, [closeCompletions]);
 
@@ -691,42 +600,17 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     };
   }, [virtualScrollTop, rowLayout.tops, displayToSource.length]);
 
-  const visibleEditorValue = useMemo(() => {
-    if (rowLayout.tops.length === 0) return displayValue;
-    
-    const { start, end } = visibleGutterRange;
-    const lines = displayValue.split('\n');
-    
-    // Windowed rendering: Only provide the visible slice + buffer to the editor
-    // To keep cursor stability, we pad the top and bottom with newlines
-    // matching the number of hidden lines.
-    const topPadding = '\n'.repeat(start);
-    const visibleSlice = lines.slice(start, end).join('\n');
-    const bottomPadding = '\n'.repeat(Math.max(0, lines.length - end));
-    
-    return topPadding + visibleSlice + bottomPadding;
-  }, [displayValue, visibleGutterRange, rowLayout.tops]);
-
-  const asyncHighlightedValue = useHighlightWorker(displayValue);
+  // Large buffers highlight in the worker so Prism never blocks a keystroke;
+  // smaller ones highlight synchronously, which is instant and keeps colors live.
+  const asyncHighlight = useHighlightWorker(displayValue, displayValue.length > SYNC_HIGHLIGHT_LIMIT);
 
   const optimizedHighlight = useCallback((code: string) => {
-    // Use the async highlighted value for the entire buffer
-    if (!asyncHighlightedValue) return highlightWithJs(code);
-
-    const lines = code.split('\n');
-    const asyncLines = asyncHighlightedValue.split('\n');
-    
-    // find the line where the cursor is (approximation based on visibleEditorValue)
-    // In a real implementation, we'd pass the caret position to optimizedHighlight
-    return lines.map((line, i) => {
-      // Sync highlight the first few lines for perceived speed
-      if (i < 3) {
-        return highlightWithJs(line);
-      }
-      // Use async result for the rest
-      return asyncLines[i] || escapeHtml(line);
-    }).join('\n');
-  }, [asyncHighlightedValue]);
+    if (code.length <= SYNC_HIGHLIGHT_LIMIT) return highlightJs(code);
+    // Big file: plain text until the worker's result lands, then full color.
+    // `for` guarantees the HTML always matches the exact code being rendered.
+    if (asyncHighlight && asyncHighlight.for === code) return asyncHighlight.html;
+    return escapeHtml(code);
+  }, [asyncHighlight]);
   const foldRows = useMemo(() => {
     const rows: { top: number; start: number; collapsed: boolean }[] = [];
     for (let row = visibleGutterRange.start; row < visibleGutterRange.end; row++) {
@@ -854,10 +738,12 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
                  .slice(visibleGutterRange.start, visibleGutterRange.end)
                  .map((src, i) => {
                    const row = i + visibleGutterRange.start;
-                   // Handle potentially wrapped lines by adding appropriate spacing
+                   // A wrapped row occupies extra 28px rows in this text block;
+                   // pad with one blank line per extra visual row so the next
+                   // number stays aligned with its code line.
                    const height = rowHeight(row);
-                   const padding = height > LINE_HEIGHT ? `\n${' '.repeat(20)}\n` : '\n';
-                   return `${src + 1}${padding}`;
+                   const extraRows = Math.max(0, Math.round(height / LINE_HEIGHT) - 1);
+                   return `${src + 1}${'\n'.repeat(1 + extraRows)}`;
                  })
                  .join('')
                }
@@ -892,7 +778,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
             </div>
           )}
              <Editor
-               value={visibleEditorValue}
+               value={displayValue}
                onValueChange={(code) => { applyDisplayChange(code); requestAnimationFrame(refreshCompletions); }}
                highlight={optimizedHighlight}
                padding={EDITOR_PADDING}

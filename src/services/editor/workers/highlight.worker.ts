@@ -1,25 +1,13 @@
-import Prism from 'prismjs';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-javascript';
+// Background highlighter for large files: tokenize + serialize JS off the main
+// thread so typing in a big buffer never blocks on Prism.
+//
+// Uses the SAME highlighter as the main thread (services/editor/highlightJs) so
+// async results are identical to the synchronous ones — rainbow brackets and
+// HTML escaping included.
+
+import { highlightJs } from '../highlightJs';
 
 self.onmessage = (e: MessageEvent) => {
   const { code, requestId } = e.data;
-  const tokens = Prism.tokenize(code, Prism.languages.javascript);
-  
-  // We send back the tokens in a simplified format since Prism tokens 
-  // are complex objects that might not serialize perfectly or 
-  // efficiently. We'll just send the HTML string for now to keep it fast.
-  
-  const stringify = (token: any): string => {
-    if (typeof token === 'string') return token;
-    const content = Array.isArray(token.content)
-      ? token.content.map((t: any) => stringify(t)).join('')
-      : (typeof token.content === 'string' ? token.content : stringify(token.content));
-    
-    const alias = Array.isArray(token.alias) ? token.alias.join(' ') : token.alias || '';
-    return `<span class="token ${token.type}${alias ? ' ' + alias : ''}">${content}</span>`;
-  };
-
-  const html = tokens.map((t: any) => stringify(t)).join('');
-  self.postMessage({ html, requestId });
+  self.postMessage({ html: highlightJs(code), requestId });
 };
