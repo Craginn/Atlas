@@ -68,6 +68,9 @@ export default defineConfig(() => {
       // Listen on all interfaces so the app is reachable from a phone on the
       // same network for mobile testing.
       host: true,
+      // Allow the preview's external hostname (served through a proxy that
+      // changes whenever the environment is recreated).
+      allowedHosts: true,
     },
     resolve: {
       alias: {
