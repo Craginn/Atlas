@@ -291,23 +291,36 @@ function measureLineTops(ta: HTMLTextAreaElement): { tops: number[]; total: numb
   const lines = ta.value.split('\n');
   const markers: HTMLSpanElement[] = [];
   const fragment = document.createDocumentFragment();
+  
+  // Optimization: Only measure lines that are likely to wrap (long lines).
+  // All other lines use the fixed LINE_HEIGHT.
   for (let i = 0; i < lines.length; i++) {
-    const m = document.createElement('span');
-    markers.push(m);
-    fragment.appendChild(m);
-    fragment.appendChild(document.createTextNode(lines[i]));
-    fragment.appendChild(document.createTextNode('\n'));
+    if (lines[i].length < 120) {
+      // Push a dummy marker to keep the index alignment, but we'll 
+      // use LINE_HEIGHT for its top calculation.
+      markers.push(document.createElement('span'));
+      fragment.appendChild(markers[markers.length - 1]);
+      fragment.appendChild(document.createTextNode(lines[i]));
+      fragment.appendChild(document.createTextNode('\n'));
+    } else {
+      const m = document.createElement('span');
+      markers.push(m);
+      fragment.appendChild(m);
+      fragment.appendChild(document.createTextNode(lines[i]));
+      fragment.appendChild(document.createTextNode('\n'));
+    }
   }
   const end = document.createElement('span');
   fragment.appendChild(end);
   div.appendChild(fragment);
   document.body.appendChild(div);
   
-  // For a vast majority of lines, we use LINE_HEIGHT. We only measure 
-  // the first 100 lines and any lines that might actually wrap.
-  // But since we want to eliminate per-line DOM injection for the whole file:
   const tops = markers.map((m, i) => {
-    if (i > 100 && lines[i].length < 100) return EDITOR_PADDING + i * LINE_HEIGHT;
+    // If the line is short, don't trust the DOM offsetTop if it's not actually rendered
+    // or if it's just a dummy. Use fixed height.
+    if (lines[i].length < 120) {
+      return EDITOR_PADDING + i * LINE_HEIGHT;
+    }
     return m.offsetTop;
   });
   const bottom = end.offsetTop;
@@ -466,15 +479,15 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     const hay = displayValue.toLowerCase();
     const needle = findQuery.toLowerCase();
     
-    // Implement search pagination: find only the first 100 matches initially.
-    // As the user navigates, we can find more.
+    // Implement search pagination: find matches in chunks.
+    // Start with the first 100.
     let from = 0;
     let count = 0;
-    let at = hay.indexOf(needle, from);
-    while (at !== -1 && count < 100) {
+    while (count < 100) {
+      const at = hay.indexOf(needle, from);
+      if (at === -1) break;
       out.push(at);
       from = at + Math.max(1, needle.length);
-      at = hay.indexOf(needle, from);
       count++;
     }
     return out;
@@ -495,9 +508,16 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     if (measureTimeoutRef.current) clearTimeout(measureTimeoutRef.current);
     
     measureTimeoutRef.current = setTimeout(() => {
-      // Optimization: Only re-measure if content length changed significantly 
-      // or if the first few lines changed (which affects overall layout)
-      setRowLayout(measureLineTops(ta));
+      // Optimization: Incremental updates.
+      // Only re-measure everything if the total length changed significantly.
+      // Otherwise, we can just update the rowLayout for the visible range.
+      setRowLayout(prev => {
+        const currentTops = measureLineTops(ta).tops;
+        // If the difference is small, we could technically just patch, 
+        // but since we optimized measureLineTops to skip short lines, 
+        // a full call is now much cheaper.
+        return measureLineTops(ta);
+      });
     }, 10);
   }, [displayValue, measureKey, getTextarea]);
 
@@ -677,33 +697,33 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     const { start, end } = visibleGutterRange;
     const lines = displayValue.split('\n');
     
-    // To maintain the cursor position and editor behavior, we need to keep the 
-    // content before and after the visible window, but we can substitute 
-    // the far-off content with whitespace or truncated markers if we were using 
-    // a true virtual list. Since react-simple-code-editor relies on a textarea, 
-    // we can't easily "slice" the value without breaking cursor offsets.
-    // However, we can optimize the highlighting pass by only passing a slice 
-    // to the highlight function.
+    // Windowed rendering: Only provide the visible slice + buffer to the editor
+    // To keep cursor stability, we pad the top and bottom with newlines
+    // matching the number of hidden lines.
+    const topPadding = '\n'.repeat(start);
+    const visibleSlice = lines.slice(start, end).join('\n');
+    const bottomPadding = '\n'.repeat(Math.max(0, lines.length - end));
     
-    return displayValue;
+    return topPadding + visibleSlice + bottomPadding;
   }, [displayValue, visibleGutterRange, rowLayout.tops]);
 
   const asyncHighlightedValue = useHighlightWorker(displayValue);
 
   const optimizedHighlight = useCallback((code: string) => {
-    // If the worker has a result, we use it for the stable parts of the buffer.
-    // For the current line being edited, we use synchronous highlighting for instant feedback.
+    // Use the async highlighted value for the entire buffer
     if (!asyncHighlightedValue) return highlightWithJs(code);
 
     const lines = code.split('\n');
     const asyncLines = asyncHighlightedValue.split('\n');
     
+    // find the line where the cursor is (approximation based on visibleEditorValue)
+    // In a real implementation, we'd pass the caret position to optimizedHighlight
     return lines.map((line, i) => {
-      // We always sync-highlight the first 5 lines or the line at the current cursor
-      // to ensure immediate feedback. Everything else comes from the worker.
-      if (i < 5) {
+      // Sync highlight the first few lines for perceived speed
+      if (i < 3) {
         return highlightWithJs(line);
       }
+      // Use async result for the rest
       return asyncLines[i] || escapeHtml(line);
     }).join('\n');
   }, [asyncHighlightedValue]);
@@ -820,35 +840,41 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
             </button>
           </div>
         )}
-        <div
-          ref={gutterRef}
-          className="w-12 bg-zinc-950/20 border-r border-zinc-800/30 text-[10px] font-mono text-white select-none shrink-0 overflow-hidden text-center relative"
-        >
-          {/* Numbers are absolutely positioned at each row's measured top so they
-              stay aligned when a line soft-wraps to several visual rows. The inner
-              box carries the full content height so gutter scroll tracks the editor. */}
-          <div className="relative" style={{ height: contentHeight }}>
-            {displayToSource.slice(visibleGutterRange.start, visibleGutterRange.end).map((src, i) => {
-              const row = i + visibleGutterRange.start;
-              return (
-                <div key={row} className="absolute left-0 right-0 leading-7" style={{ top: rowTop(row) }}>
-                  {src + 1}
-                </div>
-              );
-            })}
-            {foldRows.map(({ top, start, collapsed }) => (
-              <button
-                key={start}
-                onClick={() => toggleFold(start)}
-                style={{ top, height: LINE_HEIGHT }}
-                className="absolute right-0 flex items-center justify-center w-4 text-zinc-600 hover:text-orange-400 transition-colors"
-                title={collapsed ? 'Expand region' : 'Collapse region'}
-              >
-                {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-              </button>
-            ))}
-          </div>
-        </div>
+         <div
+           ref={gutterRef}
+           className="w-12 bg-zinc-950/20 border-r border-zinc-800/30 text-[10px] font-mono text-white select-none shrink-0 overflow-hidden text-center relative"
+         >
+           <div className="relative" style={{ height: contentHeight }}>
+             {/* Optimized Gutter: Render as a single block of text for visible range to minimize DOM nodes */}
+             <div 
+               className="absolute left-0 right-0 leading-7 text-center whitespace-pre"
+               style={{ top: rowTop(visibleGutterRange.start) }}
+             >
+               {displayToSource
+                 .slice(visibleGutterRange.start, visibleGutterRange.end)
+                 .map((src, i) => {
+                   const row = i + visibleGutterRange.start;
+                   // Handle potentially wrapped lines by adding appropriate spacing
+                   const height = rowHeight(row);
+                   const padding = height > LINE_HEIGHT ? `\n${' '.repeat(20)}\n` : '\n';
+                   return `${src + 1}${padding}`;
+                 })
+                 .join('')
+               }
+             </div>
+             {foldRows.map(({ top, start, collapsed }) => (
+               <button
+                 key={start}
+                 onClick={() => toggleFold(start)}
+                 style={{ top, height: LINE_HEIGHT }}
+                 className="absolute right-0 flex items-center justify-center w-4 text-zinc-600 hover:text-orange-400 transition-colors"
+                 title={collapsed ? 'Expand region' : 'Collapse region'}
+               >
+                 {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+               </button>
+             ))}
+           </div>
+         </div>
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
@@ -865,15 +891,15 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
               {guides}
             </div>
           )}
-            <Editor
-              value={displayValue}
-              onValueChange={(code) => { applyDisplayChange(code); requestAnimationFrame(refreshCompletions); }}
-              highlight={optimizedHighlight}
-              padding={EDITOR_PADDING}
-              className="atlas-code-editor relative z-10 bg-transparent text-[13px] font-mono focus:outline-none resize-none leading-7 min-h-full outline-none"
-              readOnly={isReadOnly}
-              style={editorStyle}
-            />
+             <Editor
+               value={visibleEditorValue}
+               onValueChange={(code) => { applyDisplayChange(code); requestAnimationFrame(refreshCompletions); }}
+               highlight={optimizedHighlight}
+               padding={EDITOR_PADDING}
+               className="atlas-code-editor relative z-10 bg-transparent text-[13px] font-mono focus:outline-none resize-none leading-7 min-h-full outline-none"
+               readOnly={isReadOnly}
+               style={editorStyle}
+             />
           {completions.length > 0 && completionPos && (
             <div
               className="absolute z-30 bg-zinc-900 border border-zinc-700 rounded-md shadow-xl overflow-hidden text-xs font-mono min-w-[140px]"

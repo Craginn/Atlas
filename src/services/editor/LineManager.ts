@@ -40,6 +40,7 @@ export class LineManager {
     return this.lines.length;
   }
 
+  // Optimized: updateLine now modifies the array and fullText more efficiently
   updateLine(index: number, newText: string) {
     const line = this.lines[index];
     if (!line) return;
@@ -53,12 +54,10 @@ export class LineManager {
       this.lines[i].start += diff;
     }
 
-    // Update fullText
+    // Efficient fullText update using slice instead of rebuildIndex
     const before = this.fullText.slice(0, line.start);
-    const after = this.fullText.slice(line.start + line.length + (this.lines[index+1] ? 0 : 0)); // simplified
-    // Note: fullText update is expensive, in a real Piece Table we'd avoid this.
-    // For now, we maintain the string for compatibility with the existing Editor.
-    this.rebuildIndex(); 
+    const after = this.fullText.slice(line.start + line.length + 1); // +1 for \n
+    this.fullText = before + newText + (index < this.lines.length - 1 ? '\n' : '') + after;
   }
 
   getFullText(): string {
