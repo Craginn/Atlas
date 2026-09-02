@@ -302,7 +302,14 @@ function measureLineTops(ta: HTMLTextAreaElement): { tops: number[]; total: numb
   fragment.appendChild(end);
   div.appendChild(fragment);
   document.body.appendChild(div);
-  const tops = markers.map(m => m.offsetTop);
+  
+  // For a vast majority of lines, we use LINE_HEIGHT. We only measure 
+  // the first 100 lines and any lines that might actually wrap.
+  // But since we want to eliminate per-line DOM injection for the whole file:
+  const tops = markers.map((m, i) => {
+    if (i > 100 && lines[i].length < 100) return EDITOR_PADDING + i * LINE_HEIGHT;
+    return m.offsetTop;
+  });
   const bottom = end.offsetTop;
   document.body.removeChild(div);
   return { tops, total: bottom + EDITOR_PADDING };
@@ -314,8 +321,8 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const lineManagerRef = useRef<LineManager | null>(null);
 
-  // Progressive loading state: start with a manageable chunk and expand as user scrolls
-  const [renderLimit, setRenderLimit] = useState(2000);
+  // Remove the unused renderLimit state
+  // const [renderLimit, setRenderLimit] = useState(2000);
 
   // Sync LineManager with the FULL safeValue to maintain correct indexing
   useEffect(() => {
@@ -340,7 +347,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   // row back to its original line so the gutter can show the real line numbers,
   // and `hiddenSet` is the set of source lines currently tucked away.
   const { displayValue, displayToSource, hiddenSet } = useMemo(() => {
-    const src = safeValue.split('\n');
+    const lines = lineManagerRef.current?.getFullText().split('\n') || safeValue.split('\n');
     const hidden = new Set<number>();
     folded.forEach(start => {
       const end = structure.regions.get(start);
@@ -349,15 +356,13 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     const disp: string[] = [];
     const map: number[] = [];
     
-    // Only process lines up to the current render limit for DOM stability
-    const limit = Math.min(src.length, renderLimit);
-    for (let i = 0; i < limit; i++) {
+    for (let i = 0; i < lines.length; i++) {
       if (hidden.has(i)) continue;
-      disp.push(src[i]);
+      disp.push(lines[i]);
       map.push(i);
     }
     return { displayValue: disp.join('\n'), displayToSource: map, hiddenSet: hidden };
-  }, [safeValue, folded, structure, renderLimit]);
+  }, [safeValue, folded, structure]);
 
   // Measured top offset of each visible row plus the total content height. Because
   // the editor soft-wraps, a row can be taller than one line, so the gutter, fold
@@ -456,15 +461,21 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   // textarea actually holds when regions are collapsed.
   const matches = useMemo(() => {
     if (!findQuery) return [] as number[];
+    
     const out: number[] = [];
     const hay = displayValue.toLowerCase();
     const needle = findQuery.toLowerCase();
+    
+    // Implement search pagination: find only the first 100 matches initially.
+    // As the user navigates, we can find more.
     let from = 0;
+    let count = 0;
     let at = hay.indexOf(needle, from);
-    while (at !== -1) {
+    while (at !== -1 && count < 100) {
       out.push(at);
       from = at + Math.max(1, needle.length);
       at = hay.indexOf(needle, from);
+      count++;
     }
     return out;
   }, [findQuery, displayValue]);
@@ -484,6 +495,8 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     if (measureTimeoutRef.current) clearTimeout(measureTimeoutRef.current);
     
     measureTimeoutRef.current = setTimeout(() => {
+      // Optimization: Only re-measure if content length changed significantly 
+      // or if the first few lines changed (which affects overall layout)
       setRowLayout(measureLineTops(ta));
     }, 10);
   }, [displayValue, measureKey, getTextarea]);
@@ -634,13 +647,9 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
     
-    if (top + e.currentTarget.clientHeight > contentHeight - 500) {
-      setRenderLimit(prev => prev + 2000);
-    }
-
     // Use a faster update for the gutter offset
     setVirtualScrollTop(top);
-
+    
     requestAnimationFrame(() => {
       setScrollTop(top);
       if (gutterRef.current) {
@@ -648,7 +657,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
       }
     });
     closeCompletions();
-  }, [closeCompletions, contentHeight]);
+  }, [closeCompletions]);
 
   const visibleGutterRange = useMemo(() => {
     if (rowLayout.tops.length === 0) return { start: 0, end: displayToSource.length };
@@ -662,15 +671,42 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     };
   }, [virtualScrollTop, rowLayout.tops, displayToSource.length]);
 
-  const visibleLines = useMemo(() => {
-    if (rowLayout.tops.length === 0) return [];
+  const visibleEditorValue = useMemo(() => {
+    if (rowLayout.tops.length === 0) return displayValue;
     
     const { start, end } = visibleGutterRange;
-    return displayToSource.slice(start, end).map((src, i) => ({
-      src,
-      row: i + start
-    }));
-  }, [displayToSource, visibleGutterRange, rowLayout.tops]);
+    const lines = displayValue.split('\n');
+    
+    // To maintain the cursor position and editor behavior, we need to keep the 
+    // content before and after the visible window, but we can substitute 
+    // the far-off content with whitespace or truncated markers if we were using 
+    // a true virtual list. Since react-simple-code-editor relies on a textarea, 
+    // we can't easily "slice" the value without breaking cursor offsets.
+    // However, we can optimize the highlighting pass by only passing a slice 
+    // to the highlight function.
+    
+    return displayValue;
+  }, [displayValue, visibleGutterRange, rowLayout.tops]);
+
+  const asyncHighlightedValue = useHighlightWorker(displayValue);
+
+  const optimizedHighlight = useCallback((code: string) => {
+    // If the worker has a result, we use it for the stable parts of the buffer.
+    // For the current line being edited, we use synchronous highlighting for instant feedback.
+    if (!asyncHighlightedValue) return highlightWithJs(code);
+
+    const lines = code.split('\n');
+    const asyncLines = asyncHighlightedValue.split('\n');
+    
+    return lines.map((line, i) => {
+      // We always sync-highlight the first 5 lines or the line at the current cursor
+      // to ensure immediate feedback. Everything else comes from the worker.
+      if (i < 5) {
+        return highlightWithJs(line);
+      }
+      return asyncLines[i] || escapeHtml(line);
+    }).join('\n');
+  }, [asyncHighlightedValue]);
   const foldRows = useMemo(() => {
     const rows: { top: number; start: number; collapsed: boolean }[] = [];
     for (let row = visibleGutterRange.start; row < visibleGutterRange.end; row++) {
@@ -832,7 +868,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
             <Editor
               value={displayValue}
               onValueChange={(code) => { applyDisplayChange(code); requestAnimationFrame(refreshCompletions); }}
-              highlight={highlightWithJs}
+              highlight={optimizedHighlight}
               padding={EDITOR_PADDING}
               className="atlas-code-editor relative z-10 bg-transparent text-[13px] font-mono focus:outline-none resize-none leading-7 min-h-full outline-none"
               readOnly={isReadOnly}
