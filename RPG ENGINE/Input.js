@@ -28,6 +28,7 @@ let showcommands = {
   'equipped': displayEquipped,
   'skills': displaySkills,
   'damage': displayDamage,
+  'defenses': displayDefenses,
   'backpack': displayBackpack,
   'help': showhelp,
   'map': showDungeonMap
@@ -69,10 +70,10 @@ function randomint(min, max) {
 
 
 const basecode = (text) => {
-
+  //log(history)
   U_playerTrack();
   UpdatePlayers();
-  updateCompanionCards();   // ---- ALLY SYSTEM ---- keep party/summon cards live
+  updateCompanionCards();
   //playerAction();
 
   //console.log(text)
@@ -360,6 +361,10 @@ const basecode = (text) => {
   if (state.Players && StartMatch && state.engineStart !== true) {
 
     state.engineStart = true
+    equipItem("all");
+    healTarget(100, state.PS.Name);
+
+
 
     text += `A Noble Legion guide approaches and says, "Here is your identification bracelet. Please ensure you never take it off. Follow me to the labyrinths top level safe haven. As you enter through the safe haven entrance, you can hear the bustling sounds of the havens shops, adventurers, and vendors. The guide leads you up the stairs and into the tavern area, before bowing and leaving you.`
 
@@ -385,7 +390,7 @@ const basecode = (text) => {
   const damageplayer = text.toLowerCase().includes('debugg damage player')
   if (damageplayer) {
     const damage = Math.floor(Math.random() * 8) + 3; // 3–10 base damage
-    updateStat("health", -damage)
+    applyDamageToPlayer(damage, 'physical');
     state.logMessages['Output'].push(`Debug command used ${damage} taken health now ${state.PS.health}`)
 
   }
@@ -408,17 +413,11 @@ const basecode = (text) => {
 }
 
 
-
-
 ///// Start of hunger and tired script \\\\\
 const HTscript = (text) => {
 
   return { text };
 }
-
-
-
-
 
 
 /*function normalize(str) {
