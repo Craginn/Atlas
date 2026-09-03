@@ -2088,7 +2088,7 @@ if (state.PS === undefined) {
     vision: 25,
     stealth: 0,
     luck: 0,
-    speed: 10, // Base movement speed (scales 10-30 with level + dexterity)
+    speed: 30, // Base movement speed
     hunger: 350,
     thirst: 400,
     fatigue: 450,
@@ -3238,7 +3238,7 @@ function createPlayerState() {
     vision: 25,
     stealth: 0,
     luck: 0,
-    speed: 10, // Base movement speed (scales 10-30 with level + dexterity)
+    speed: 30, // Base movement speed
     resistances: {
             physical: 0,
             fire: 0,
@@ -7421,7 +7421,7 @@ function createMonster(identifier) {
     // Ranged monsters spawn farther away; melee monsters spawn closer.
     // Higher tier monsters spawn closer to increase threat.
     const isRanged = libEntry.range === "ranged";
-    const baseSpawnDistance = isRanged ? 60 : 40; // Ranged: 60, Melee: 40
+    const baseSpawnDistance = isRanged ? 30 : 10; // Ranged: 30, Melee: 10
     const tierDistanceMod = { mythic: -15, legendary: -10, rare: -5, magic: 0, common: 5 };
     const tierMod = tierDistanceMod[tierData.tier?.toLowerCase()] ?? 0;
     const rarityDistanceMod = { Legendary: -5, Mythic: -3, Rare: 0, Magic: 5, Common: 10 };
