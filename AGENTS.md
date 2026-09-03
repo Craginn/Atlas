@@ -8,16 +8,18 @@ storytelling/world-building IDE for AI Dungeon-style narrative simulations.
 ## How it runs here
 - `docker-compose.base44.yml` — single `web` service on `node:22-bookworm-slim`.
 - Source is bind-mounted at `/app`; `node_modules` lives in a named volume.
-- Dev command: `npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0`
+- Dev command: `npm install && npm run dev -- --host 0.0.0.0`
 - Vite dev server on container port 5173, mapped to host port **3000**.
 - Live reload is active — frontend edits appear in the preview without restart.
 
-## Why --legacy-peer-deps
-`@vitejs/plugin-react-swc@3.11.0` (a devDependency that is NOT used by
-`vite.config.ts` — the config uses `@vitejs/plugin-react` instead) declares a
-peer range of `vite@^4||^5||^6||^7`, but the project pins `vite@^8`. Without
-`--legacy-peer-deps`, `npm install` fails with ERESOLVE. This is safe because
-the SWC plugin is never imported.
+## History: --legacy-peer-deps (no longer needed)
+This project previously required `--legacy-peer-deps` because an unused
+devDependency, `@vitejs/plugin-react-swc@3.11.0`, declares a peer range of
+`vite@^4||^5||^6||^7` while the project pins `vite@^8`. That dependency has
+been removed (`vite.config.ts` uses `@vitejs/plugin-react` instead), so
+plain `npm install` resolves cleanly. Do not re-add `@vitejs/plugin-react-swc`
+at a version older than 4.x; if SWC is ever wanted, `@vitejs/plugin-react-swc@^4`
+declares `vite@^8` support.
 
 ## Vite config change for the preview
 `vite.config.ts` has `server.allowedHosts: true` so the preview's external
