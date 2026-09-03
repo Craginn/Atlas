@@ -119,23 +119,24 @@ All colors MUST be HSL.
   background: hsl(240 3.7% 35%);
 }
 
-.atlas-code-editor textarea,
-.atlas-code-editor pre {
-  /* Soft-wrap long lines instead of scrolling sideways. The gutter, fold arrows and
-     indent guides read measured line heights (see CodeBuffer) so they follow the
-     wrap. `anywhere` lets an unbroken token (e.g. a long URL) break mid-word. */
-  white-space: pre-wrap !important;
-  word-break: normal !important;
-  overflow-wrap: anywhere !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-/* Indent guides are positioned in `ch` units, so they must render at the same
-   font-size as the code (13px here, 16px on touch — see the mobile rule below). */
-.atlas-code-guides {
-  font-size: 13px;
+/* The JS code editor is CodeMirror-based (CodeBuffer). Soft wrap is enabled via
+   EditorView.lineWrapping; here we match the app's slim scrollbars and fonts. */
+.atlas-code-editor .cm-scroller {
   font-family: "Fira Code", "Fira Mono", monospace;
+}
+.atlas-code-editor .cm-scroller::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.atlas-code-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.atlas-code-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: hsl(240 3.7% 25%);
+  border-radius: 3px;
+}
+.atlas-code-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: hsl(240 3.7% 35%);
 }
 
 /* ---------------------------------------------------------------- mobile */
@@ -148,9 +149,7 @@ All colors MUST be HSL.
   input,
   textarea,
   select,
-  .atlas-code-editor textarea,
-  .atlas-code-editor pre,
-  .atlas-code-guides {
+  .atlas-code-editor .cm-content {
     font-size: 16px !important;
   }
 }
