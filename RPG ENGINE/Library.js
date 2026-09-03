@@ -2060,7 +2060,7 @@ if (state.PS === undefined) {
     level: 1,
     experience: 0,
     xpToNextLevel: 100,
-    armor: 10,
+    armor: 5,
     "base damage": 0,
     "spell damage": 0,
     "skill damage": 0,
@@ -2082,12 +2082,13 @@ if (state.PS === undefined) {
     maxHealth: 50,
     mana: 50,
     maxMana: 50,
-    strength: 5,
-    dexterity: 5,
-    intelligence: 5,
+    strength: 1,
+    dexterity: 1,
+    intelligence: 1,
     vision: 25,
     stealth: 0,
-    luck: 5,
+    luck: 0,
+    speed: 10, // Base movement speed (scales 10-30 with level + dexterity)
     hunger: 350,
     thirst: 400,
     fatigue: 450,
@@ -3208,7 +3209,7 @@ function createPlayerState() {
     level: 1,
     experience: 0,
     xpToNextLevel: 100,
-    armor: 10,
+    armor: 5,
     "base damage": 0,
     "spell damage": 0,
     "skill damage": 0,
@@ -3231,13 +3232,14 @@ function createPlayerState() {
     maxHealth: 50,
     mana: 50,
     maxMana: 50,
-    strength: 10,
-    dexterity: 10,
-    intelligence: 10,
+    strength: 1,
+    dexterity: 1,
+    intelligence: 1,
     vision: 25,
     stealth: 0,
-        luck: 5,
-        resistances: {
+    luck: 0,
+    speed: 10, // Base movement speed (scales 10-30 with level + dexterity)
+    resistances: {
             physical: 0,
             fire: 0,
             frost: 0,
@@ -3250,9 +3252,9 @@ function createPlayerState() {
             holy: 0,
             status: 0
         },
-        hunger: 150,
-    thirst: 200,
-    fatigue: 200,
+        hunger: 300,
+    thirst: 450,
+    fatigue: 450,
     status: "None" || [],
     effects: "None" || [],
     playerloc: "safe area",
@@ -7414,11 +7416,23 @@ function createMonster(identifier) {
       Math.round(baseDamageMax * levelMult * rMult),
     );
     monster.baseDamage = monster.damage;
-    // Monsters appear at a distance; melee attacks must close to "melee"
-    // before they connect, while ranged attacks can hit them right away.
-    monster.distance = 50;
-    monster.speed = Math.floor(Math.random() * 11) + 5; // 5-15
-    monster.baseRange = libEntry.range === "ranged" ? 40 : 5;
+    // === DYNAMIC SPAWN DISTANCE ===
+    // Spawn distance is now based on monster type, range, and tier.
+    // Ranged monsters spawn farther away; melee monsters spawn closer.
+    // Higher tier monsters spawn closer to increase threat.
+    const isRanged = libEntry.range === "ranged";
+    const baseSpawnDistance = isRanged ? 60 : 40; // Ranged: 60, Melee: 40
+    const tierDistanceMod = { mythic: -15, legendary: -10, rare: -5, magic: 0, common: 5 };
+    const tierMod = tierDistanceMod[tierData.tier?.toLowerCase()] ?? 0;
+    const rarityDistanceMod = { Legendary: -5, Mythic: -3, Rare: 0, Magic: 5, Common: 10 };
+    const rarityMod = rarityDistanceMod[rarity] ?? 0;
+    monster.distance = Math.max(10, baseSpawnDistance + tierMod + rarityMod);
+    // Speed scales with tier and rarity: higher tiers are faster
+    const baseSpeed = Math.floor(Math.random() * 11) + 5; // 5-15
+    const speedTierMult = { mythic: 1.5, legendary: 1.3, rare: 1.1, magic: 1.0, common: 1.0 };
+    monster.speed = Math.floor(baseSpeed * (speedTierMult[tierData.tier?.toLowerCase()] ?? 1.0));
+    monster.baseRange = isRanged ? 40 : 5;
+    monster.spawnDistance = monster.distance; // Track original spawn distance for MS
     // Push into activeMonsters should not happen here; spawn handles insertion
     console.log(
       `[createMonster]Created:${monster.name}|Class: ${mClass}|Tier: ${tierData.tier}|Rarity:${rarity}|DMG:${monster.damage}-${monster.damageMax}|HP:${monster.maxHealth}|Armor:${monster.enemyDefenses.armor}|Magic Res:${monster.enemyDefenses.magicRes}|Vulnerability:${monster.enemyDefenses.vulnerability}`,
@@ -7628,7 +7642,61 @@ function getAttackRange(attackText, equipped) {
   return "melee";
 }
 
+// === PLAYER MOVEMENT SPEED SCALING ===
+// Speed scales from 10 (base) to 30 (max) based on level and dexterity.
+// Formula: baseSpeed + (level * 0.5) + (dexterity * 0.8) + equipment bonuses
+// Caps at 30 for balance.
+function calculatePlayerSpeed() {
+  if (!state.PS) return 10;
+  
+  const baseSpeed = 10;
+  const levelBonus = (state.PS.level || 1) * 0.5;
+  const dexBonus = (state.PS.dexterity || 5) * 0.8;
+  
+  // Equipment speed bonuses (from boots, enchantments, etc.)
+  let equipmentBonus = 0;
+  if (state.PS.equipped?.boots) {
+    const boots = state.PS.equipped.boots;
+    equipmentBonus += boots.speedBonus || 0;
+  }
+  if (state.PS.equipped?.back) {
+    const back = state.PS.equipped.back;
+    equipmentBonus += back.speedBonus || 0;
+  }
+  
+  // Calculate total speed with cap
+  const totalSpeed = baseSpeed + levelBonus + dexBonus + equipmentBonus;
+  const cappedSpeed = Math.min(30, Math.max(10, Math.round(totalSpeed)));
+  
+  // Cache the result on state.PS for easy access
+  state.PS.speed = cappedSpeed;
+  return cappedSpeed;
+}
+
+// Helper to get current player movement speed (uses cached value or recalculates)
+function getPlayerSpeed() {
+  if (!state.PS) return 10;
+  if (state.PS.speed && state.PS.speed > 0) return state.PS.speed;
+  return calculatePlayerSpeed();
+}
+
+// Helper to get monster movement speed
+function getMonsterSpeed(monster) {
+  if (!monster) return 10;
+  return monster.speed || 10;
+}
+
+// Update player speed after stat changes (level up, equipment change, etc.)
+function updatePlayerSpeed() {
+  if (!state.PS) return;
+  calculatePlayerSpeed();
+}
+
 // Can `range` reach `target` right now? Ranged always can. Melee needs the target
+// === MOVEMENT SPEED SCALING SYSTEM ===
+// Player speed: 10-30 based on level (×0.5) + dexterity (×0.8) + equipment
+// Monster speed: 5-22 based on base roll (5-15) × tier multiplier (1.0-1.5)
+// Distance tracking: numeric values, updated via SpatialManager.updateDistance()
 const SpatialManager = {
   classifyRange(distance) {
     return distance < 30 ? "melee" : "ranged";
@@ -7694,19 +7762,27 @@ function resolveReach(target, range) {
 function playerAttack() {
   if (state.PS.Name !== undefined) {
     const PlayerName = state.PS.Name;
-    const attacking = playerattackWords.some((word) =>
-      text.includes(word.toLowerCase()),
-    );
     state.MS.activeMonsters = state.MS.activeMonsters || [];
-
-    if (!attacking) {
-      console.log("No attack detected in text.");
-      return text;
-    }
 
     if (!state.MS.activeMonsters.length) {
       console.log("No active monsters.");
-      return;
+      return text;
+    }
+
+    // In combat, any non-command input is an attack attempt
+    const attacking = playerattackWords.some((word) =>
+      text.includes(word.toLowerCase()),
+    );
+    const inCombat = state.PS.combatstatus === "In Combat";
+    const isCommand = text.trim().startsWith('/');
+    
+    if (!attacking && !inCombat) {
+      console.log("No attack detected in text and not in combat.");
+      return text;
+    }
+    
+    if (!attacking && isCommand) {
+      return text;
     }
 
     // 1️⃣ Find the target monster OBJECT (not just name)
@@ -7760,12 +7836,15 @@ function playerAttack() {
     // Use numeric distance: if distance > player's baseRange, close the gap.
     const attackRange = getAttackRange(text, state.PS.equipped);
     const playerBaseRange = attackRange === "ranged" ? 40 : 5;
+    const playerSpeed = getPlayerSpeed(); // Get scaled movement speed (10-30)
     
     let targetDefeated = false;
 
     if (target.distance > playerBaseRange) {
-      // Player closes the distance (speed approx 10)
-      SpatialManager.updateDistance(target, -10);
+      // Player closes the distance using their movement speed
+      const oldDistance = target.distance;
+      SpatialManager.updateDistance(target, -playerSpeed);
+      console.log(`Closing distance: ${oldDistance} -> ${target.distance} (speed: ${playerSpeed}, range needed: ${playerBaseRange})`);
       state.logMessages["Output"].push(`[${PlayerName} closes the distance to ${target.name}.]`);
       return text; // Skip damage phase this turn
     } else {
@@ -7853,7 +7932,12 @@ function playerAttack() {
       const attacker =
         state.MS.activeMonsters.find((m) => m.name === target.name) ||
         state.MS.activeMonsters[0];
-      if (attacker) attacker.distance = "melee";
+      // Monster closes to melee range if not already there
+      if (attacker && attacker.distance > 5) {
+        const monsterSpeed = getMonsterSpeed(attacker);
+        SpatialManager.updateDistance(attacker, -monsterSpeed);
+        state.logMessages["Output"].push(`[${attacker.name} closes the distance to you.]`);
+      }
       const damage = Math.floor(Math.random() * 8) + 3;
       let remainingDamage = damage;
 
