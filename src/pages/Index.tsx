@@ -12,7 +12,7 @@ import StoryCardsView from '@/components/atlas/StoryCardsView';
 import TerminalView from '@/components/atlas/TerminalView';
 import BlockCanvas from '@/components/atlas/BlockCanvas';
 import {
-  Github, Code2, ShieldCheck, Cpu, Database, PanelLeft,
+  ExternalLink, Code2, ShieldCheck, Cpu, Database, PanelLeft,
   Activity, Terminal, Book, Settings, FlaskConical, FileText, Layers,
   Menu, X, Blocks
 } from 'lucide-react';
@@ -124,7 +124,7 @@ const ProjectExplorer = ({ view, setView, onOpenSettings, onClose }: {
       </div>
       <div className="p-2 border-t border-zinc-800/50 shrink-0">
         <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center space-x-2 p-2 rounded-md text-xs text-zinc-500 hover:bg-zinc-900/50 hover:text-zinc-300 transition-colors">
-          <Github size={14} />
+          <ExternalLink size={14} />
           <span>View Source</span>
         </a>
       </div>
