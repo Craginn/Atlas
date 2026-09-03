@@ -1423,7 +1423,7 @@ function createCompanion(options) {
     isDead: false,
     status: "following",
     state: "Idle",
-    nearTarget: false,
+    nearTarget: "None",
     // Allies have morale; summons obey unconditionally.
     loyalty: opts.kind === "summon" ? null : 3,
     source: opts.source || (opts.kind === "summon" ? "summoned" : "recruited"),
@@ -2095,7 +2095,7 @@ if (state.PS === undefined) {
     effects: "None" || [],
     status: "None" || [],
     combatstatus: "None",
-    nearTarget: false,
+    nearTarget: "None",
     playerloc: "safe area",
     location: "safe haven",
     combatRange: 0,
@@ -7432,6 +7432,7 @@ function createMonster(identifier) {
     const speedTierMult = { mythic: 1.5, legendary: 1.3, rare: 1.1, magic: 1.0, common: 1.0 };
     monster.speed = Math.floor(baseSpeed * (speedTierMult[tierData.tier?.toLowerCase()] ?? 1.0));
     monster.baseRange = isRanged ? 40 : 5;
+    monster.nearTarget = false;
     monster.spawnDistance = monster.distance; // Track original spawn distance for MS
     // Push into activeMonsters should not happen here; spawn handles insertion
     console.log(
@@ -7844,12 +7845,15 @@ function playerAttack() {
       // Player closes the distance using their movement speed
       const oldDistance = target.distance;
       SpatialManager.updateDistance(target, -playerSpeed);
-      console.log(`Closing distance: ${oldDistance} -> ${target.distance} (speed: ${playerSpeed}, range needed: ${playerBaseRange})`);
+      SpatialManager.updateProximity(state.PS, target);
+      console.log(`Closing distance: ${oldDistance} -> ${target.distance} (speed: ${playerSpeed}, range needed: ${playerBaseRange}, nearTarget: ${state.PS.nearTarget})`);
       state.logMessages["Output"].push(`[${PlayerName} closes the distance to ${target.name}.]`);
       return text; // Skip damage phase this turn
     } else {
       const dmg = getPlayerDamage();
       target.state = "Attacking";
+
+      SpatialManager.updateProximity(state.PS, target);
 
       target.health -= dmg;
       if (target.health < 0) target.health = 0;
