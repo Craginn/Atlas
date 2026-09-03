@@ -7421,7 +7421,7 @@ function createMonster(identifier) {
     // Ranged monsters spawn farther away; melee monsters spawn closer.
     // Higher tier monsters spawn closer to increase threat.
     const isRanged = libEntry.range === "ranged";
-    const baseSpawnDistance = isRanged ? 60 : 40; // Ranged: 60, Melee: 40
+    const baseSpawnDistance = isRanged ? 30 : 10; // Ranged: 60, Melee: 40
     const tierDistanceMod = { mythic: -15, legendary: -10, rare: -5, magic: 0, common: 5 };
     const tierMod = tierDistanceMod[tierData.tier?.toLowerCase()] ?? 0;
     const rarityDistanceMod = { Legendary: -5, Mythic: -3, Rare: 0, Magic: 5, Common: 10 };
