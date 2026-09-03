@@ -96,3 +96,6 @@ Thumbs.db
 
 # CLI workspace (local state, not shared)
 .atlas/
+
+# REST API local data (per-project JSON store)
+data/

@@ -3,7 +3,18 @@
 ## What this is
 A Vite + React 18 + TypeScript single-page app ("AI Atlas") — an interactive
 storytelling/world-building IDE for AI Dungeon-style narrative simulations.
-**Offline-only**: no database, no backend API, no external services, no secrets.
+**Offline-only**: no external services, no secrets.
+
+## Backend (local REST API)
+`server/index.mjs` is a dependency-free Node server: it serves the built app,
+provides the REST API under `/api/` (projects, scripts, world state, story
+cards, knowledge, settings, history, sentinel reports — see `server/api.mjs`
+for the endpoint list), and optionally the interactive terminal. Run it with
+`npm run serve` (needs `npm run build` first); it listens on `PORT` (default
+8080). Data lives in a plain JSON file tree under `ATLAS_DATA_ROOT` (default:
+`./data`, gitignored). API tests: `npx vitest run server/api.test.mjs`.
+The scripting engine itself stays client-side by design — the API stores and
+returns artifacts, it never interprets them.
 
 ## How it runs here
 - `docker-compose.base44.yml` — single `web` service on `node:22-bookworm-slim`.
