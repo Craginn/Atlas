@@ -40,6 +40,44 @@ const explode = (v: any, path: string, type: 'added' | 'removed', _depth: number
     : { path, from: v, to: undefined, type }];
 };
 
+// The documented AID memory limit: 16 MB in bytes.
+export const MEMORY_LIMIT_BYTES = 16 * 1024 * 1024; // 16777216 bytes
+
+// Estimates the memory usage of a JavaScript value by measuring its JSON
+// representation. This is a practical approximation: JSON.stringify captures
+// the serialized size that would be stored/transmitted, which correlates well
+// with actual heap usage for typical state objects. Returns bytes.
+export const estimateMemoryUsage = (value: any): number => {
+  try {
+    const json = JSON.stringify(value);
+    // Each character in the JSON string represents one byte (UTF-8 ASCII),
+    // plus overhead for the JavaScript string representation (~2 bytes/char).
+    // We use a conservative estimate of 2 bytes per character for UTF-16.
+    return json.length * 2;
+  } catch {
+    // Circular reference or other serialization error — return 0 as fallback.
+    return 0;
+  }
+};
+
+// Calculates memory usage percentage relative to the 16MB AID limit.
+// Returns a value between 0 and 100+.
+export const calculateMemoryPercentage = (value: any): number => {
+  const usage = estimateMemoryUsage(value);
+  return (usage / MEMORY_LIMIT_BYTES) * 100;
+};
+
+// Formats memory usage for display (e.g., "2.45 MB", "156 KB").
+export const formatMemoryUsage = (bytes: number): string => {
+  if (bytes >= MEMORY_LIMIT_BYTES) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  } else if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(2)} KB`;
+  } else {
+    return `${bytes} B`;
+  }
+};
+
 // Diffs any two values without knowledge of their shape, emitting dotted paths
 // (`stats.hp`, `party.0.name`). State has no fixed schema — scripts invent keys.
 export const diff = (a: any, b: any, path = '', depth = 0): Delta[] => {
@@ -398,6 +436,11 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
 
   const lineCount = localText.split('\n').length;
 
+  // Calculate current memory usage and percentage of 16MB limit.
+  const memoryUsageBytes = estimateMemoryUsage(worldState);
+  const memoryUsageFormatted = formatMemoryUsage(memoryUsageBytes);
+  const memoryPercentage = calculateMemoryPercentage(worldState).toFixed(2);
+
   // Keep the line-number gutter locked to the editor's vertical scroll. The gutter
   // and the code live in separate scroll boxes, so without this the numbers stay
   // put while the code moves — they must track 1:1.
@@ -413,7 +456,27 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
           <Database size={14} className="text-blue-500" />
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Project State</span>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2" title="Memory usage: JSON serialized size vs 16MB AID limit">
+            <span className="text-[9px] font-mono text-zinc-500 uppercase">Memory:</span>
+            <span className={`text-[9px] font-mono font-black ${
+              parseFloat(memoryPercentage) >= 90 ? 'text-red-400' : 
+              parseFloat(memoryPercentage) >= 70 ? 'text-amber-400' : 
+              'text-emerald-400'
+            }`}>
+              {memoryUsageFormatted} ({memoryPercentage}%)
+            </span>
+            <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden" title="Visual memory gauge">
+              <div 
+                className={`h-full transition-all duration-300 ${
+                  parseFloat(memoryPercentage) >= 90 ? 'bg-red-500' : 
+                  parseFloat(memoryPercentage) >= 70 ? 'bg-amber-500' : 
+                  'bg-emerald-500'
+                }`}
+                style={{ width: `${Math.min(100, parseFloat(memoryPercentage))}%` }}
+              />
+            </div>
+          </div>
           {!isValid && <span className="text-[9px] text-red-400 font-mono">Invalid JSON</span>}
           {uploadError && <span className="text-[9px] text-red-400 font-mono">{uploadError}</span>}
           <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" accept=".json,application/json" />
