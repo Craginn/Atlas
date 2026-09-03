@@ -7767,7 +7767,6 @@ function playerAttack() {
       // Player closes the distance (speed approx 10)
       SpatialManager.updateDistance(target, -10);
       state.logMessages["Output"].push(`[${PlayerName} closes the distance to ${target.name}.]`);
-      state.logMessages["Input"].push(`\n${PlayerName} closes the distance to ${target.name}.`);
       return text; // Skip damage phase this turn
     } else {
       const dmg = getPlayerDamage();
