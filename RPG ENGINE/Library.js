@@ -233,16 +233,18 @@ function healTarget(amount, targetName) {
   }
 }
 
-function applyDamageToPlayer(amount, damageType = 'physical') {
-
+function applyDamageToPlayer(amount, damageType = 'physical', distance = 0) {
   if (!state.PS) return;
+
+  // Proximity scaling: Melee range (dist < 30) = 100%, Ranged/Far = 80%
+  let scaledAmount = distance < 30 ? amount : amount * 0.8;
 
   const effective = calculateEffectiveStats();
   const resType = damageType.toLowerCase();
   const resistPercent = effective.resistances[resType] || 0;
 
   // 1. Resistance (percentage reduction)
-  let damage = amount * (1 - resistPercent / 100);
+  let damage = scaledAmount * (1 - resistPercent / 100);
 
   // 2. Armor (flat reduction for physical only)
   if (resType === 'physical') {
@@ -1413,11 +1415,15 @@ function createCompanion(options) {
     damageMax: Math.max(1, Math.round(template.damageMax * mult)),
     damageType: template.damageType || "physical",
     range: template.range || "melee",
+    baseRange: template.range === "ranged" ? 40 : 5,
+    speed: template.speed || 10,
+    distance: 50,
     armor: Math.max(0, Math.round((template.armor || 0) * mult)),
     magicRes: Math.min(95, Math.max(0, template.magicRes || 0)),
     isDead: false,
     status: "following",
     state: "Idle",
+    nearTarget: false,
     // Allies have morale; summons obey unconditionally.
     loyalty: opts.kind === "summon" ? null : 3,
     source: opts.source || (opts.kind === "summon" ? "summoned" : "recruited"),
@@ -1704,9 +1710,12 @@ function applySummonEffect(ability, PlayerName) {
 
 // ---- Taking damage ---------------------------------------------------------
 // Mirrors applyDamage for the player, minus barrier and the permadeath branch.
-function damageCompanion(c, amount, source) {
+function damageCompanion(c, amount, source, distance = 0) {
   if (!c || c.isDead) return;
-  const dealt = Math.max(0, Math.floor(amount));
+
+  // Proximity scaling: Melee range (dist < 30) = 100%, Ranged/Far = 80%
+  const scaledAmount = distance < 30 ? amount : amount * 0.8;
+  const dealt = Math.max(0, Math.floor(scaledAmount));
   // Companions mitigate with the same armour curve the damage model uses.
   const mitigated = Math.max(
     1,
@@ -1760,6 +1769,10 @@ function companionCombatTick() {
   if (state.PS.playerloc === "safe area" && state.PS.location === "safe haven")
     return;
 
+  // --- Movement Phase ---
+  for (const c of living) processEntityMovement(c);
+  for (const m of monsters) processEntityMovement(m);
+
   // --- Companion attack phase ---
   for (const c of living) {
     if (c.isDead) continue;
@@ -1777,7 +1790,7 @@ function companionCombatTick() {
     if (!target) break;
 
     // Melee companions must be in reach; ranged ones always connect.
-    if (c.range !== "ranged" && !resolveReach(target, "melee").canHit) {
+    if (!SpatialManager.calculateReach(c, target)) {
       c.state = "Approaching";
       state.logMessages["Output"].push(`[${c.name} closes on ${target.name}.]`);
       continue;
@@ -2081,6 +2094,7 @@ if (state.PS === undefined) {
     effects: "None" || [],
     status: "None" || [],
     combatstatus: "None",
+    nearTarget: false,
     playerloc: "safe area",
     location: "safe haven",
     combatRange: 0,
@@ -3724,6 +3738,8 @@ function UpdatePlayers() {
       playerloc,
     );
     effects = CommunityUtils.StoryCards.setSettings(card, "effects", effects);
+    CommunityUtils.StoryCards.setSettings(card, "combatRange", player.combatRange);
+    CommunityUtils.StoryCards.setSettings(card, "nearTarget", player.nearTarget);
   }
 }
 
@@ -3732,12 +3748,21 @@ function U_playerTrack() {
 
   const player = state.PS;
   const CardName = player.Name;
-  //const FindSC = storyCards.findIndex(c => c.title)
-
-  //updateStoryCard(FindSC = CardName)
-
+  
   if (CardName) {
     const card = CommunityUtils.StoryCards.find(CardName);
+    
+    // Sync spatial distance and proximity to Story Card
+    if (state.MS.lastTarget) {
+      const target = state.MS.activeMonsters.find(m => m && m.name === state.MS.lastTarget);
+      if (target) {
+        const distClass = SpatialManager.classifyRange(target.distance);
+        CommunityUtils.StoryCards.setSettings(card, "distanceClass", distClass);
+        SpatialManager.updateProximity(state.PS, target);
+        CommunityUtils.StoryCards.setSettings(card, "nearTarget", state.PS.nearTarget);
+      }
+    }
+
     let locationChanged = false;
     let combatStatusChanged = false;
     let requestedLocation = null;
@@ -7391,7 +7416,9 @@ function createMonster(identifier) {
     monster.baseDamage = monster.damage;
     // Monsters appear at a distance; melee attacks must close to "melee"
     // before they connect, while ranged attacks can hit them right away.
-    monster.distance = "ranged";
+    monster.distance = 50;
+    monster.speed = Math.floor(Math.random() * 11) + 5; // 5-15
+    monster.baseRange = libEntry.range === "ranged" ? 40 : 5;
     // Push into activeMonsters should not happen here; spawn handles insertion
     console.log(
       `[createMonster]Created:${monster.name}|Class: ${mClass}|Tier: ${tierData.tier}|Rarity:${rarity}|DMG:${monster.damage}-${monster.damageMax}|HP:${monster.maxHealth}|Armor:${monster.enemyDefenses.armor}|Magic Res:${monster.enemyDefenses.magicRes}|Vulnerability:${monster.enemyDefenses.vulnerability}`,
@@ -7602,14 +7629,62 @@ function getAttackRange(attackText, equipped) {
 }
 
 // Can `range` reach `target` right now? Ranged always can. Melee needs the target
+const SpatialManager = {
+  classifyRange(distance) {
+    return distance < 30 ? "melee" : "ranged";
+  },
+  calculateReach(attacker, target) {
+    if (!attacker || attacker.distance === undefined) return false;
+    return attacker.distance <= (attacker.baseRange || 5);
+  },
+  updateProximity(attacker, target) {
+    if (!attacker || !target) return;
+    const isNear = SpatialManager.calculateReach(attacker, target);
+    if (attacker === state.PS) {
+      state.PS.nearTarget = isNear;
+    } else if (attacker.nearTarget !== undefined) {
+      attacker.nearTarget = isNear;
+    }
+  },
+  updateDistance(entity, delta) {
+    if (!entity) return;
+    entity.distance = Math.max(0, (entity.distance || 0) + delta);
+  }
+};
+
+function processEntityMovement(entity, targetDistance = 0) {
+  if (!entity) return;
+  if (entity.state === "Approaching") {
+    SpatialManager.updateDistance(entity, -entity.speed);
+    if (entity.distance <= (entity.baseRange || 5)) {
+      entity.state = "Fighting";
+    }
+  }
+  // Synchronize proximity flag after movement
+  const target = (entity === state.PS) ? state.MS?.activeMonsters?.[0] : state.PS;
+  if (target) {
+    SpatialManager.updateProximity(entity, target);
+  }
+}
+
 // in reach; if not, the attacker closes the gap this turn (canHit=false) and is in
 // reach from then on. Returns { canHit, note }.
 function resolveReach(target, range) {
   if (!target) return { canHit: false, note: "" };
   if ((range || "melee").toLowerCase() === "ranged")
     return { canHit: true, note: "" };
-  if (target.distance === "melee") return { canHit: true, note: "" };
-  target.distance = "melee"; // you charge in; the blow lands next turn
+  
+  // New proximity-based check
+  const attacker = (target === state.PS) ? state.MS?.activeMonsters?.[0] : state.PS;
+  const isNear = (attacker && attacker.nearTarget) || (target === state.PS && state.PS.nearTarget);
+
+  if (isNear) return { canHit: true, note: "" };
+
+  // Legacy charge mechanic: close distance for next turn
+  if (target.distance !== "melee") {
+    target.distance = "melee"; 
+  }
+  
   return {
     canHit: false,
     note: `${target.name} is out of melee range — you close the distance, weapon ready.`,
@@ -7682,16 +7757,18 @@ function playerAttack() {
     state.MS.lastTarget = target.name; // Store name, not object
 
     // === RANGE / REACH ===
-    // Ranged attacks reach any monster; a melee swing on a distant monster
-    // closes the gap this turn and lands next turn.
+    // Use numeric distance: if distance > player's baseRange, close the gap.
     const attackRange = getAttackRange(text, state.PS.equipped);
-    const reach = resolveReach(target, attackRange);
+    const playerBaseRange = attackRange === "ranged" ? 40 : 5;
+    
     let targetDefeated = false;
 
-    if (!reach.canHit) {
-      target.state = "Approaching";
-      state.logMessages["Output"].push(`[${reach.note}]`);
-      state.logMessages["Input"].push(`\n${reach.note}`);
+    if (target.distance > playerBaseRange) {
+      // Player closes the distance (speed approx 10)
+      SpatialManager.updateDistance(target, -10);
+      state.logMessages["Output"].push(`[${PlayerName} closes the distance to ${target.name}.]`);
+      state.logMessages["Input"].push(`\n${PlayerName} closes the distance to ${target.name}.`);
+      return text; // Skip damage phase this turn
     } else {
       const dmg = getPlayerDamage();
       target.state = "Attacking";
