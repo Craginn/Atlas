@@ -2119,7 +2119,77 @@ if (state.PS === undefined) {
   };
 }
 
-// Start of PlayerActionPrompt
+// Initialize the multi-tiered container object on a freshly built player
+// state. `main` is aliased to the backing inventory array; specialised
+// containers start empty. `_containersMigrated` is pre-set so the runtime
+// migration skips the partition pass for brand-new characters.
+function initPlayerContainers(player) {
+  if (!player || typeof player !== "object") return;
+  if (!Array.isArray(player.inventory)) player.inventory = [];
+  player.containers = {
+    main: player.inventory,
+    materials: [],
+    skillStones: [],
+    artifacts: [],
+  };
+  player.containerCapacity = {
+    main: player.inventoryMaxSize ?? 30,
+    materials: Infinity,
+    skillStones: Infinity,
+    artifacts: Infinity,
+  };
+  player._containersMigrated = true;
+}
+
+// One-shot migration: ensure multi-tiered inventory containers exist for
+// pre-existing player state and partition any items that now belong in a
+// specialised container out of `state.PS.inventory`. The `_containersMigrated`
+// flag makes the migration idempotent — re-running never re-shuffles items.
+(function migrateInventoryToContainers() {
+  if (!state.PS) return;
+  if (!Array.isArray(state.PS.inventory)) state.PS.inventory = [];
+  if (
+    !state.PS.containers ||
+    typeof state.PS.containers !== "object" ||
+    Array.isArray(state.PS.containers)
+  ) {
+    state.PS.containers = {
+      main: state.PS.inventory,
+      materials: [],
+      skillStones: [],
+      artifacts: [],
+    };
+  } else {
+    // Always keep `containers.main` aliased to the backing array.
+    state.PS.containers.main = state.PS.inventory;
+    for (const k of ITEM_CONTAINER_KEYS) {
+      if (!Array.isArray(state.PS.containers[k])) state.PS.containers[k] = [];
+    }
+  }
+  if (
+    !state.PS.containerCapacity ||
+    typeof state.PS.containerCapacity !== "object"
+  ) {
+    state.PS.containerCapacity = {
+      main: state.PS.inventoryMaxSize ?? 30,
+      materials: Infinity,
+      skillStones: Infinity,
+      artifacts: Infinity,
+    };
+  }
+  if (state.PS._containersMigrated) return;
+  const inv = state.PS.inventory;
+  // Iterate backwards so splice doesn't shift unvisited indices.
+  for (let i = inv.length - 1; i >= 0; i--) {
+    const key = classifyItemToContainer(inv[i]);
+    if (key === "main") continue;
+    const [moved] = inv.splice(i, 1);
+    state.PS.containers[key].push(moved);
+  }
+  state.PS._containersMigrated = true;
+})();
+
+// Start of PlayerActionPrompt</oldString>
 
 const actiondefault = "None";
 
@@ -3356,6 +3426,7 @@ function createCharacter() {
   if (rpgCreationGate().allowed !== true) return false;
   if (state.Players === undefined) state.Players = {};
   state.tempCharacter = createPlayerState();
+  initPlayerContainers(state.tempCharacter);
   state.requesting = null;
   state.creationStep = 0;
   return true;
@@ -3742,6 +3813,12 @@ function UpdatePlayers() {
     effects = CommunityUtils.StoryCards.setSettings(card, "effects", effects);
     CommunityUtils.StoryCards.setSettings(card, "combatRange", player.combatRange);
     CommunityUtils.StoryCards.setSettings(card, "nearTarget", player.nearTarget);
+    const materialsLine = formatUnstackedInventoryList(containerItems("materials")) || "None";
+    CommunityUtils.StoryCards.setSettings(card, "materials", materialsLine);
+    const skillStonesLine = formatUnstackedInventoryList(containerItems("skillStones")) || "None";
+    CommunityUtils.StoryCards.setSettings(card, "skillStones", skillStonesLine);
+    const artifactsLine = formatUnstackedInventoryList(containerItems("artifacts")) || "None";
+    CommunityUtils.StoryCards.setSettings(card, "artifacts", artifactsLine);
   }
 }
 
@@ -3882,6 +3959,12 @@ function U_playerTrack() {
         playerloc,
       );
       effects = CommunityUtils.StoryCards.setSettings(card, "effects", effects);
+      const materialsLine = formatUnstackedInventoryList(containerItems("materials")) || "None";
+      CommunityUtils.StoryCards.setSettings(card, "materials", materialsLine);
+      const skillStonesLine = formatUnstackedInventoryList(containerItems("skillStones")) || "None";
+      CommunityUtils.StoryCards.setSettings(card, "skillStones", skillStonesLine);
+      const artifactsLine = formatUnstackedInventoryList(containerItems("artifacts")) || "None";
+      CommunityUtils.StoryCards.setSettings(card, "artifacts", artifactsLine);
     }
   }
 }
@@ -8746,6 +8829,79 @@ function isMaterialItem(item) {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+//  MULTI-TIERED INVENTORY CONTAINERS
+// ---------------------------------------------------------------------------
+// `state.PS.inventory` stays the backing array for the "main" container so
+// every existing read/write site still works. `state.PS.containers.main` is
+// a reference alias (set during migration), so containerArray("main") and
+// state.PS.inventory are the same array. Other containers are independent
+// arrays filled on demand by the classifier and addItem.
+const ITEM_CONTAINER_KEYS = ["main", "materials", "skillStones", "artifacts"];
+
+function classifyItemToContainer(item) {
+  if (item == null || typeof item === "string") return "main";
+  // Materials: existing rule (type/subtype + MATERIAL_NAME_ALLOWLIST).
+  if (isMaterialItem(item)) return "materials";
+  // Skill Stones: forward-compatible rule. Today no item shape exists, but
+  // the moment a spellstone drops as loot it routes here automatically.
+  if (item.type === "skillStone") return "skillStones";
+  if (item.subtype === "skill_stone") return "skillStones";
+  if (typeof item.name === "string" && /\bspellstone\b/i.test(item.name))
+    return "skillStones";
+  // Artifacts: new taxonomy.
+  if (item.type === "artifact") return "artifacts";
+  if (item.subtype === "artifact") return "artifacts";
+  return "main";
+}
+
+function containerArray(key) {
+  if (!state.PS) return [];
+  if (key === "main") {
+    if (!Array.isArray(state.PS.inventory)) state.PS.inventory = [];
+    return state.PS.inventory;
+  }
+  if (!state.PS.containers || !Array.isArray(state.PS.containers[key])) {
+    if (!state.PS.containers || typeof state.PS.containers !== "object") {
+      state.PS.containers = {};
+    }
+    state.PS.containers[key] = [];
+  }
+  return state.PS.containers[key];
+}
+
+function containerItems(key) {
+  const arr = containerArray(key);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function findItemAcrossContainers(predicate) {
+  for (const k of ITEM_CONTAINER_KEYS) {
+    const arr = containerItems(k);
+    const idx = arr.findIndex(predicate);
+    if (idx !== -1) return { key: k, index: idx, item: arr[idx] };
+  }
+  return null;
+}
+
+function removeItemFromContainer(key, index) {
+  const arr = containerArray(key);
+  if (!Array.isArray(arr)) return null;
+  return arr.splice(index, 1)[0] ?? null;
+}
+
+// Count items matching `predicate` across every container. Used by crafting
+// to verify the player has enough of an ingredient regardless of which
+// container it currently lives in.
+function countItemAcrossContainers(predicate) {
+  let total = 0;
+  for (const k of ITEM_CONTAINER_KEYS) {
+    const arr = containerItems(k);
+    for (const it of arr) if (predicate(it)) total++;
+  }
+  return total;
+}
+
 function itemStackGroupKey(item) {
   if (typeof item === "string") return "str|" + item;
   const nm = (item.name || "item").toLowerCase();
@@ -8846,17 +9002,41 @@ function grantMonsterCore(monster) {
   if (core) addItem(core);
 }
 
-// Function to add item to inventory
-function addItem(item) {
-  Player = state.PS.Name;
-  // Guard the arrays: a monster killed before inventory/logs were initialised
-  // used to throw here (Cannot read properties of undefined), and AID swallows
-  // the exception — so the kill silently half-completed. Never let loot crash a kill.
+// Function to add item to the player's inventory. Routes the item to the
+// correct container via classifyItemToContainer (or the explicit `opts.container`
+// override) so a material never lands on Main and gear never lands in
+// Materials. The Main container is aliased to state.PS.inventory, so pushes
+// to "main" still mutate the backing array every other site already touches.
+function addItem(item, opts = {}) {
+  if (!state.PS) return;
   if (!Array.isArray(state.PS.inventory)) state.PS.inventory = [];
+  if (
+    !state.PS.containers ||
+    typeof state.PS.containers !== "object" ||
+    Array.isArray(state.PS.containers)
+  ) {
+    state.PS.containers = {
+      main: state.PS.inventory,
+      materials: [],
+      skillStones: [],
+      artifacts: [],
+    };
+  }
+  for (const k of ITEM_CONTAINER_KEYS) {
+    if (!Array.isArray(state.PS.containers[k])) state.PS.containers[k] = [];
+  }
   if (!state.logMessages["Output"]) state.logMessages["Output"] = [];
-  state.PS.inventory.push(item);
+
+  const targetKey = opts.container || classifyItemToContainer(item);
+  const arr = targetKey === "main"
+    ? state.PS.inventory
+    : state.PS.containers[targetKey];
+  arr.push(item);
+
+  const Player = state.PS.Name || "You";
+  const label = targetKey === "main" ? "backpack" : targetKey;
   state.logMessages["Output"].push(
-    `🎒${Player} backpack gained a ${item.name}`,
+    `🎒 ${Player} ${label} gained a ${item.name}`,
   );
 }
 
@@ -9479,19 +9659,89 @@ function displaySkills() {
 }
 
 function displayBackpack() {
-  let message = `----------------------------------\n`;
+  // Legacy wrapper preserved for any external callers. The bare "show backpack"
+  // command now opens the container menu (which auto-shows Main). This
+  // function returns the menu so old direct callers still see something
+  // sensible.
+  return displayBackpackMenu();
+}
 
-  if (state.PS !== undefined) {
-    //const { backpackLine, materialsLine } = formatInventorySections(inv); original
-    const inv = state.PS.inventory || [];
-    const maxSlots = state.PS.inventoryMaxSize;
-    const { backpackLine } = formatInventorySections(inv);
-    message += `🎒 Inventory Size:${maxSlots} \nBackpack: ${backpackLine} \n`;
-    //message += `🧱 Materials: ${ materialsLine } \n`;
+const BACKPACK_SUBKEYS = ["main", "materials", "skillStones", "artifacts"];
 
-    message += `----------------------------------\n`;
-    return message;
+function containerHeader(key) {
+  switch (key) {
+    case "main":        return "🎒 Main Inventory";
+    case "materials":   return "🧱 Materials";
+    case "skillStones": return "💎 Skill Stones";
+    case "artifacts":   return "🏺 Artifacts";
+    default:            return key;
   }
+}
+
+function displayBackpackContainer(key) {
+  if (!state.PS) return "";
+  if (!BACKPACK_SUBKEYS.includes(key)) return "";
+  const items = containerItems(key);
+  const cap = state.PS.containerCapacity ? state.PS.containerCapacity[key] : undefined;
+  const count = items.length;
+  const capStr = cap === Infinity || cap == null ? `${count}` : `${count}/${cap}`;
+  const stacked = formatStackedInventoryList(items) || "None";
+  const unstacked = formatUnstackedInventoryList(items) || "None";
+  // Specialised containers (materials/skillStones/artifacts) read cleaner as
+  // an unstacked list — each monster_core / spellstone / artifact is its own
+  // entry with descriptive metadata. Main keeps the stacked gear format so
+  // the "x3" grouping still applies.
+  const body =
+    key === "main" ? stacked : unstacked;
+  return (
+    `----------------------------------\n` +
+    `${containerHeader(key)} (${capStr})\n` +
+    `${body}\n` +
+    `----------------------------------\n`
+  );
+}
+
+function displayBackpackAll() {
+  if (!state.PS) return "";
+  let out = `----------------------------------\n`;
+  for (const k of BACKPACK_SUBKEYS) {
+    // Reuse displayBackpackContainer's body but strip its top/bottom rules so
+    // the "all" view reads as one continuous panel.
+    const section = displayBackpackContainer(k);
+    const lines = section.split("\n");
+    out += lines.slice(1, -2).join("\n") + "\n";
+  }
+  return out + `----------------------------------\n`;
+}
+
+function displayBackpackMenu() {
+  // Hybrid UX: the bare "show backpack" prints the menu AND auto-opens Main
+  // on the same turn so the player doesn't need a second command to see
+  // their gear.
+  if (!state.PS) return "";
+  const inv = state.PS.inventory || [];
+  const maxSlots = state.PS.inventoryMaxSize ?? 30;
+  const matCount = containerItems("materials").length;
+  const ssCount  = containerItems("skillStones").length;
+  const artCount = containerItems("artifacts").length;
+  const mainSection = displayBackpackContainer("main");
+  const mainBody = mainSection.split("\n").slice(1).join("\n");
+  return (
+    `----------------------------------\n` +
+    `🎒 Backpack (${inv.length}/${maxSlots})\n` +
+    `Choose a container:\n` +
+    `  1) 🎒 Main Inventory\n` +
+    `  2) 🧱 Materials (${matCount})\n` +
+    `  3) 💎 Skill Stones (${ssCount})\n` +
+    `  4) 🏺 Artifacts (${artCount})\n` +
+    `  5) 📦 Show All\n` +
+    `\nOpening Main Inventory now. Type "show backpack <key>" to switch.\n` +
+    mainBody
+  );
+}
+
+function handleBackpackCommand() {
+  return displayBackpackMenu();
 }
 
 // Helper for natural regeneration (small health/mana regen over turns)
