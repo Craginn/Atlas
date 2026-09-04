@@ -7,7 +7,7 @@ services:
     working_dir: /app
     # Install deps (cached on the bind-mounted node_modules volume), then start
     # the Vite dev server with live reload.
-    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0"
+    command: sh -c "npm install --legacy-peer-deps && npm install @jridgewell/set-array --legacy-peer-deps && npm run dev -- --host 0.0.0.0"
     volumes:
       # Bind-mount the cloned source so edits are reflected live.
       - ./:/app

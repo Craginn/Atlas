@@ -19,9 +19,16 @@ returns artifacts, it never interprets them.
 ## How it runs here
 - `docker-compose.base44.yml` — single `web` service on `node:22-bookworm-slim`.
 - Source is bind-mounted at `/app`; `node_modules` lives in a named volume.
-- Dev command: `npm install && npm run dev -- --host 0.0.0.0`
+- Dev command: `npm install --legacy-peer-deps && npm install @jridgewell/set-array --legacy-peer-deps && npm run dev -- --host 0.0.0.0`
 - Vite dev server on container port 5173, mapped to host port **3000**.
 - Live reload is active — frontend edits appear in the preview without restart.
+
+## Missing transitive dep: @jridgewell/set-array
+npm (with `--legacy-peer-deps`) fails to hoist `@jridgewell/set-array`, a
+transitive dependency of `@jridgewell/gen-mapping` (used by `sucrase` →
+`tailwindcss`). Without it, PostCSS/Tailwind can't load and the app's CSS
+breaks. The compose command runs an explicit `npm install @jridgewell/set-array`
+after the main install to fix this.
 
 ## History: --legacy-peer-deps (no longer needed)
 This project previously required `--legacy-peer-deps` because an unused
