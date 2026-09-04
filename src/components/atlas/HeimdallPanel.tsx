@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Activity, Terminal, AlertTriangle, Bot, MessageSquare, ArrowRightToLine } from 'lucide-react';
+import { Activity, Terminal, AlertTriangle, Bot, MessageSquare, ArrowRightToLine, ChevronDown, ChevronRight } from 'lucide-react';
 import { SimulationResult, SentinelReport, LogType, LogEntry } from '@/types';
 import { RobustLogViewer } from './RobustLogViewer';
 import ExecutionTrace, { TraceEntry } from './ExecutionTrace';
@@ -49,6 +49,10 @@ const ChannelBox = ({ icon: Icon, label, tone, value, sub, empty }: {
 
 const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing, report }) => {
   const [activeTab, setActiveTab] = useState('logs');
+  // Code suggestions are opt-in: a fresh failure always starts them collapsed,
+  // so nothing code-level appears in the error area automatically.
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  useEffect(() => { setShowSuggestions(false); }, [lastResult?.executionError]);
 
   // Surface the failure automatically: on an execution error, jump to Code Logs
   // where the red [ERROR] line lives.
@@ -180,6 +184,28 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
           <span className="text-red-200">"{lastResult.executionError.line}"</span>
           {': '}
           <span className="text-red-200">"{lastResult.executionError.message}"</span>
+        </div>
+      )}
+
+      {hasExecutionError && lastResult?.executionError?.details && (
+        <div className="flex-shrink-0 px-3 py-1.5 bg-red-950/20 border-b border-red-500/30">
+          <button
+            onClick={() => setShowSuggestions(s => !s)}
+            className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:text-red-200"
+          >
+            {showSuggestions ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            Code Suggestions
+          </button>
+          {showSuggestions && (
+            <div className="mt-1.5 rounded-md border border-red-500/25 bg-black/40 overflow-hidden">
+              <div className="px-2 py-1 text-[9px] font-black uppercase tracking-widest text-red-400/80 border-b border-red-500/25">
+                Code Suggestions
+              </div>
+              <pre className="px-2 py-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-snug text-red-200/90">
+                {lastResult.executionError.details}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 

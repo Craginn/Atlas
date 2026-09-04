@@ -80,19 +80,31 @@ export const runOfflineSimulation = async (
   // return is passed through as-is; callers normalize via normalizeModifierResult.
   result: { text?: string; stop?: boolean } | string | null;
   // Present only when execution threw. The caller uses this to halt the
-  // pipeline (the engine stops) and paint the error surface red.
-  error?: { hook: string; line: string; message: string } | null;
+  // pipeline (the engine stops) and paint the error surface red. `details`
+  // carries the code-level follow-up (the failing source line, or the
+  // validator's full suggestion list) — never shown automatically.
+  error?: { hook: string; line: string; message: string; details?: string } | null;
 }> => {
   // Validate syntax before execution
   const validation = validateScriptSyntax(code, isModifierScript);
   if (!validation.valid && validation.errors.length > 0) {
-    const errorMessage = formatValidationResults(validation);
-    const first = validation.errors[0];
+    // Track where the error actually is: V8's parse error ("Unexpected token")
+    // carries no line, so its SYNTAX_ERROR entry pins every failure to line 1.
+    // The structural scanners (brackets/strings) position their findings for
+    // real, so prefer the first of those when one exists.
+    const first = validation.errors.find(e => e.type !== 'SYNTAX_ERROR') ?? validation.errors[0];
     return {
       newState: worldState,
-      logs: [errorMessage],
+      // One curated line in the trace; the full suggestion list rides on the
+      // error as details, shown only via the Code Suggestions button.
+      logs: [`[ERROR] ${hookName}, line ${first.line}: ${first.message}`],
       result: null,
-      error: { hook: hookName, line: String(first?.line ?? 'unknown'), message: first?.message ?? 'Validation failed' },
+      error: {
+        hook: hookName,
+        line: String(first.line ?? 'unknown'),
+        message: first.message ?? 'Validation failed',
+        details: formatValidationResults(validation),
+      },
     };
   }
 
@@ -194,9 +206,9 @@ export const runOfflineSimulation = async (
         // it. Only the sourceURL-tagged userscript frame is trusted: the wrapper
         // adds exactly one line and the Library preamble adds lineOffset more,
         // so the reported line matches the hook's own source as the editor shows
-        // it. The failing line is quoted; the raw stack and the world state stay
-        // out — a bare hook, line, and message a user (or an LLM reading the
-        // log) can act on without noise.
+        // it. The failing source line rides on the error as details, shown only
+        // behind the Code Suggestions button; the raw stack and the world state
+        // stay out — the log itself stays a bare hook, line, and message.
         const message = err.message || String(err);
         let lineNumber = 'unknown';
         let sourceLine = '';
@@ -209,10 +221,7 @@ export const runOfflineSimulation = async (
           }
         }
         logs.push('[ERROR] ' + hookName + (lineNumber !== 'unknown' ? ', line ' + lineNumber : '') + ': ' + message);
-        if (sourceLine) {
-          logs.push('[ERROR] ' + lineNumber + ' | ' + sourceLine);
-        }
-        self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message } });
+        self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message, details: sourceLine ? lineNumber + ' | ' + sourceLine : undefined } });
       }
     };
   `;

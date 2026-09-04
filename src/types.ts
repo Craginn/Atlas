@@ -155,8 +155,10 @@ export interface SimulationResult {
   executedCode?: { [scriptName: string]: string };
   stateTrace?: ScriptStateTrace[];
   // Set when a hook threw at runtime. The pipeline halts (the engine stops) and
-  // the UI paints the log/output surface red.
-  executionError?: { hook: string; line: string; message: string } | null;
+  // the UI paints the log/output surface red. `details` carries the code-level
+  // follow-up (the failing source line, or the validator's full suggestion
+  // list) — shown only behind the Code Suggestions button, never automatically.
+  executionError?: { hook: string; line: string; message: string; details?: string } | null;
   // Errors a script reported via console.error but caught/swallowed itself, so the
   // hook never threw. These don't halt the pipeline, but a silently-swallowed crash
   // is exactly what hides real bugs — so they're surfaced as a warning.
