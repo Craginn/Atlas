@@ -156,18 +156,14 @@ export async function runBlocks(
   // it must not be held to the `modifier(text)` contract the Director enforces.
   const run = await runOfflineSimulation(
     buildPreamble(knowledgeBase) + code, seeded, input, false, 'Block Canvas',
+    undefined, code,
   );
 
   const logs = (run.logs ?? [])
     .map(l => (typeof l === 'string' ? l : JSON.stringify(l)))
     .filter(l => !DIRECTOR_ONLY.some(p => l.startsWith(p)));
 
-  // The preamble sits above the user's code, so a raw line number would point
-  // one line further down than the block they actually wrote.
   let line = run.error?.line ?? 'unknown';
-  if (run.error && /^\d+$/.test(line)) {
-    line = String(Math.max(1, Number(line) - PREAMBLE_LINES));
-  }
 
   const after = (run.newState?.storyCards ?? []) as AidCard[];
 

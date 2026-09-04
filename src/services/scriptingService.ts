@@ -392,7 +392,7 @@ const simulateStep = async (
   // don't run against a half-applied state, and flags the run as failed for the UI.
   let executionError: { hook: string; line: string; message: string } | null = null;
   // Errors scripts reported via console.error but caught themselves (no throw).
-  const scriptErrors: { hook: string; message: string }[] = [];
+  const scriptErrors: { hook: string; scriptId: string; line: string; message: string }[] = [];
   let aiCall: AiCallTrace | undefined;
   let aiCallDone = false;
   // state.message is a player-facing toast, tracked separately from the AI Call
@@ -493,7 +493,7 @@ const simulateStep = async (
         // The Library's lines shift every reported error line; pass the count so the
         // runner maps error lines back onto the hook's own script — what the editor shows.
         const libraryLineCount = hasLibrary ? libraryCode.split('\n').length : 0;
-        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, libraryLineCount);
+        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, script.code);
         // Make the "Library ran first" step visible in the trace/Code Logs.
         if (hasLibrary && Array.isArray(scriptLogs)) {
           scriptLogs.unshift(`[DEBUG] Library concatenated and executed before the ${script.name} hook.`);
@@ -506,7 +506,23 @@ const simulateStep = async (
         if (Array.isArray(scriptLogs)) {
           for (const entry of scriptLogs) {
             if (typeof entry === 'string' && entry.startsWith('ERROR:')) {
-              scriptErrors.push({ hook: script.name, message: entry.slice('ERROR:'.length).trim() });
+              const trimmed = entry.slice('ERROR:'.length).trim();
+              const errMatch = trimmed.match(/^(.+?),\s*line\s*(\S+?)\s*:\s*(.+)$/);
+              if (errMatch) {
+                scriptErrors.push({
+                  hook: errMatch[1],
+                  scriptId: script.id,
+                  line: errMatch[2],
+                  message: errMatch[3],
+                });
+              } else {
+                scriptErrors.push({
+                  hook: script.name,
+                  scriptId: script.id,
+                  line: 'unknown',
+                  message: trimmed,
+                });
+              }
             }
           }
         }

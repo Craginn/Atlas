@@ -24,13 +24,15 @@ interface AILogicEditorProps {
   setScripts: (scripts: Script[]) => void;
   activeScriptId: string;
   setActiveScriptId: (id: string) => void;
+  runtimeErrorsByScriptId?: Record<string, { line: number; message: string }[]>;
 }
 
 const AILogicEditor: React.FC<AILogicEditorProps> = ({
   scripts,
   setScripts,
   activeScriptId,
-  setActiveScriptId
+  setActiveScriptId,
+  runtimeErrorsByScriptId = {}
 }) => {
   const handleCodeChange = (scriptId: string, newCode: string) => {
     setScripts(scripts.map(s => (s.id === scriptId ? { ...s, code: newCode } : s)));
@@ -83,6 +85,8 @@ const AILogicEditor: React.FC<AILogicEditorProps> = ({
     });
     return set;
   }, [scripts]);
+
+  const runtimeErrorIds = useMemo(() => new Set(Object.keys(runtimeErrorsByScriptId)), [runtimeErrorsByScriptId]);
 
   return (
     <div className="flex h-full bg-[#1e1e1e] text-zinc-300">
@@ -138,6 +142,9 @@ const AILogicEditor: React.FC<AILogicEditorProps> = ({
                 {errorIds.has(script.id) && contentMatches === 0 && (
                   <span className="ml-auto h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
                 )}
+                {runtimeErrorIds.has(script.id) && !errorIds.has(script.id) && (
+                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                )}
               </button>
             ))
           )}
@@ -171,6 +178,7 @@ const AILogicEditor: React.FC<AILogicEditorProps> = ({
                 color="text-green-400"
                 isActive={true}
                 findRequest={findRequest}
+                runtimeErrors={runtimeErrorsByScriptId[activeScript?.id] ?? []}
               />
             </div>
           </>

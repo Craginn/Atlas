@@ -90,6 +90,8 @@ const atlasEditorTheme = EditorView.theme({
   '.cm-foldGutter span': { color: 'rgba(255,255,255,0.35)', fontSize: '11px', cursor: 'pointer' },
   '.cm-foldGutter span:hover': { color: '#fb923c' },
   '.cm-selectionMatch': { backgroundColor: 'rgba(103,232,249,0.18)' },
+  '.cm-runtime-error-line': { backgroundColor: 'rgba(220, 38, 38, 0.15)' },
+  '.cm-gutter-error-dot': { color: '#ef4444', fontSize: '10px', lineHeight: '1', paddingTop: '4px' },
 }, { dark: true });
 
 // One bundle: editor chrome + syntax colors. Applied via the CodeMirror

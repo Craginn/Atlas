@@ -100,6 +100,7 @@ export interface ScriptStateTrace {
   before: WorldState;
   after: WorldState;
   stateChanged: boolean;
+  logs?: string[];
 }
 
 // The simulated AI call that sits between the Context and Output hooks. No text is
@@ -162,7 +163,7 @@ export interface SimulationResult {
   // Errors a script reported via console.error but caught/swallowed itself, so the
   // hook never threw. These don't halt the pipeline, but a silently-swallowed crash
   // is exactly what hides real bugs — so they're surfaced as a warning.
-  scriptErrors?: { hook: string; message: string }[];
+  scriptErrors?: { hook: string; scriptId: string; line: string; message: string }[];
   // Ids of Story Cards a script created or modified this turn. The Knowledge Base
   // merge uses these to reflect script updates to existing cards (e.g. a settings
   // write via updateStoryCard) without reverting cards the user hand-edited.

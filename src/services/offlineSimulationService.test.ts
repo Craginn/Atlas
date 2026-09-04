@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { validateScriptSyntax, AID_GLOBALS } from './offlineSimulationService';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { validateScriptSyntax, AID_GLOBALS, runOfflineSimulation } from './offlineSimulationService';
 
 describe('validateScriptSyntax — AID API alignment', () => {
   it('accepts a script using only documented AID globals + helpers', () => {
@@ -69,5 +69,64 @@ describe('validateScriptSyntax — AID API alignment', () => {
     const res = validateScriptSyntax(code, true);
     const undocumented = [...res.errors, ...res.warnings].filter(f => f.type === 'UNDOCUMENTED_API');
     expect(undocumented).toHaveLength(0);
+  });
+});
+
+describe('runOfflineSimulation — _ln instrumentation', () => {
+  let capturedCode = '';
+
+  beforeEach(() => {
+    capturedCode = '';
+
+    const OriginalBlob = globalThis.Blob;
+    (globalThis as any).Blob = class extends OriginalBlob {
+      constructor(parts: any[], options?: any) {
+        super(parts, options);
+        if (Array.isArray(parts) && parts[0] && typeof parts[0] === 'string') {
+          capturedCode = parts[0];
+        }
+      }
+    };
+
+    (globalThis as any).URL.createObjectURL = () => 'blob:test';
+    (globalThis as any).URL.revokeObjectURL = () => {};
+
+    (globalThis as any).Worker = class MockWorker {
+      onmessage: ((e: any) => void) | null = null;
+      onerror: ((e: any) => void) | null = null;
+      terminate = vi.fn();
+      _workerSelf: any = null;
+      constructor() {}
+      postMessage(data: any) {
+        const self = this;
+        if (!self._workerSelf) {
+          const workerSelf = {
+            onmessage: null as ((e: any) => void) | null,
+            postMessage: (msg: any) => {
+              if (self.onmessage) {
+                self.onmessage({ data: msg });
+              }
+            },
+          };
+          const fn = new Function('self', capturedCode);
+          fn(workerSelf);
+          self._workerSelf = workerSelf;
+        }
+        if (self._workerSelf.onmessage) {
+          self._workerSelf.onmessage({ data });
+        }
+      }
+    };
+  });
+
+  it('reports the correct hook-relative line number without stack-trace parsing', async () => {
+    const code = `const modifier = (t) => {
+      return { text: t };
+    }; modifier(text);
+    throw new Error('intentional');
+    console.log('never reached');`;
+
+    const result = await runOfflineSimulation(code, {}, '', true, 'Input Modifier', [], code);
+    expect(result.error?.line).toBe('4');
   });
 });

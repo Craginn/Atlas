@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { WorldState, Script, StoryCard, SentinelReport, SimulationMode, KnowledgeBase, LastSimData, HistoryEntry } from '@/types';
 import { INITIAL_WORLD_STATE, DEFAULT_SCRIPTS } from '@/constants';
 import AILogicEditor from '@/components/atlas/AILogicEditor';
@@ -419,7 +419,9 @@ const Index: React.FC = () => {
         message: result.executionError
           ? `${result.executionError.hook} failed at line ${result.executionError.line}: ${result.executionError.message}`
           : result.scriptErrors?.length
-          ? `${result.scriptErrors.length} script error(s) logged but caught (see Code Logs): ${result.scriptErrors[0].hook} — ${result.scriptErrors[0].message}`
+          ? `${result.scriptErrors.length} caught error(s): ${result.scriptErrors
+              .map(e => `${e.hook} line ${e.line} — ${e.message}`)
+              .join('; ')}`
           : `Simulation finished with ${triggered.length} scripts triggered.`,
       }));
 
@@ -521,6 +523,26 @@ const Index: React.FC = () => {
     setIsAnalyzing(false);
   }, [scripts]);
 
+  const runtimeErrorsByScriptId = useMemo(() => {
+    const map: Record<string, { line: number; message: string }[]> = {};
+    (lastSimData as LastSimData | undefined)?.stateTrace?.forEach(entry => {
+      if (entry.logs) {
+        entry.logs.forEach((log: string) => {
+          const m = log.match(/^\[ERROR\]\s*(.+?)(?:,\s*line\s*(\d+))?:\s*(.+)$/);
+          if (m) {
+            const [, hook, line, message] = m;
+            const script = scripts.find(s => s.name === hook);
+            if (script) {
+              if (!map[script.id]) map[script.id] = [];
+              map[script.id].push({ line: line ? Number(line) : 0, message });
+            }
+          }
+        });
+      }
+    });
+    return map;
+  }, [lastSimData, scripts]);
+
   const renderView = () => {
     switch (view) {
       case 'simulation':
@@ -537,7 +559,7 @@ const Index: React.FC = () => {
       case 'state':
         return <StateEditor worldState={worldState} setWorldState={handleSetWorldState} previousWorldState={previousWorldState} stateTrace={lastSimData?.stateTrace} hasError={!!lastSimData?.executionError} history={history} />;
       case 'logic':
-        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} />;
+        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} runtimeErrorsByScriptId={runtimeErrorsByScriptId} />;
       case 'blocks':
         // Same `scripts` state as the JS Code Editor — the canvas parses that
         // code into blocks and writes generated code back, so the two views are

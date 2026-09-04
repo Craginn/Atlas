@@ -69,10 +69,11 @@ export const runOfflineSimulation = async (
   // state object made every turn's text accumulate in the thing scripts persist.
   // Read-only here — AID gives scripts no way to write it, so nothing comes back.
   history: HistoryEntry[] = [],
-  // Lines the caller prepended to `code` ahead of the hook's own script (the
-  // Library, a preamble). Error lines are mapped back past this offset so they
-  // match the script the editor shows.
-  lineOffset = 0,
+  // The hook's own script (without library/preamble). Passed separately so the
+  // worker can instrument only the user's lines with _ln, keeping reported error
+  // lines aligned with the editor view. When omitted the full `code` is treated
+  // as the hook code.
+  hookCode?: string,
 ): Promise<{
   newState: WorldState;
   logs: unknown[];
@@ -110,7 +111,7 @@ export const runOfflineSimulation = async (
 
   const workerCode = `
     self.onmessage = function(e) {
-      const { code, worldState, input, isModifierScript, hookName, history: turnHistory, lineOffset = 0 } = e.data;
+      const { code, hookCode, worldState, input, isModifierScript, hookName, history: turnHistory } = e.data;
       // Tell the host the script is about to run, so its watchdog can time the
       // script rather than the worker's startup (see the timeout below).
       self.postMessage({ status: 'started' });
@@ -131,6 +132,7 @@ export const runOfflineSimulation = async (
           logs.push(['ERROR:', ...formatted].join(' '));
         }
       };
+      var _ln = 0, _caught = null;
       try {
         const text = input;
         const state = worldState;
@@ -165,12 +167,18 @@ export const runOfflineSimulation = async (
         // sandbox shipped a hardcoded guess at the context heading literals, which
         // is exactly the thing the assembled context must be free to define.
 
-        let execCode = code;
+        let execCode = hookCode || code;
         if (isModifierScript) {
             execCode = code.replace(/modifier\\s*\\(\\s*text\\s*\\)\\s*;?\\s*$/, 'return modifier(text);');
         }
 
-        const wrappedCode = '(function(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry) {\\n' + execCode + '\\n})\\n//# sourceURL=userscript.js\\n';
+        const instrumented = execCode
+          .split('\\n')
+          .map((line, i) => '  _ln = ' + (i + 1) + ';\\n' + line)
+          .join('\\n');
+
+        const libraryPart = hookCode ? code.slice(0, -hookCode.length) : '';
+        const wrappedCode = '(function(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry) {\\n' + libraryPart + '\\n' + instrumented + '\\n})\\n//# sourceURL=userscript.js\\n';
         const fn = eval(wrappedCode);
         const result = fn(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry);
 
@@ -202,24 +210,11 @@ export const runOfflineSimulation = async (
         
         self.postMessage({ status: 'success', newState: worldState, logs, result });
       } catch (err) {
-        // Curate the failure for the script that threw, not the eval that wrapped
-        // it. Only the sourceURL-tagged userscript frame is trusted: the wrapper
-        // adds exactly one line and the Library preamble adds lineOffset more,
-        // so the reported line matches the hook's own source as the editor shows
-        // it. The failing source line rides on the error as details, shown only
-        // behind the Code Suggestions button; the raw stack and the world state
-        // stay out — the log itself stays a bare hook, line, and message.
+        _caught = err;
         const message = err.message || String(err);
-        let lineNumber = 'unknown';
-        let sourceLine = '';
-        if (err.stack) {
-          const m = err.stack.match(/userscript\\.js:(\\d+)/);
-          if (m) {
-            const rawLine = Math.max(1, Number(m[1]) - 1);           // line within the executed code
-            lineNumber = String(Math.max(1, rawLine - lineOffset));  // line within the hook's own script
-            sourceLine = (code.split('\\n')[rawLine - 1] || '').trim();
-          }
-        }
+        const lineNumber = _ln > 0 ? String(_ln) : 'unknown';
+        const sourceLine = _ln > 0 ? ((hookCode || '').split(String.fromCharCode(10))[_ln - 1] || '').trim() : '';
+        
         logs.push('[ERROR] ' + hookName + (lineNumber !== 'unknown' ? ', line ' + lineNumber : '') + ': ' + message);
         self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message, details: sourceLine ? lineNumber + ' | ' + sourceLine : undefined } });
       }
@@ -300,7 +295,7 @@ export const runOfflineSimulation = async (
     // Hand scripts AID's exact `{ text, type, rawText }` — `turn` is an Atlas-only
     // annotation for the State Editor and must not appear on the `history` global.
     const aidHistory = history.map(({ text, type, rawText }) => ({ text, type, rawText }));
-    worker.postMessage({ code, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory, lineOffset });
+    worker.postMessage({ code, hookCode, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory });
   });
 };
 
