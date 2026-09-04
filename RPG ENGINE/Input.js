@@ -101,19 +101,19 @@ const basecode = (text) => {
       if (result?.error) {
         state.overwrite = true;
         state.output = result.message;
-        return { text };
+        returntext;
       }
 
       if (result?.message) {
         state.overwrite = true;
         state.output = result.message;
-        return { text };
+        returntext;
       }
 
       if (result?.complete) {
         state.overwrite = true;
         state.output = result.message;
-        return { text };
+        return  text ;
       }
     }
 
