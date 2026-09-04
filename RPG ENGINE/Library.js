@@ -1431,7 +1431,7 @@ function createCompanion(options) {
     isDead: false,
     status: "following",
     state: "Idle",
-    nearTarget: false,
+    nearTarget: "None",
     // Allies have morale; summons obey unconditionally.
     loyalty: opts.kind === "summon" ? null : 3,
     source: opts.source || (opts.kind === "summon" ? "summoned" : "recruited"),
@@ -2103,7 +2103,7 @@ if (state.PS === undefined) {
     effects: "None" || [],
     status: "None" || [],
     combatstatus: "None",
-    nearTarget: false,
+    nearTarget: "None",
     playerloc: "safe area",
     location: "safe haven",
     combatRange: 0,
@@ -7671,14 +7671,8 @@ function createMonster(identifier) {
     // Ranged monsters spawn farther away; melee monsters spawn closer.
     // Higher tier monsters spawn closer to increase threat.
     const isRanged = libEntry.range === "ranged";
-    const baseSpawnDistance = isRanged ? 30 : 10; // Ranged: 30, Melee: 10
-    const tierDistanceMod = {
-      mythic: -15,
-      legendary: -10,
-      rare: -5,
-      magic: 0,
-      common: 5,
-    };
+    const baseSpawnDistance = isRanged ? 30 : 10; // Ranged: 60, Melee: 40
+    const tierDistanceMod = { mythic: -15, legendary: -10, rare: -5, magic: 0, common: 5 };
     const tierMod = tierDistanceMod[tierData.tier?.toLowerCase()] ?? 0;
     const rarityDistanceMod = {
       Legendary: -5,
@@ -7702,6 +7696,7 @@ function createMonster(identifier) {
       baseSpeed * (speedTierMult[tierData.tier?.toLowerCase()] ?? 1.0),
     );
     monster.baseRange = isRanged ? 40 : 5;
+    monster.nearTarget = false;
     monster.spawnDistance = monster.distance; // Track original spawn distance for MS
     // Push into activeMonsters should not happen here; spawn handles insertion
     console.log(
@@ -8117,16 +8112,15 @@ function playerAttack() {
       // Player closes the distance using their movement speed
       const oldDistance = target.distance;
       SpatialManager.updateDistance(target, -playerSpeed);
-      console.log(
-        `Closing distance: ${oldDistance} -> ${target.distance} (speed: ${playerSpeed}, range needed: ${playerBaseRange})`,
-      );
-      state.logMessages["Output"].push(
-        `[${PlayerName} closes the distance to ${target.name}.]`,
-      );
+      SpatialManager.updateProximity(state.PS, target);
+      console.log(`Closing distance: ${oldDistance} -> ${target.distance} (speed: ${playerSpeed}, range needed: ${playerBaseRange}, nearTarget: ${state.PS.nearTarget})`);
+      state.logMessages["Output"].push(`[${PlayerName} closes the distance to ${target.name}.]`);
       return text; // Skip damage phase this turn
     } else {
       const dmg = getPlayerDamage();
       target.state = "Attacking";
+
+      SpatialManager.updateProximity(state.PS, target);
 
       target.health -= dmg;
       if (target.health < 0) target.health = 0;
