@@ -846,7 +846,7 @@ const Playercommands = (text) => {
   Authornote();
   return { text }
 }
-
+}
 
 
 // Removed all individual 'pick up' conditions like 'pick up shiny sword' as they are now handled by the generalized command.
