@@ -3968,20 +3968,6 @@ function UpdatePlayers() {
       "combatRange",
       player.combatRange,
     );
-    CommunityUtils.StoryCards.setSettings(
-      card,
-      "nearTarget",
-      player.nearTarget,
-    );
-    const materialsLine =
-      formatUnstackedInventoryList(containerItems("materials")) || "None";
-    CommunityUtils.StoryCards.setSettings(card, "materials", materialsLine);
-    const skillStonesLine =
-      formatUnstackedInventoryList(containerItems("skillStones")) || "None";
-    CommunityUtils.StoryCards.setSettings(card, "skillStones", skillStonesLine);
-    const artifactsLine =
-      formatUnstackedInventoryList(containerItems("artifacts")) || "None";
-    CommunityUtils.StoryCards.setSettings(card, "artifacts", artifactsLine);
   }
 }
 
