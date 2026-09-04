@@ -51,7 +51,7 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
   const [activeTab, setActiveTab] = useState('logs');
 
   // Surface the failure automatically: on an execution error, jump to Code Logs
-  // where the red [DEBUG] EXECUTION ERROR line lives.
+  // where the red [ERROR] line lives.
   useEffect(() => {
     if (lastResult?.executionError || (lastResult?.scriptErrors?.length ?? 0) > 0) setActiveTab('trace');
   }, [lastResult?.executionError, lastResult?.scriptErrors]);

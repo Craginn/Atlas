@@ -90,7 +90,6 @@ function diffStoryCards(before: AidCard[], after: AidCard[]): StoryCardChanges |
 const DIRECTOR_ONLY = [
   '[DEBUG] Modified Text:',
   '[DEBUG] stop flag:',
-  '[DEBUG] WorldState at error:',
 ];
 
 export interface BlockRunResult {

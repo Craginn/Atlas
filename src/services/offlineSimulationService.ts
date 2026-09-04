@@ -62,13 +62,17 @@ export const runOfflineSimulation = async (
   input: string,
   isModifierScript: boolean,
   // The AID hook this code runs as ("Input Modifier", "Output Modifier", …).
-  // Surfaced in the [DEBUG] EXECUTION ERROR line so failures name their hook.
+  // Surfaced in the [ERROR] log line so failures name their hook.
   hookName = 'Unknown Hook',
   // AID's `history` global. Passed separately rather than read off worldState:
   // in AID it is engine-owned and NOT part of `state`, so folding it into the
   // state object made every turn's text accumulate in the thing scripts persist.
   // Read-only here — AID gives scripts no way to write it, so nothing comes back.
   history: HistoryEntry[] = [],
+  // Lines the caller prepended to `code` ahead of the hook's own script (the
+  // Library, a preamble). Error lines are mapped back past this offset so they
+  // match the script the editor shows.
+  lineOffset = 0,
 ): Promise<{
   newState: WorldState;
   logs: unknown[];
@@ -94,7 +98,7 @@ export const runOfflineSimulation = async (
 
   const workerCode = `
     self.onmessage = function(e) {
-      const { code, worldState, input, isModifierScript, hookName, history: turnHistory } = e.data;
+      const { code, worldState, input, isModifierScript, hookName, history: turnHistory, lineOffset = 0 } = e.data;
       // Tell the host the script is about to run, so its watchdog can time the
       // script rather than the worker's startup (see the timeout below).
       self.postMessage({ status: 'started' });
@@ -186,33 +190,29 @@ export const runOfflineSimulation = async (
         
         self.postMessage({ status: 'success', newState: worldState, logs, result });
       } catch (err) {
+        // Curate the failure for the script that threw, not the eval that wrapped
+        // it. Only the sourceURL-tagged userscript frame is trusted: the wrapper
+        // adds exactly one line and the Library preamble adds lineOffset more,
+        // so the reported line matches the hook's own source as the editor shows
+        // it. The failing line is quoted; the raw stack and the world state stay
+        // out — a bare hook, line, and message a user (or an LLM reading the
+        // log) can act on without noise.
+        const message = err.message || String(err);
         let lineNumber = 'unknown';
-        let message = err.message || String(err);
-        let stack = '';
+        let sourceLine = '';
         if (err.stack) {
-          const stackLines = err.stack.split('\\n');
-          for (const sl of stackLines) {
-            const m = sl.match(/userscript\\.js:(\\d+)/);
-            if (m) {
-              lineNumber = String(Math.max(1, Number(m[1]) - 1));
-              break;
-            }
+          const m = err.stack.match(/userscript\\.js:(\\d+)/);
+          if (m) {
+            const rawLine = Math.max(1, Number(m[1]) - 1);           // line within the executed code
+            lineNumber = String(Math.max(1, rawLine - lineOffset));  // line within the hook's own script
+            sourceLine = (code.split('\\n')[rawLine - 1] || '').trim();
           }
-          if (lineNumber === 'unknown') {
-            for (const sl of stackLines) {
-              const m = sl.match(/Function:(\\d+)/) || sl.match(/<anonymous>:(\\d+)/);
-              if (m) {
-                lineNumber = String(Math.max(1, Number(m[1]) - 2));
-                break;
-              }
-            }
-          }
-          stack = err.stack;
         }
-        logs.push('[DEBUG] EXECUTION ERROR Hook: "' + hookName + '" at line: "' + lineNumber + '": "' + message + '".');
-        logs.push('[DEBUG] Stack: ' + stack);
-        logs.push('[DEBUG] WorldState at error:\\n' + JSON.stringify(worldState, null, 2));
-        self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: String(lineNumber), message: message } });
+        logs.push('[ERROR] ' + hookName + (lineNumber !== 'unknown' ? ', line ' + lineNumber : '') + ': ' + message);
+        if (sourceLine) {
+          logs.push('[ERROR] ' + lineNumber + ' | ' + sourceLine);
+        }
+        self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message } });
       }
     };
   `;
@@ -243,7 +243,7 @@ export const runOfflineSimulation = async (
       worker.terminate();
       resolve({
         newState: worldState,
-        logs: [`[DEBUG] EXECUTION ERROR Hook: "${hookName}" at line: "unknown": "${message}".`],
+        logs: [`[ERROR] ${hookName}: ${message}`],
         result: null,
         error: { hook: hookName, line: 'unknown', message },
       });
@@ -280,7 +280,7 @@ export const runOfflineSimulation = async (
       clearTimeout(timeout);
       resolve({
         newState: worldState,
-        logs: [`[DEBUG] EXECUTION ERROR Hook: "${hookName}" at line: "unknown": "${e.message}".`],
+        logs: [`[ERROR] ${hookName}: ${e.message}`],
         result: null,
         error: { hook: hookName, line: 'unknown', message: e.message },
       });
@@ -291,7 +291,7 @@ export const runOfflineSimulation = async (
     // Hand scripts AID's exact `{ text, type, rawText }` — `turn` is an Atlas-only
     // annotation for the State Editor and must not appear on the `history` global.
     const aidHistory = history.map(({ text, type, rawText }) => ({ text, type, rawText }));
-    worker.postMessage({ code, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory });
+    worker.postMessage({ code, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory, lineOffset });
   });
 };
 

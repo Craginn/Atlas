@@ -24,7 +24,7 @@ vi.mock('./offlineSimulationService', () => ({
         ws.storyCards || [], ws.memory || {}, false, console2.log, noop, noop, noop);
       return { newState: ws, logs, result, error: null };
     } catch (err) {
-      logs.push(`[DEBUG] EXECUTION ERROR Hook: "${hookName}": "${(err as Error).message}".`);
+      logs.push(`[ERROR] ${hookName}: ${(err as Error).message}`);
       return { newState: worldState, logs, result: null, error: { hook: hookName, line: 'unknown', message: (err as Error).message } };
     }
   },
