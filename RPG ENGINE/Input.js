@@ -242,53 +242,41 @@ const basecode = (text) => {
     // === Main processing (single unified phase – simpler & more efficient) ===
     const spawnedThisTurn = new Set();
 
-    // === 3. SPAWN COOLDOWN - Initialize and decrement ===
-    state.spawnCooldownTurns ??= 0;
-    if (state.spawnCooldownTurns > 0) {
-      state.spawnCooldownTurns--;
-    }
-
-    // === Wrap spawn loop with cooldown check ===
-    // Declared (not implicit globals) so this runs under strict mode too.
     let player = state.PS.Name
     let playerloc = state.PS.playerloc
-    if (playerloc !== "safe haven") {
-      if (state.spawnCooldownTurns === 0) {
-        for (const match of normText.matchAll(spawnRegex)) {
-          const qtyStr = match[1];
-          const mod1 = match[2]?.toLowerCase();
-          const mod2 = match[3]?.toLowerCase();
-          const rawMonster = match[4];
+    let safehaven = state.PS.location === "safe haven" || playerloc === "safe area"
+    if (!safehaven) {
+      for (const match of normText.matchAll(spawnRegex)) {
+        const qtyStr = match[1];
+        const mod1 = match[2]?.toLowerCase();
+        const mod2 = match[3]?.toLowerCase();
+        const rawMonster = match[4];
 
-          const monsterName = monsterLookup.get(rawMonster);
-          if (!monsterName || spawnedThisTurn.has(monsterName)) continue;
+        const monsterName = monsterLookup.get(rawMonster);
+        if (!monsterName || spawnedThisTurn.has(monsterName)) continue;
 
-          // Determine quantity (number/word → count, default 1)
-          let count = parseQuantity(qtyStr);
-          count = Math.max(1, Math.min(count, 20));
+        // Determine quantity (number/word → count, default 1)
+        let count = parseQuantity(qtyStr);
+        count = Math.max(1, Math.min(count, 20));
 
-          // Apply modifiers functionally
-          const modState = applyModifiers([mod1, mod2].filter(Boolean));
-          const modifiersObj = modState.desc ? {
-            hpMult: modState.hpMult,
-            dmgMult: modState.dmgMult,
-            desc: modState.desc.trim()
-          } : {};
+        // Apply modifiers functionally
+        const modState = applyModifiers([mod1, mod2].filter(Boolean));
+        const modifiersObj = modState.desc ? {
+          hpMult: modState.hpMult,
+          dmgMult: modState.dmgMult,
+          desc: modState.desc.trim()
+        } : {};
 
-          // Spawn
-          spawn(monsterName, count, modifiersObj);
-          console.log(`SPAWNED: ${count}x ${monsterName} ${modState.desc ? `(${modState.desc})` : ""}`);
+        // Spawn
+        spawn(monsterName, count, modifiersObj);
+        console.log(`SPAWNED: ${count}x ${monsterName} ${modState.desc ? `(${modState.desc})` : ""}`);
 
-          spawnedThisTurn.add(monsterName);
+        spawnedThisTurn.add(monsterName);
 
-          // Tag all forms of this monster in the original text
-          const forms = getTagForms(monsterName);
-          const tagRegex = new RegExp(`\\b(${forms.join("|")})\\b`, "gi");
-          text = text.replace(tagRegex, "[$1]");
-
-          // === 3. SPAWN COOLDOWN - Set cooldown after successful spawn ===
-          state.spawnCooldownTurns = 3; // 3 turns cooldown
-        }
+        // Tag all forms of this monster in the original text
+        const forms = getTagForms(monsterName);
+        const tagRegex = new RegExp(`\\b(${forms.join("|")})\\b`, "gi");
+        text = text.replace(tagRegex, "[$1]");
       }
     }
 
