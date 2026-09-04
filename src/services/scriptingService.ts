@@ -490,7 +490,10 @@ const simulateStep = async (
         // when there's no library so we don't shift reported error line numbers.
         const hasLibrary = libraryCode.trim().length > 0;
         const codeToExecute = hasLibrary ? libraryCode + '\n' + script.code : script.code;
-        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory);
+        // The Library's lines shift every reported error line; pass the count so the
+        // runner maps error lines back onto the hook's own script — what the editor shows.
+        const libraryLineCount = hasLibrary ? libraryCode.split('\n').length : 0;
+        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, libraryLineCount);
         // Make the "Library ran first" step visible in the trace/Code Logs.
         if (hasLibrary && Array.isArray(scriptLogs)) {
           scriptLogs.unshift(`[DEBUG] Library concatenated and executed before the ${script.name} hook.`);

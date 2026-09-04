@@ -9,6 +9,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createApi } from './api.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '..', 'dist');
@@ -76,14 +77,17 @@ function serveStatic(req, res) {
   fs.createReadStream(filePath).pipe(res);
 }
 
+// The REST API (projects, scripts, world state, story cards, history,
+// sentinel reports, settings) handles every /api/* path except the terminal's
+// /api/shell-socket below. Storage is a plain JSON file tree under ATLAS_DATA_ROOT
+// (default: ./data next to the repo).
+const api = createApi();
+
 const server = http.createServer((req, res) => {
   const url = req.url || '/';
 
-  // Whether the interactive terminal is reachable here. The client reads only
-  // this flag; the path is kept as /api/key-status so dev and prod answer alike.
-  if (url.split('?')[0] === '/api/key-status') {
-    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(JSON.stringify({ shell: Boolean(process.env.ATLAS_SHELL_TOKEN) }));
+  if (url.split('?')[0].startsWith('/api/')) {
+    void api.handle(req, res);
     return;
   }
 

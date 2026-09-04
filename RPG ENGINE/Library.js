@@ -222,18 +222,20 @@ function healTarget(amount, targetName) {
   // 2. Apply Heal
   const healValue = Math.max(0, Math.round(amount));
   const oldHealth = target.health;
-  
+
   // Ensure we don't exceed maxHealth
   target.health = Math.min(target.maxHealth, target.health + healValue);
-  
+
   const actualHealed = target.health - oldHealth;
-  
+
   if (actualHealed > 0) {
-    state.logMessages["Output"].push(`✨ ${target.name || target.Name} was healed for ${actualHealed} HP! ❤️ ${target.health}/${target.maxHealth}`);
+    state.logMessages["Output"].push(
+      `✨ ${target.name || target.Name} was healed for ${actualHealed} HP! ❤️ ${target.health}/${target.maxHealth}`,
+    );
   }
 }
 
-function applyDamageToPlayer(amount, damageType = 'physical', distance = 0) {
+function applyDamageToPlayer(amount, damageType = "physical", distance = 0) {
   if (!state.PS) return;
 
   // Proximity scaling: Melee range (dist < 30) = 100%, Ranged/Far = 80%
@@ -247,7 +249,7 @@ function applyDamageToPlayer(amount, damageType = 'physical', distance = 0) {
   let damage = scaledAmount * (1 - resistPercent / 100);
 
   // 2. Armor (flat reduction for physical only)
-  if (resType === 'physical') {
+  if (resType === "physical") {
     damage -= effective.armor;
   }
 
@@ -255,7 +257,9 @@ function applyDamageToPlayer(amount, damageType = 'physical', distance = 0) {
   damage = Math.max(0, Math.round(damage));
 
   if (damage <= 0) {
-    state.logMessages["Output"].push(`🛡️ ${state.PS.Name} completely blocked the ${damageType} attack!`);
+    state.logMessages["Output"].push(
+      `🛡️ ${state.PS.Name} completely blocked the ${damageType} attack!`,
+    );
     return;
   }
 
@@ -264,12 +268,16 @@ function applyDamageToPlayer(amount, damageType = 'physical', distance = 0) {
     const absorbed = Math.min(state.PS.barrier, damage);
     state.PS.barrier -= absorbed;
     damage -= absorbed;
-    state.logMessages["Output"].push(`🛡️ Barrier absorbed ${absorbed} damage! (Remaining: ${state.PS.barrier})`);
+    state.logMessages["Output"].push(
+      `🛡️ Barrier absorbed ${absorbed} damage! (Remaining: ${state.PS.barrier})`,
+    );
   }
 
   // 5. Health update
   state.PS.health -= damage;
-  state.logMessages["Output"].push(`💥 ${state.PS.Name} takes ${damage} ${damageType} damage! ❤️ ${state.PS.health}/${effective.maxHealth}`);
+  state.logMessages["Output"].push(
+    `💥 ${state.PS.Name} takes ${damage} ${damageType} damage! ❤️ ${state.PS.health}/${effective.maxHealth}`,
+  );
 
   // 6. Death check
   if (state.PS.health <= 0) {
@@ -2088,7 +2096,7 @@ if (state.PS === undefined) {
     vision: 25,
     stealth: 0,
     luck: 0,
-    speed: 10, // Base movement speed (scales 10-30 with level + dexterity)
+    speed: 30, // Base movement speed
     hunger: 350,
     thirst: 400,
     fatigue: 450,
@@ -2119,7 +2127,79 @@ if (state.PS === undefined) {
   };
 }
 
-// Start of PlayerActionPrompt
+const ITEM_CONTAINER_KEYS = ["main", "materials", "skillStones", "artifacts"];
+
+// Initialize the multi-tiered container object on a freshly built player
+// state. `main` is aliased to the backing inventory array; specialised
+// containers start empty. `_containersMigrated` is pre-set so the runtime
+// migration skips the partition pass for brand-new characters.
+function initPlayerContainers(player) {
+  if (!player || typeof player !== "object") return;
+  if (!Array.isArray(player.inventory)) player.inventory = [];
+  player.containers = {
+    main: player.inventory,
+    materials: [],
+    skillStones: [],
+    artifacts: [],
+  };
+  player.containerCapacity = {
+    main: player.inventoryMaxSize ?? 30,
+    materials: Infinity,
+    skillStones: Infinity,
+    artifacts: Infinity,
+  };
+  player._containersMigrated = true;
+}
+
+// One-shot migration: ensure multi-tiered inventory containers exist for
+// pre-existing player state and partition any items that now belong in a
+// specialised container out of `state.PS.inventory`. The `_containersMigrated`
+// flag makes the migration idempotent — re-running never re-shuffles items.
+(function migrateInventoryToContainers() {
+  if (!state.PS) return;
+  if (!Array.isArray(state.PS.inventory)) state.PS.inventory = [];
+  if (
+    !state.PS.containers ||
+    typeof state.PS.containers !== "object" ||
+    Array.isArray(state.PS.containers)
+  ) {
+    state.PS.containers = {
+      main: state.PS.inventory,
+      materials: [],
+      skillStones: [],
+      artifacts: [],
+    };
+  } else {
+    // Always keep `containers.main` aliased to the backing array.
+    state.PS.containers.main = state.PS.inventory;
+    for (const k of ITEM_CONTAINER_KEYS) {
+      if (!Array.isArray(state.PS.containers[k])) state.PS.containers[k] = [];
+    }
+  }
+  if (
+    !state.PS.containerCapacity ||
+    typeof state.PS.containerCapacity !== "object"
+  ) {
+    state.PS.containerCapacity = {
+      main: state.PS.inventoryMaxSize ?? 30,
+      materials: Infinity,
+      skillStones: Infinity,
+      artifacts: Infinity,
+    };
+  }
+  if (state.PS._containersMigrated) return;
+  const inv = state.PS.inventory;
+  // Iterate backwards so splice doesn't shift unvisited indices.
+  for (let i = inv.length - 1; i >= 0; i--) {
+    const key = classifyItemToContainer(inv[i]);
+    if (key === "main") continue;
+    const [moved] = inv.splice(i, 1);
+    state.PS.containers[key].push(moved);
+  }
+  state.PS._containersMigrated = true;
+})();
+
+// Start of PlayerActionPrompt</oldString>
 
 const actiondefault = "None";
 
@@ -3238,21 +3318,21 @@ function createPlayerState() {
     vision: 25,
     stealth: 0,
     luck: 0,
-    speed: 10, // Base movement speed (scales 10-30 with level + dexterity)
+    speed: 30, // Base movement speed
     resistances: {
-            physical: 0,
-            fire: 0,
-            frost: 0,
-            lightning: 0,
-            nature: 0,
-            bleed: 0,
-            poison: 0,
-            chaos: 0,
-            void: 0,
-            holy: 0,
-            status: 0
-        },
-        hunger: 300,
+      physical: 0,
+      fire: 0,
+      frost: 0,
+      lightning: 0,
+      nature: 0,
+      bleed: 0,
+      poison: 0,
+      chaos: 0,
+      void: 0,
+      holy: 0,
+      status: 0,
+    },
+    hunger: 300,
     thirst: 450,
     fatigue: 450,
     status: "None" || [],
@@ -3356,6 +3436,7 @@ function createCharacter() {
   if (rpgCreationGate().allowed !== true) return false;
   if (state.Players === undefined) state.Players = {};
   state.tempCharacter = createPlayerState();
+  initPlayerContainers(state.tempCharacter);
   state.requesting = null;
   state.creationStep = 0;
   return true;
@@ -3419,11 +3500,15 @@ function validateCharacterInput(key, response) {
     .trim();
 
   // Filter out common AI preamble or system instructions that might leak into the name
-  if (value.toLowerCase().includes("world essentials") || value.toLowerCase().includes("/newplayer")) {
+  if (
+    value.toLowerCase().includes("world essentials") ||
+    value.toLowerCase().includes("/newplayer")
+  ) {
     return {
       valid: false,
       value: null,
-      error: "That doesn't look like a valid name. Please enter your character's name.",
+      error:
+        "That doesn't look like a valid name. Please enter your character's name.",
     };
   }
 
@@ -3436,7 +3521,6 @@ function validateCharacterInput(key, response) {
     error: value ? null : "Please provide a value.",
   };
 }
-
 
 function processCharacterInput(input) {
   if (!state.tempCharacter)
@@ -3653,6 +3737,8 @@ function Gametrack() {
     return;
   }
 
+  advanceTime();
+
   const livingMonsters = state.MS.activeMonsters
     .filter((m) => m && typeof m === "object" && m.health > 0)
     .slice(0, maxMonsters);
@@ -3675,8 +3761,6 @@ function Gametrack() {
     displayString = "- Monsters cant spawn";
   }
 
-  displayString = displayString.slice(0, maxStringLength);
-
   // ---- ALLY SYSTEM ----
   // Tell the AI who is fighting alongside the player, using the same
   // sanitise-and-cap treatment the monster lines get.
@@ -3695,10 +3779,149 @@ function Gametrack() {
         const safeHealth = Math.max(0, Math.floor(Number(c.health) || 0));
         return `- ${safeName} (${c.kind === "summon" ? "summon" : "ally"}, ${safeRole}) Health: ${safeHealth}/${c.maxHealth}`;
       })
-      .join("\n")
-      .slice(0, maxStringLength);
+      .join("\n");
     displayString += `\n[Traveling with the player:\n${partyString}]`;
   }
+
+  // ---- CURRENT LOCATION ----
+  ensureWorldState();
+  const richLoc = getRichLocation();
+  if (richLoc) {
+    const displayName = String(
+      richLoc.displayName || richLoc.playerloc || "unknown",
+    )
+      .replace(/[^a-zA-Z0-9\s]/g, "")
+      .trim()
+      .slice(0, 30);
+    const subArea = String(richLoc.subArea || "")
+      .replace(/[^a-zA-Z0-9\s]/g, "")
+      .trim()
+      .slice(0, 30);
+    const zoneType = String(richLoc.zoneType || "unknown")
+      .replace(/[^a-zA-Z0-9\s]/g, "")
+      .trim()
+      .slice(0, 30);
+    let locLine = `[Current Location: ${displayName}${subArea ? " / " + subArea : ""} (${zoneType})`;
+    if (richLoc.exits && typeof richLoc.exits === "object") {
+      const exitDirs = Object.keys(richLoc.exits);
+      if (exitDirs.length > 0) {
+        const locked = exitDirs.filter((d) => {
+          const e = richLoc.exits[d];
+          return (
+            e && (e.locked === true || (typeof e === "object" && e.locked))
+          );
+        });
+        const unlocked = exitDirs.filter((d) => !locked.includes(d));
+        const safeDir = (d) =>
+          String(d)
+            .replace(/[^a-zA-Z0-9\s]/g, "")
+            .trim()
+            .slice(0, 30);
+        const u = unlocked.map(safeDir).join(",");
+        const l = locked.map(safeDir).join(",");
+        locLine += `\n- Exits unlocked: ${u || "none"}`;
+        if (locked.length > 0) locLine += `\n- Exits locked: ${l}`;
+      }
+    }
+    if (
+      Array.isArray(richLoc.interactions) &&
+      richLoc.interactions.length > 0
+    ) {
+      const inter = richLoc.interactions
+        .slice(0, 5)
+        .map((i) => {
+          const id = String(i && i.id ? i.id : "")
+            .replace(/[^a-zA-Z0-9\s]/g, "")
+            .trim()
+            .slice(0, 20);
+          const type = String(i && i.type ? i.type : "")
+            .replace(/[^a-zA-Z0-9\s]/g, "")
+            .trim()
+            .slice(0, 20);
+          const statev = String(i && i.state ? i.state : "")
+            .replace(/[^a-zA-Z0-9\s]/g, "")
+            .trim()
+            .slice(0, 20);
+          return `${id || "?"}/${type || "?"}/${statev || "?"}`;
+        })
+        .join(",");
+      locLine += `\n- Interactions: ${inter}`;
+    }
+    if (Array.isArray(richLoc.entities) && richLoc.entities.length > 0) {
+      const ents = richLoc.entities
+        .slice(0, 5)
+        .map((e) => {
+          const n = String(e && (e.name || e.id) ? e.name || e.id : "")
+            .replace(/[^a-zA-Z0-9\s]/g, "")
+            .trim()
+            .slice(0, 30);
+          const t = String(e && e.kind ? e.kind : "")
+            .replace(/[^a-zA-Z0-9\s]/g, "")
+            .trim()
+            .slice(0, 20);
+          return `${n || "?"}${t ? "(" + t + ")" : ""}`;
+        })
+        .join(",");
+      locLine += `\n- Entities: ${ents}`;
+    }
+    if (richLoc.flags && typeof richLoc.flags === "object") {
+      const disc = richLoc.flags.discovered === false ? "no" : "yes";
+      const danger = Number.isFinite(Number(richLoc.flags.danger))
+        ? Math.floor(Number(richLoc.flags.danger))
+        : 0;
+      locLine += `\n- Flags: discovered=${disc}, danger=${danger}]`;
+    } else {
+      locLine += "]";
+    }
+    displayString += `\n${locLine}`;
+  }
+
+  // ---- TIME ----
+  if (state.world.time) {
+    const t = state.world.time;
+    const turn = Math.max(0, Math.floor(Number(t.turn) || 0));
+    const day = Math.max(1, Math.floor(Number(t.day) || 1));
+    const hour = Math.max(0, Math.min(23, Math.floor(Number(t.hour) || 0)));
+    const minute = Math.max(0, Math.min(59, Math.floor(Number(t.minute) || 0)));
+    const phase =
+      String(t.cyclePhase || "day")
+        .replace(/[^a-zA-Z0-9\s]/g, "")
+        .trim()
+        .slice(0, 20) || "day";
+    const light = Math.max(0, Math.min(1, Number(t.lightLevel) || 0)).toFixed(
+      2,
+    );
+    displayString += `\n[Time: turn ${turn} | day ${day} | ${hour}:${String(minute).padStart(2, "0")} | ${phase} | light ${light}]`;
+  }
+
+  // ---- WEATHER ----
+  if (state.world.weather) {
+    const w = state.world.weather;
+    const cur =
+      String(w.current || "clear")
+        .replace(/[^a-zA-Z0-9\s]/g, "")
+        .trim()
+        .slice(0, 20) || "clear";
+    const intensity = Math.max(
+      0,
+      Math.min(1, Number(w.intensity) || 0),
+    ).toFixed(2);
+    const vis = Math.max(
+      0,
+      Math.min(2, Number(w.visibilityModifier) || 1),
+    ).toFixed(2);
+    const temp =
+      String(w.temperature || "mild")
+        .replace(/[^a-zA-Z0-9\s]/g, "")
+        .trim()
+        .slice(0, 20) || "mild";
+    displayString += `\n[Weather: ${cur} | intensity ${intensity} | visibility ${vis} | temp ${temp}]`;
+  }
+
+  // ---- WORLD REGISTRY ----
+  displayString += `\n[World Registry:\n${summariseWorldRegistry(400)}]`;
+
+  displayString = displayString.slice(0, maxStringLength);
 
   let currentContext = state.memory.context || "";
   const cleanRegex = new RegExp("\\n?" + identifier + "[\\s\\S]*", "g");
@@ -3740,8 +3963,25 @@ function UpdatePlayers() {
       playerloc,
     );
     effects = CommunityUtils.StoryCards.setSettings(card, "effects", effects);
-    CommunityUtils.StoryCards.setSettings(card, "combatRange", player.combatRange);
-    CommunityUtils.StoryCards.setSettings(card, "nearTarget", player.nearTarget);
+    CommunityUtils.StoryCards.setSettings(
+      card,
+      "combatRange",
+      player.combatRange,
+    );
+    CommunityUtils.StoryCards.setSettings(
+      card,
+      "nearTarget",
+      player.nearTarget,
+    );
+    const materialsLine =
+      formatUnstackedInventoryList(containerItems("materials")) || "None";
+    CommunityUtils.StoryCards.setSettings(card, "materials", materialsLine);
+    const skillStonesLine =
+      formatUnstackedInventoryList(containerItems("skillStones")) || "None";
+    CommunityUtils.StoryCards.setSettings(card, "skillStones", skillStonesLine);
+    const artifactsLine =
+      formatUnstackedInventoryList(containerItems("artifacts")) || "None";
+    CommunityUtils.StoryCards.setSettings(card, "artifacts", artifactsLine);
   }
 }
 
@@ -3750,18 +3990,24 @@ function U_playerTrack() {
 
   const player = state.PS;
   const CardName = player.Name;
-  
+
   if (CardName) {
     const card = CommunityUtils.StoryCards.find(CardName);
-    
+
     // Sync spatial distance and proximity to Story Card
     if (state.MS.lastTarget) {
-      const target = state.MS.activeMonsters.find(m => m && m.name === state.MS.lastTarget);
+      const target = state.MS.activeMonsters.find(
+        (m) => m && m.name === state.MS.lastTarget,
+      );
       if (target) {
         const distClass = SpatialManager.classifyRange(target.distance);
         CommunityUtils.StoryCards.setSettings(card, "distanceClass", distClass);
         SpatialManager.updateProximity(state.PS, target);
-        CommunityUtils.StoryCards.setSettings(card, "nearTarget", state.PS.nearTarget);
+        CommunityUtils.StoryCards.setSettings(
+          card,
+          "nearTarget",
+          state.PS.nearTarget,
+        );
       }
     }
 
@@ -3775,7 +4021,7 @@ function U_playerTrack() {
     let effects = player.effects;
     // Store the inventory representation in the story card (normal string, no JSON stringify)
     let inventory = formatStackedInventoryList(player.inventory || []);
-    let playerStorage = state.PS.storage
+    let playerStorage = state.PS.storage;
 
     /*const P_stats = `> Inventory: ${inventory}\n> Location: ${location}\n> SubLocation: ${playerloc}\n> Status: ${status}\n> Gold: ${gold}\n> Player Effects: ${effects}`*/
 
@@ -7088,6 +7334,10 @@ if (!state.MS) {
   };
 }
 
+if (!state.world || !state.world.LocalLocation) {
+  ensureWorldState();
+}
+
 const KnownMonsters = [...LLM, ...MLM, ...HLM].map((m) => m.name);
 
 function parseStory(text, type) {
@@ -7424,13 +7674,27 @@ function createMonster(identifier) {
     const baseSpawnDistance = isRanged ? 30 : 10; // Ranged: 60, Melee: 40
     const tierDistanceMod = { mythic: -15, legendary: -10, rare: -5, magic: 0, common: 5 };
     const tierMod = tierDistanceMod[tierData.tier?.toLowerCase()] ?? 0;
-    const rarityDistanceMod = { Legendary: -5, Mythic: -3, Rare: 0, Magic: 5, Common: 10 };
+    const rarityDistanceMod = {
+      Legendary: -5,
+      Mythic: -3,
+      Rare: 0,
+      Magic: 5,
+      Common: 10,
+    };
     const rarityMod = rarityDistanceMod[rarity] ?? 0;
     monster.distance = Math.max(10, baseSpawnDistance + tierMod + rarityMod);
     // Speed scales with tier and rarity: higher tiers are faster
     const baseSpeed = Math.floor(Math.random() * 11) + 5; // 5-15
-    const speedTierMult = { mythic: 1.5, legendary: 1.3, rare: 1.1, magic: 1.0, common: 1.0 };
-    monster.speed = Math.floor(baseSpeed * (speedTierMult[tierData.tier?.toLowerCase()] ?? 1.0));
+    const speedTierMult = {
+      mythic: 1.5,
+      legendary: 1.3,
+      rare: 1.1,
+      magic: 1.0,
+      common: 1.0,
+    };
+    monster.speed = Math.floor(
+      baseSpeed * (speedTierMult[tierData.tier?.toLowerCase()] ?? 1.0),
+    );
     monster.baseRange = isRanged ? 40 : 5;
     monster.nearTarget = false;
     monster.spawnDistance = monster.distance; // Track original spawn distance for MS
@@ -7649,11 +7913,11 @@ function getAttackRange(attackText, equipped) {
 // Caps at 30 for balance.
 function calculatePlayerSpeed() {
   if (!state.PS) return 10;
-  
+
   const baseSpeed = 10;
   const levelBonus = (state.PS.level || 1) * 0.5;
   const dexBonus = (state.PS.dexterity || 5) * 0.8;
-  
+
   // Equipment speed bonuses (from boots, enchantments, etc.)
   let equipmentBonus = 0;
   if (state.PS.equipped?.boots) {
@@ -7664,11 +7928,11 @@ function calculatePlayerSpeed() {
     const back = state.PS.equipped.back;
     equipmentBonus += back.speedBonus || 0;
   }
-  
+
   // Calculate total speed with cap
   const totalSpeed = baseSpeed + levelBonus + dexBonus + equipmentBonus;
   const cappedSpeed = Math.min(30, Math.max(10, Math.round(totalSpeed)));
-  
+
   // Cache the result on state.PS for easy access
   state.PS.speed = cappedSpeed;
   return cappedSpeed;
@@ -7718,7 +7982,7 @@ const SpatialManager = {
   updateDistance(entity, delta) {
     if (!entity) return;
     entity.distance = Math.max(0, (entity.distance || 0) + delta);
-  }
+  },
 };
 
 function processEntityMovement(entity, targetDistance = 0) {
@@ -7730,7 +7994,7 @@ function processEntityMovement(entity, targetDistance = 0) {
     }
   }
   // Synchronize proximity flag after movement
-  const target = (entity === state.PS) ? state.MS?.activeMonsters?.[0] : state.PS;
+  const target = entity === state.PS ? state.MS?.activeMonsters?.[0] : state.PS;
   if (target) {
     SpatialManager.updateProximity(entity, target);
   }
@@ -7742,18 +8006,21 @@ function resolveReach(target, range) {
   if (!target) return { canHit: false, note: "" };
   if ((range || "melee").toLowerCase() === "ranged")
     return { canHit: true, note: "" };
-  
+
   // New proximity-based check
-  const attacker = (target === state.PS) ? state.MS?.activeMonsters?.[0] : state.PS;
-  const isNear = (attacker && attacker.nearTarget) || (target === state.PS && state.PS.nearTarget);
+  const attacker =
+    target === state.PS ? state.MS?.activeMonsters?.[0] : state.PS;
+  const isNear =
+    (attacker && attacker.nearTarget) ||
+    (target === state.PS && state.PS.nearTarget);
 
   if (isNear) return { canHit: true, note: "" };
 
   // Legacy charge mechanic: close distance for next turn
   if (target.distance !== "melee") {
-    target.distance = "melee"; 
+    target.distance = "melee";
   }
-  
+
   return {
     canHit: false,
     note: `${target.name} is out of melee range — you close the distance, weapon ready.`,
@@ -7775,13 +8042,13 @@ function playerAttack() {
       text.includes(word.toLowerCase()),
     );
     const inCombat = state.PS.combatstatus === "In Combat";
-    const isCommand = text.trim().startsWith('/');
-    
+    const isCommand = text.trim().startsWith("/");
+
     if (!attacking && !inCombat) {
       console.log("No attack detected in text and not in combat.");
       return text;
     }
-    
+
     if (!attacking && isCommand) {
       return text;
     }
@@ -7838,7 +8105,7 @@ function playerAttack() {
     const attackRange = getAttackRange(text, state.PS.equipped);
     const playerBaseRange = attackRange === "ranged" ? 40 : 5;
     const playerSpeed = getPlayerSpeed(); // Get scaled movement speed (10-30)
-    
+
     let targetDefeated = false;
 
     if (target.distance > playerBaseRange) {
@@ -7940,7 +8207,9 @@ function playerAttack() {
       if (attacker && attacker.distance > 5) {
         const monsterSpeed = getMonsterSpeed(attacker);
         SpatialManager.updateDistance(attacker, -monsterSpeed);
-        state.logMessages["Output"].push(`[${attacker.name} closes the distance to you.]`);
+        state.logMessages["Output"].push(
+          `[${attacker.name} closes the distance to you.]`,
+        );
       }
       const damage = Math.floor(Math.random() * 8) + 3;
       let remainingDamage = damage;
@@ -8034,7 +8303,237 @@ function recordCorpse(monster) {
   while (state.MS.corpses.length > MAX_CORPSES) state.MS.corpses.shift();
 }
 
-function spawn(name, count = 1) {
+// ---- CARRYING CAPACITY / BIOMASS SYSTEM ----
+const CARRYING_CAPACITY_CONFIG = {
+  costPerSpawn: 10,
+  regenPerTurn: 5,
+  capacity: 100,
+  modifierCostMult: {
+    leader: 1.2,
+    elite: 1.3,
+    wounded: 0.8,
+    injured: 0.85,
+    weak: 0.9,
+    starving: 0.8,
+    angry: 1.1,
+    enraged: 1.3,
+    frenzied: 1.3,
+    berserk: 1.5,
+    huge: 1.6,
+    giant: 2.0,
+  },
+};
+
+function ensureWorldState() {
+  if (!state.world) {
+    state.world = {
+      LocalLocation: {},
+      time: {
+        turn: 0,
+        day: 1,
+        hour: 6,
+        minute: 0,
+        cyclePhase: "dawn",
+        lightLevel: 1.0,
+      },
+      weather: {
+        current: "clear",
+        intensity: 0,
+        visibilityModifier: 1.0,
+        temperature: "mild",
+      },
+      worldRegistry: { modifiedLocations: {}, activeWorldEvents: [] },
+    };
+  }
+  if (!state.world.LocalLocation) state.world.LocalLocation = {};
+  if (!state.world.time) {
+    state.world.time = {
+      turn: 0,
+      day: 1,
+      hour: 6,
+      minute: 0,
+      cyclePhase: "dawn",
+      lightLevel: 1.0,
+    };
+  }
+  if (!state.world.weather) {
+    state.world.weather = {
+      current: "clear",
+      intensity: 0,
+      visibilityModifier: 1.0,
+      temperature: "mild",
+    };
+  }
+  if (!state.world.worldRegistry) {
+    state.world.worldRegistry = {
+      modifiedLocations: {},
+      activeWorldEvents: [],
+    };
+  } else {
+    if (!state.world.worldRegistry.modifiedLocations)
+      state.world.worldRegistry.modifiedLocations = {};
+    if (!Array.isArray(state.world.worldRegistry.activeWorldEvents))
+      state.world.worldRegistry.activeWorldEvents = [];
+  }
+}
+
+function getCurrentLocationKey() {
+  const playerloc =
+    state.PS && state.PS.playerloc ? state.PS.playerloc : "safe area";
+  return playerloc.toLowerCase().replace(/\s+/g, "");
+}
+
+function getLocationEntry(key) {
+  ensureWorldState();
+  if (!key) return null;
+  if (!state.world.LocalLocation[key]) {
+    state.world.LocalLocation[key] = {
+      biomass: 0,
+      lastRegenTurn: 0,
+      famine: false,
+      spawnedSinceFamine: 0,
+    };
+  }
+  return state.world.LocalLocation[key];
+}
+
+function getRichLocation() {
+  ensureWorldState();
+  const key = getCurrentLocationKey();
+  const entry = getLocationEntry(key);
+  if (!entry) return null;
+  if (!entry.id) {
+    entry.id = key;
+    entry.playerloc = state.PS && state.PS.playerloc ? state.PS.playerloc : key;
+    entry.zoneType = entry.zoneType || "unknown";
+    entry.displayName =
+      entry.displayName || (state.PS && state.PS.playerloc) || key;
+    entry.subArea = entry.subArea || "";
+    entry.exits = entry.exits || {};
+    entry.interactions = entry.interactions || [];
+    entry.entities = entry.entities || [];
+    entry.flags = entry.flags || {};
+  }
+  return entry;
+}
+
+const CYCLE_PHASE_BASELINES = { dawn: 0.6, day: 1.0, dusk: 0.45, night: 0.1 };
+
+function advanceTime() {
+  ensureWorldState();
+  const t = state.world.time;
+  const w = state.world.weather;
+  t.turn = (Number(t.turn) || 0) + 1;
+  t.minute = (Number(t.minute) || 0) + 10;
+  while (t.minute >= 60) {
+    t.minute -= 60;
+    t.hour = (Number(t.hour) || 0) + 1;
+  }
+  while (t.hour >= 24) {
+    t.hour -= 24;
+    t.day = (Number(t.day) || 1) + 1;
+  }
+  const h = Number(t.hour) || 0;
+  let phase;
+  if (h < 6) phase = "night";
+  else if (h < 9) phase = "dawn";
+  else if (h < 18) phase = "day";
+  else if (h < 21) phase = "dusk";
+  else phase = "night";
+  t.cyclePhase = phase;
+  const baseline =
+    CYCLE_PHASE_BASELINES[phase] !== undefined
+      ? CYCLE_PHASE_BASELINES[phase]
+      : 1.0;
+  const intensity = Math.max(0, Math.min(1, Number(w && w.intensity) || 0));
+  const raw = baseline - intensity * 0.3;
+  t.lightLevel = Math.max(0, Math.min(1, raw));
+}
+
+function summariseWorldRegistry(maxChars) {
+  ensureWorldState();
+  const reg = state.world.worldRegistry || {
+    modifiedLocations: {},
+    activeWorldEvents: [],
+  };
+  const mods = reg.modifiedLocations || {};
+  let locCount = 0;
+  let doorCount = 0;
+  let lootedCount = 0;
+  for (const locId in mods) {
+    if (!mods[locId]) continue;
+    locCount += 1;
+    doorCount += Array.isArray(mods[locId].unlockedDoors)
+      ? mods[locId].unlockedDoors.length
+      : 0;
+    lootedCount += Array.isArray(mods[locId].lootedInteractions)
+      ? mods[locId].lootedInteractions.length
+      : 0;
+  }
+  const events = (reg.activeWorldEvents || [])
+    .slice(0, 5)
+    .map((e) =>
+      String(e || "")
+        .replace(/[^a-zA-Z0-9\s]/g, "")
+        .trim()
+        .slice(0, 30),
+    )
+    .filter(Boolean);
+  let summary = `- Locations modified: ${locCount}\n- Doors unlocked: ${doorCount}\n- Interactions looted: ${lootedCount}`;
+  if (events.length > 0) {
+    summary += `\n- Active events: ${events.join(", ")}`;
+  }
+  return summary.slice(0, maxChars || 400);
+}
+
+function computeSpawnCost(count, modifiers) {
+  const cfg = CARRYING_CAPACITY_CONFIG;
+  const base = cfg.costPerSpawn * Math.max(1, count || 1);
+  if (!modifiers || !modifiers.desc) return base;
+  const descs = String(modifiers.desc)
+    .toLowerCase()
+    .split(/\s+and\s+/);
+  let mult = 1;
+  for (const d of descs) {
+    const m = cfg.modifierCostMult[d.trim()];
+    if (m) mult *= m;
+  }
+  return Math.max(1, Math.round(base * mult));
+}
+
+function consumeLocationBiomass(name, cost) {
+  const key = getCurrentLocationKey();
+  const entry = getLocationEntry(key);
+  if (!entry) return { ok: false, reason: "no-location" };
+  if (entry.famine) return { ok: false, reason: "famine" };
+  const capacity = CARRYING_CAPACITY_CONFIG.capacity;
+  if (entry.biomass + cost > capacity)
+    return { ok: false, reason: "over-capacity" };
+  entry.biomass += cost;
+  if (entry.biomass >= capacity && !entry.famine) {
+    entry.famine = true;
+    entry.spawnedSinceFamine = Number.MAX_SAFE_INTEGER;
+  }
+  return { ok: true, entry };
+}
+
+function tickLocationRegen() {
+  ensureWorldState();
+  const cfg = CARRYING_CAPACITY_CONFIG;
+  for (const key in state.world.LocalLocation) {
+    const entry = state.world.LocalLocation[key];
+    if (!entry) continue;
+    if (entry.biomass > 0) {
+      entry.biomass = Math.max(0, entry.biomass - cfg.regenPerTurn);
+    }
+    if (entry.famine && entry.biomass <= 0) {
+      entry.famine = false;
+      entry.spawnedSinceFamine = 0;
+    }
+  }
+}
+
+function spawn(name, count = 1, modifiers = {}) {
   if (!name) return;
   name = name.toLowerCase();
 
@@ -8053,6 +8552,30 @@ function spawn(name, count = 1) {
     );
     state.logMessages["Input"].push(`No monsters in the area`);
     return;
+  }
+
+  const cost = computeSpawnCost(count, modifiers);
+  const charge = consumeLocationBiomass(name, cost);
+  if (!charge.ok && charge.reason === "famine") {
+    const key = getCurrentLocationKey();
+    const entry = state.world.LocalLocation[key];
+    if (entry && entry.spawnedSinceFamine === Number.MAX_SAFE_INTEGER) {
+      state.logMessages["Input"].push(
+        `The ${key.replace(/([A-Z])/g, " $1").trim()} has been picked clean — no monsters can be found here for now.`,
+      );
+      entry.spawnedSinceFamine = 1;
+    }
+    console.log(`🌿 ${name} blocked — famine at ${getCurrentLocationKey()}.`);
+    return;
+  }
+  if (!charge.ok && charge.reason === "over-capacity") {
+    console.log(`🌿 ${name} blocked — biomass would exceed capacity.`);
+    return;
+  }
+  if (charge.ok && charge.entry) {
+    if (charge.entry.spawnedSinceFamine !== Number.MAX_SAFE_INTEGER) {
+      charge.entry.spawnedSinceFamine += 1;
+    }
   }
 
   // Cap total monsters
@@ -8386,9 +8909,9 @@ function calculateEffectiveStats() {
   if (state.PS === undefined) return null;
 
   // Shallow copy player state, but deep copy resistances to avoid mutating base state
-  let effective = { 
-    ...state.PS, 
-    resistances: { ...state.PS.resistances } 
+  let effective = {
+    ...state.PS,
+    resistances: { ...state.PS.resistances },
   };
 
   // Apply equipment modifiers
@@ -8750,6 +9273,78 @@ function isMaterialItem(item) {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+//  MULTI-TIERED INVENTORY CONTAINERS
+// ---------------------------------------------------------------------------
+// `state.PS.inventory` stays the backing array for the "main" container so
+// every existing read/write site still works. `state.PS.containers.main` is
+// a reference alias (set during migration), so containerArray("main") and
+// state.PS.inventory are the same array. Other containers are independent
+// arrays filled on demand by the classifier and addItem.
+
+function classifyItemToContainer(item) {
+  if (item == null || typeof item === "string") return "main";
+  // Materials: existing rule (type/subtype + MATERIAL_NAME_ALLOWLIST).
+  if (isMaterialItem(item)) return "materials";
+  // Skill Stones: forward-compatible rule. Today no item shape exists, but
+  // the moment a spellstone drops as loot it routes here automatically.
+  if (item.type === "skillStone") return "skillStones";
+  if (item.subtype === "skill_stone") return "skillStones";
+  if (typeof item.name === "string" && /\bspellstone\b/i.test(item.name))
+    return "skillStones";
+  // Artifacts: new taxonomy.
+  if (item.type === "artifact") return "artifacts";
+  if (item.subtype === "artifact") return "artifacts";
+  return "main";
+}
+
+function containerArray(key) {
+  if (!state.PS) return [];
+  if (key === "main") {
+    if (!Array.isArray(state.PS.inventory)) state.PS.inventory = [];
+    return state.PS.inventory;
+  }
+  if (!state.PS.containers || !Array.isArray(state.PS.containers[key])) {
+    if (!state.PS.containers || typeof state.PS.containers !== "object") {
+      state.PS.containers = {};
+    }
+    state.PS.containers[key] = [];
+  }
+  return state.PS.containers[key];
+}
+
+function containerItems(key) {
+  const arr = containerArray(key);
+  return Array.isArray(arr) ? arr : [];
+}
+
+function findItemAcrossContainers(predicate) {
+  for (const k of ITEM_CONTAINER_KEYS) {
+    const arr = containerItems(k);
+    const idx = arr.findIndex(predicate);
+    if (idx !== -1) return { key: k, index: idx, item: arr[idx] };
+  }
+  return null;
+}
+
+function removeItemFromContainer(key, index) {
+  const arr = containerArray(key);
+  if (!Array.isArray(arr)) return null;
+  return arr.splice(index, 1)[0] ?? null;
+}
+
+// Count items matching `predicate` across every container. Used by crafting
+// to verify the player has enough of an ingredient regardless of which
+// container it currently lives in.
+function countItemAcrossContainers(predicate) {
+  let total = 0;
+  for (const k of ITEM_CONTAINER_KEYS) {
+    const arr = containerItems(k);
+    for (const it of arr) if (predicate(it)) total++;
+  }
+  return total;
+}
+
 function itemStackGroupKey(item) {
   if (typeof item === "string") return "str|" + item;
   const nm = (item.name || "item").toLowerCase();
@@ -8850,17 +9445,40 @@ function grantMonsterCore(monster) {
   if (core) addItem(core);
 }
 
-// Function to add item to inventory
-function addItem(item) {
-  Player = state.PS.Name;
-  // Guard the arrays: a monster killed before inventory/logs were initialised
-  // used to throw here (Cannot read properties of undefined), and AID swallows
-  // the exception — so the kill silently half-completed. Never let loot crash a kill.
+// Function to add item to the player's inventory. Routes the item to the
+// correct container via classifyItemToContainer (or the explicit `opts.container`
+// override) so a material never lands on Main and gear never lands in
+// Materials. The Main container is aliased to state.PS.inventory, so pushes
+// to "main" still mutate the backing array every other site already touches.
+function addItem(item, opts = {}) {
+  if (!state.PS) return;
   if (!Array.isArray(state.PS.inventory)) state.PS.inventory = [];
+  if (
+    !state.PS.containers ||
+    typeof state.PS.containers !== "object" ||
+    Array.isArray(state.PS.containers)
+  ) {
+    state.PS.containers = {
+      main: state.PS.inventory,
+      materials: [],
+      skillStones: [],
+      artifacts: [],
+    };
+  }
+  for (const k of ITEM_CONTAINER_KEYS) {
+    if (!Array.isArray(state.PS.containers[k])) state.PS.containers[k] = [];
+  }
   if (!state.logMessages["Output"]) state.logMessages["Output"] = [];
-  state.PS.inventory.push(item);
+
+  const targetKey = opts.container || classifyItemToContainer(item);
+  const arr =
+    targetKey === "main" ? state.PS.inventory : state.PS.containers[targetKey];
+  arr.push(item);
+
+  const Player = state.PS.Name || "You";
+  const label = targetKey === "main" ? "backpack" : targetKey;
   state.logMessages["Output"].push(
-    `🎒${Player} backpack gained a ${item.name}`,
+    `🎒 ${Player} ${label} gained a ${item.name}`,
   );
 }
 
@@ -9354,7 +9972,7 @@ function displayDefenses() {
   let message = `----------------------------------\n`;
   message += `🛡️ Defenses & Resistances\n`;
   message += `Armor: ${effectiveStats.armor}\n`;
-  
+
   if (effectiveStats.resistances) {
     for (const [type, value] of Object.entries(effectiveStats.resistances)) {
       message += `${type.charAt(0).toUpperCase() + type.slice(1)} Res: ${value}%\n`;
@@ -9362,13 +9980,12 @@ function displayDefenses() {
   } else {
     message += `No resistances found.\n`;
   }
-  
+
   message += `----------------------------------\n`;
   return message;
 }
 
 function displayStatsDetailed() {
-
   return (
     displayLevel() +
     displayAttributes() +
@@ -9483,19 +10100,96 @@ function displaySkills() {
 }
 
 function displayBackpack() {
-  let message = `----------------------------------\n`;
+  // Legacy wrapper preserved for any external callers. The bare "show backpack"
+  // command now opens the container menu (which auto-shows Main). This
+  // function returns the menu so old direct callers still see something
+  // sensible.
+  return displayBackpackMenu();
+}
 
-  if (state.PS !== undefined) {
-    //const { backpackLine, materialsLine } = formatInventorySections(inv); original
-    const inv = state.PS.inventory || [];
-    const maxSlots = state.PS.inventoryMaxSize;
-    const { backpackLine } = formatInventorySections(inv);
-    message += `🎒 Inventory Size:${maxSlots} \nBackpack: ${backpackLine} \n`;
-    //message += `🧱 Materials: ${ materialsLine } \n`;
+const BACKPACK_SUBKEYS = ["main", "materials", "skillStones", "artifacts"];
 
-    message += `----------------------------------\n`;
-    return message;
+function containerHeader(key) {
+  switch (key) {
+    case "main":
+      return "🎒 Main Inventory";
+    case "materials":
+      return "🧱 Materials";
+    case "skillStones":
+      return "💎 Skill Stones";
+    case "artifacts":
+      return "🏺 Artifacts";
+    default:
+      return key;
   }
+}
+
+function displayBackpackContainer(key) {
+  if (!state.PS) return "";
+  if (!BACKPACK_SUBKEYS.includes(key)) return "";
+  const items = containerItems(key);
+  const cap = state.PS.containerCapacity
+    ? state.PS.containerCapacity[key]
+    : undefined;
+  const count = items.length;
+  const capStr =
+    cap === Infinity || cap == null ? `${count}` : `${count}/${cap}`;
+  const stacked = formatStackedInventoryList(items) || "None";
+  const unstacked = formatUnstackedInventoryList(items) || "None";
+  // Specialised containers (materials/skillStones/artifacts) read cleaner as
+  // an unstacked list — each monster_core / spellstone / artifact is its own
+  // entry with descriptive metadata. Main keeps the stacked gear format so
+  // the "x3" grouping still applies.
+  const body = key === "main" ? stacked : unstacked;
+  return (
+    `----------------------------------\n` +
+    `${containerHeader(key)} (${capStr})\n` +
+    `${body}\n` +
+    `----------------------------------\n`
+  );
+}
+
+function displayBackpackAll() {
+  if (!state.PS) return "";
+  let out = `----------------------------------\n`;
+  for (const k of BACKPACK_SUBKEYS) {
+    // Reuse displayBackpackContainer's body but strip its top/bottom rules so
+    // the "all" view reads as one continuous panel.
+    const section = displayBackpackContainer(k);
+    const lines = section.split("\n");
+    out += lines.slice(1, -2).join("\n") + "\n";
+  }
+  return out + `----------------------------------\n`;
+}
+
+function displayBackpackMenu() {
+  // Hybrid UX: the bare "show backpack" prints the menu AND auto-opens Main
+  // on the same turn so the player doesn't need a second command to see
+  // their gear.
+  if (!state.PS) return "";
+  const inv = state.PS.inventory || [];
+  const maxSlots = state.PS.inventoryMaxSize ?? 30;
+  const matCount = containerItems("materials").length;
+  const ssCount = containerItems("skillStones").length;
+  const artCount = containerItems("artifacts").length;
+  const mainSection = displayBackpackContainer("main");
+  const mainBody = mainSection.split("\n").slice(1).join("\n");
+  return (
+    `----------------------------------\n` +
+    `🎒 Backpack (${inv.length}/${maxSlots})\n` +
+    `Choose a container:\n` +
+    `  1) 🎒 Main Inventory\n` +
+    `  2) 🧱 Materials (${matCount})\n` +
+    `  3) 💎 Skill Stones (${ssCount})\n` +
+    `  4) 🏺 Artifacts (${artCount})\n` +
+    `  5) 📦 Show All\n` +
+    `\nOpening Main Inventory now. Type "show backpack <key>" to switch.\n` +
+    mainBody
+  );
+}
+
+function handleBackpackCommand() {
+  return displayBackpackMenu();
 }
 
 // Helper for natural regeneration (small health/mana regen over turns)
@@ -12474,7 +13168,7 @@ function dumplog(stream, text) {
 
   return text;
 }
-History_Logs = false
+History_Logs = false;
 function logfunc(f, ...args) {
   let retval = f(...args);
   if (History_Logs) {

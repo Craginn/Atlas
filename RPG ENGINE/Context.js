@@ -97,6 +97,7 @@ const modifier = (text) => {
     playerFood();
     printMonsterStats();
     tickMonsterCooldowns();
+    tickLocationRegen();
 
    
     return text;  // This is what AI Dungeon expects

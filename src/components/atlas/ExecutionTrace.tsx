@@ -31,7 +31,7 @@ const isLibraryBoilerplate = (line: string) =>
 const RESULT_PREFIX = '[DEBUG] Modified Text: ';
 
 const isErrorLine = (line: string) =>
-  /\[DEBUG\] EXECUTION ERROR|Worker Error|ERROR:/.test(line);
+  /\[ERROR\]|\[DEBUG\] EXECUTION ERROR|Worker Error|ERROR:/.test(line);
 
 const toLine = (log: unknown): string =>
   typeof log === 'object' && log !== null ? JSON.stringify(log, null, 2) : String(log);

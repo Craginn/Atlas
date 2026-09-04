@@ -16,7 +16,11 @@ function showhelp() {
       type 'show stats' to show your modified detailed stats.
       type 'show equipped' to show your items you are wearing.
       type 'show skills ' to show your current skills.
-      type 'show backpack' to show your current inventory.
+      type 'show backpack' to open the Backpack menu (auto-opens Main Inventory).
+      type 'show backpack materials' to view crafting materials.
+      type 'show backpack skillstones' to view skill stones.
+      type 'show backpack artifacts' to view artifacts.
+      type 'show backpack all' to view every container.
       type 'show help' to show this help text.
       `
 }
@@ -29,13 +33,23 @@ let showcommands = {
   'skills': displaySkills,
   'damage': displayDamage,
   'defenses': displayDefenses,
-  'backpack': displayBackpack,
+  'backpack main':        () => displayBackpackContainer("main"),
+  'backpack materials':   () => displayBackpackContainer("materials"),
+  'backpack skillstones': () => displayBackpackContainer("skillStones"),
+  'backpack artifacts':   () => displayBackpackContainer("artifacts"),
+  'backpack all':         displayBackpackAll,
+  'backpack': handleBackpackCommand,
   'help': showhelp,
   'map': showDungeonMap
 
 }
 
 
+// `command()` is substring-based: longer qualifier keys (e.g. "backpack main")
+// would still match the bare "backpack" key (because "show backpack main"
+// contains "show backpack"). To prevent double-firing, return [true, text]
+// on match so the dispatch loop short-circuits. The dispatch loop itself
+// iterates the longer keys first.
 function command(text, target) {
 
   let cmdstr = ("show " + target).toLowerCase()
@@ -43,7 +57,8 @@ function command(text, target) {
     text = text.replace(cmdstr, "").trim(); // Remove the command from input
     state.output = showcommands[target]();
     state.overwrite = true
-  }//else
+    return [true, text];
+  }
   return [false, text]
 }
 
@@ -227,53 +242,41 @@ const basecode = (text) => {
     // === Main processing (single unified phase – simpler & more efficient) ===
     const spawnedThisTurn = new Set();
 
-    // === 3. SPAWN COOLDOWN - Initialize and decrement ===
-    state.spawnCooldownTurns ??= 0;
-    if (state.spawnCooldownTurns > 0) {
-      state.spawnCooldownTurns--;
-    }
-
-    // === Wrap spawn loop with cooldown check ===
-    // Declared (not implicit globals) so this runs under strict mode too.
     let player = state.PS.Name
     let playerloc = state.PS.playerloc
-    if (playerloc !== "safe haven") {
-      if (state.spawnCooldownTurns === 0) {
-        for (const match of normText.matchAll(spawnRegex)) {
-          const qtyStr = match[1];
-          const mod1 = match[2]?.toLowerCase();
-          const mod2 = match[3]?.toLowerCase();
-          const rawMonster = match[4];
+    let safehaven = state.PS.location === "safe haven" || playerloc === "safe area"
+    if (!safehaven) {
+      for (const match of normText.matchAll(spawnRegex)) {
+        const qtyStr = match[1];
+        const mod1 = match[2]?.toLowerCase();
+        const mod2 = match[3]?.toLowerCase();
+        const rawMonster = match[4];
 
-          const monsterName = monsterLookup.get(rawMonster);
-          if (!monsterName || spawnedThisTurn.has(monsterName)) continue;
+        const monsterName = monsterLookup.get(rawMonster);
+        if (!monsterName || spawnedThisTurn.has(monsterName)) continue;
 
-          // Determine quantity (number/word → count, default 1)
-          let count = parseQuantity(qtyStr);
-          count = Math.max(1, Math.min(count, 20));
+        // Determine quantity (number/word → count, default 1)
+        let count = parseQuantity(qtyStr);
+        count = Math.max(1, Math.min(count, 20));
 
-          // Apply modifiers functionally
-          const modState = applyModifiers([mod1, mod2].filter(Boolean));
-          const modifiersObj = modState.desc ? {
-            hpMult: modState.hpMult,
-            dmgMult: modState.dmgMult,
-            desc: modState.desc.trim()
-          } : {};
+        // Apply modifiers functionally
+        const modState = applyModifiers([mod1, mod2].filter(Boolean));
+        const modifiersObj = modState.desc ? {
+          hpMult: modState.hpMult,
+          dmgMult: modState.dmgMult,
+          desc: modState.desc.trim()
+        } : {};
 
-          // Spawn
-          spawn(monsterName, count, modifiersObj);
-          console.log(`SPAWNED: ${count}x ${monsterName} ${modState.desc ? `(${modState.desc})` : ""}`);
+        // Spawn
+        spawn(monsterName, count, modifiersObj);
+        console.log(`SPAWNED: ${count}x ${monsterName} ${modState.desc ? `(${modState.desc})` : ""}`);
 
-          spawnedThisTurn.add(monsterName);
+        spawnedThisTurn.add(monsterName);
 
-          // Tag all forms of this monster in the original text
-          const forms = getTagForms(monsterName);
-          const tagRegex = new RegExp(`\\b(${forms.join("|")})\\b`, "gi");
-          text = text.replace(tagRegex, "[$1]");
-
-          // === 3. SPAWN COOLDOWN - Set cooldown after successful spawn ===
-          state.spawnCooldownTurns = 3; // 3 turns cooldown
-        }
+        // Tag all forms of this monster in the original text
+        const forms = getTagForms(monsterName);
+        const tagRegex = new RegExp(`\\b(${forms.join("|")})\\b`, "gi");
+        text = text.replace(tagRegex, "[$1]");
       }
     }
 
@@ -462,10 +465,14 @@ const Playercommands = (text) => {
           const ingredients = Array.isArray(template.ingredients) ? template.ingredients : [];
           const missing = [];
 
-          // Check for required ingredients in player inventory
+          // Check for required ingredients across every container. A material
+          // (e.g. a monster core) lives in containers.materials, not main, so
+          // searching state.PS.inventory alone would silently fail recipes.
           for (const req of ingredients) {
             const requiredQty = req.qty || 1;
-            const haveQty = state.PS.inventory.filter(i => i?.name === req.name).length;
+            const haveQty = countItemAcrossContainers(
+              (i) => i && typeof i === "object" && i.name === req.name,
+            );
             if (haveQty < requiredQty) {
               missing.push(`${requiredQty}x ${req.name}`);
             }
@@ -477,13 +484,15 @@ const Playercommands = (text) => {
             return text;
           }
 
-          // Consume ingredients from inventory
+          // Consume ingredients from whichever container holds them.
           for (const req of ingredients) {
             let toRemove = req.qty || 1;
             while (toRemove > 0) {
-              const idx = state.PS.inventory.findIndex(i => i?.name === req.name);
-              if (idx === -1) break;
-              state.PS.inventory.splice(idx, 1);
+              const hit = findItemAcrossContainers(
+                (i) => i && typeof i === "object" && i.name === req.name,
+              );
+              if (!hit) break;
+              removeItemFromContainer(hit.key, hit.index);
               toRemove--;
             }
           }
@@ -515,13 +524,29 @@ const Playercommands = (text) => {
   }
 
   //
-  // Command to show inventory
-  for (const target of Object.keys(showcommands)) {
-    let ran
-      ; ([ran, text] = command(text, target));
-    if (ran) {
-      return text
-    }
+  // Command to show inventory. Iterate backpack qualifiers (longer keys)
+  // first so "show backpack materials" matches `backpack materials` and not
+  // the bare `backpack` key. The bare key comes last.
+  const showCommandOrder = [
+    'backpack main',
+    'backpack materials',
+    'backpack skillstones',
+    'backpack artifacts',
+    'backpack all',
+    'backpack',
+    'level',
+    'stats',
+    'equipped',
+    'skills',
+    'damage',
+    'defenses',
+    'help',
+    'map',
+  ];
+  for (const target of showCommandOrder) {
+    let ran;
+    ([ran, text] = command(text, target));
+    if (ran) return text;
   }
 
   const lowerText = text.toLowerCase();
