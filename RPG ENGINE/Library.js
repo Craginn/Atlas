@@ -1785,9 +1785,19 @@ function companionCombatTick() {
   for (const c of living) {
     if (c.isDead) continue;
 
+    if (c.kind === "summon" && c.directedAction === "stay") {
+      c.state = "Idle";
+      continue;
+    }
+
     // Prefer whatever the player is already fighting, so the party focuses.
     let target = null;
-    if (state.MS.lastTarget) {
+    if (c.kind === "summon" && c.directedTarget) {
+      target = monsters.find(
+        (m) => m.name.toLowerCase() === String(c.directedTarget).toLowerCase() && m.health > 0,
+      );
+    }
+    if (!target && state.MS.lastTarget) {
       target = monsters.find(
         (m) =>
           m.name.toLowerCase() === String(state.MS.lastTarget).toLowerCase() &&
@@ -3968,20 +3978,6 @@ function UpdatePlayers() {
       "combatRange",
       player.combatRange,
     );
-    CommunityUtils.StoryCards.setSettings(
-      card,
-      "nearTarget",
-      player.nearTarget,
-    );
-    const materialsLine =
-      formatUnstackedInventoryList(containerItems("materials")) || "None";
-    CommunityUtils.StoryCards.setSettings(card, "materials", materialsLine);
-    const skillStonesLine =
-      formatUnstackedInventoryList(containerItems("skillStones")) || "None";
-    CommunityUtils.StoryCards.setSettings(card, "skillStones", skillStonesLine);
-    const artifactsLine =
-      formatUnstackedInventoryList(containerItems("artifacts")) || "None";
-    CommunityUtils.StoryCards.setSettings(card, "artifacts", artifactsLine);
   }
 }
 
@@ -6547,9 +6543,10 @@ function buildKnownAbility(key) {
 }
 
 function getStartingSkills(StarterSkills) {
-  const keys = STARTING_ABILITIES[StarterSkills] || STARTING_ABILITIES.default;
+  const key = String(StarterSkills || "").toLowerCase().trim();
+  const keys = STARTING_ABILITIES[key] || STARTING_ABILITIES.default;
   const skills = {};
-  for (const key of keys) skills[key] = buildKnownAbility(key);
+  for (const k of keys) skills[k] = buildKnownAbility(k);
   return skills;
 }
 
@@ -9593,7 +9590,19 @@ function learnSkill(skillName) {
 
   // For now, very simple skill definition.
   // In a more complex system, you'd define what each skill does.
-  state.PS.skills[skillName] = skills[state.PS.cclass][skillName];
+  const def = AbilityRegistry.getSkill(skillName.toLowerCase());
+  state.PS.skills[skillName.toLowerCase()] = def
+    ? {
+        level: 1,
+        displayName: def.displayName,
+        description: def.description,
+        abilityType: def.abilityType,
+        magicEffect: def.magicEffect,
+        targetType: def.targetType,
+        cd: def.cd,
+        effect: def.effect,
+      }
+    : { level: 1, description: "", effect: {} };
   /*state.PS.skills = {
         // Add Skill names and effects
         // Example format- name: skillName, level: 1, effect:{ strength: 3,description:'Damage Buff' }
