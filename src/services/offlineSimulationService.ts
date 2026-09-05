@@ -365,86 +365,14 @@ export const validateScriptSyntax = (code: string, isModifierScript = false, hoo
   const warnings: ValidationError[] = [];
   const lines = code.split('\n');
 
-  // ============ 1. LIBRARY-TO-HOOK COLLISION DETECTION ============
-  const checkLibraryCollisions = () => {
-    if (!hookCode || hookCode.trim().length === 0) return;
+  // NOTE: Library-to-hook redeclaration detection was removed. Top-level
+  // `const`/`let` collisions between a script and the bundled Library are not
+  // a runtime error in AID — each script is evaluated in its own scope, and
+  // mock/test scripts frequently shadow Library names without ill effect.
+  // The JS engine (or the runtime error path) is the source of truth for
+  // actual redeclaration failures, so we no longer pre-emptively flag them.
 
-    const libraryPartRaw = code.slice(0, -hookCode.length);
-    let libraryPart = libraryPartRaw;
-    if (libraryPart.endsWith('\n')) {
-      libraryPart = libraryPart.slice(0, -1);
-    }
-    const libraryLineCount = libraryPart.split('\n').length;
-    const declRe = /\b(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g;
-
-    const extractTopLevelDeclarations = (src: string): Map<string, { line: number; kind: string }> => {
-      const decls = new Map<string, { line: number; kind: string }>();
-      let braceDepth = 0;
-      let inString = false;
-      let stringChar = '';
-
-      const srcLines = src.split('\n');
-      for (let i = 0; i < srcLines.length; i++) {
-        const line = srcLines[i];
-        let c = 0;
-        while (c < line.length) {
-          const char = line[c];
-          const prevChar = c > 0 ? line[c - 1] : '';
-
-          if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
-            if (!inString) {
-              inString = true;
-              stringChar = char;
-            } else if (char === stringChar) {
-              inString = false;
-            }
-          }
-
-          if (!inString) {
-            if (char === '{') braceDepth++;
-            else if (char === '}') braceDepth = Math.max(0, braceDepth - 1);
-          }
-
-          declRe.lastIndex = c;
-          const m = declRe.exec(line);
-          if (m && m.index === c && braceDepth === 0) {
-            const afterKw = line.substring(c);
-            const kindMatch = afterKw.match(/^(const|let|var|function)\b/);
-            const kind = kindMatch?.[1] || '';
-            if (kind !== 'var') {
-              decls.set(m[1], { line: i + 1, kind });
-            }
-            c = declRe.lastIndex;
-            continue;
-          }
-
-          c++;
-        }
-      }
-
-      return decls;
-    };
-
-    const libraryDecls = extractTopLevelDeclarations(libraryPart);
-    const hookDecls = extractTopLevelDeclarations(hookCode);
-
-    for (const [name, hookDecl] of hookDecls) {
-      const libDecl = libraryDecls.get(name);
-      if (libDecl) {
-        errors.push({
-          type: 'LIBRARY_COLLISION',
-          message: `Identifier '${name}' redeclared — Library already declares it at Library.js:${libDecl.line}. Rename your variable or remove the const.`,
-          line: libraryLineCount + hookDecl.line,
-          column: 1,
-          severity: 'error',
-          codeSnippet: getLineOfCode(code, libraryLineCount + hookDecl.line),
-          context: getContextWithCaret(code, libraryLineCount + hookDecl.line, 1)
-        });
-      }
-    }
-  };
-
-  // ============ 2. BRACKET/BRACE/PAREN MATCHING WITH LINE TRACKING ============
+  // ============ 1. BRACKET/BRACE/PAREN MATCHING WITH LINE TRACKING ============
   const checkBracketBalance = () => {
     const stack: Array<{ type: string; line: number; column: number; pos: number }> = [];
     let inString = false;
@@ -752,7 +680,6 @@ export const validateScriptSyntax = (code: string, isModifierScript = false, hoo
   }
 
   // Semantic checks run regardless — they don't depend on regex tokenization.
-  checkLibraryCollisions();
   checkCommonErrors();
   checkAidApi();
 
