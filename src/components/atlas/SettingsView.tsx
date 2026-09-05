@@ -2,22 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   X, Link, Loader2, RefreshCw, Smartphone, Bug,
 } from 'lucide-react';
-import { useLayoutMode, LayoutMode } from '@/hooks/use-layout-mode';
+import { useLayoutMode, LayoutMode, LAYOUT_CHOICES } from '@/hooks/use-layout-mode';
 import { supportsFileSystemAccess, pickFile } from '@/services/fileLinkService';
 import { Script } from '@/types';
 import { useRpgDebug } from '@/hooks/use-rpg-debug';
+import { EMPTY_LINKED_FILES, FileLinkingConfig } from '@/utils/fileLinking';
 
 type SlotHandles = Record<string, FileSystemFileHandle | null>;
 
 interface SettingsViewProps {
   isOpen: boolean;
   onClose: () => void;
-  fileLinkingConfig: {
-    library: { path: string; content: string };
-    input: { path: string; content: string };
-    context: { path: string; content: string };
-    output: { path: string; content: string };
-  };
+  fileLinkingConfig: FileLinkingConfig;
   onSave: (
     newPaths: Record<string, string>,
     newContents: Record<string, string>,
@@ -46,9 +42,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
   const [localContents, setLocalContents] = useState<Record<string, string | null>>({
     library: null, input: null, context: null, output: null,
   });
-  const [localFiles, setLocalFiles] = useState<Record<string, File | null>>({
-    library: null, input: null, context: null, output: null,
-  });
+  const [localFiles, setLocalFiles] = useState(EMPTY_LINKED_FILES);
   const [localHandles, setLocalHandles] = useState<SlotHandles>({
     library: null, input: null, context: null, output: null,
   });
@@ -68,7 +62,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         output: fileLinkingConfig.output.path,
       });
       setLocalContents({ library: null, input: null, context: null, output: null });
-      setLocalFiles({ library: null, input: null, context: null, output: null });
+      setLocalFiles(EMPTY_LINKED_FILES);
       setLocalHandles({ library: null, input: null, context: null, output: null });
     }
   }, [isOpen, fileLinkingConfig]);
@@ -226,12 +220,6 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     </div>
   );
 };
-
-const LAYOUT_CHOICES: { value: LayoutMode; label: string; hint: string }[] = [
-  { value: 'auto',    label: 'Automatic',      hint: 'Follow the screen size. Compact below 768px wide.' },
-  { value: 'mobile',  label: 'Always compact', hint: 'Touch-sized controls and a stacked block list on every device.' },
-  { value: 'desktop', label: 'Always full',    hint: 'The pan-and-zoom block canvas, even on a small screen.' },
-];
 
 /** The layout override. Separate component so it can use the store's hook. */
 const LayoutSettings: React.FC = () => {

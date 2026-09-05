@@ -47,12 +47,12 @@ function buildPreamble(kb?: KnowledgeBase): string {
 
 /**
  * Give the sandbox the user's real cards.
- *
- * The Director's pipeline seeds `worldState.storyCards` from the Knowledge Base
- * before running a hook; without the same step here `storyCards` would be an
- * empty array and every add/update/remove would operate on nothing — the
- * feature would look like it worked while touching no real card.
- */
+  *
+  * The Director's pipeline seeds `worldState.storyCards` from the Knowledge Base
+  * before running a hook; without the same step here `storyCards` would be an
+  * empty array and every add/update/remove would operate on nothing — the
+  * feature would look like it worked while touching no real card.
+  */
 function seedWorldState(worldState: WorldState, kb?: KnowledgeBase): WorldState {
   const clone: WorldState = JSON.parse(JSON.stringify(worldState ?? {}));
   if (kb?.storyCards && !clone.storyCards) {
@@ -165,7 +165,7 @@ export async function runBlocks(
     .map(l => (typeof l === 'string' ? l : JSON.stringify(l)))
     .filter(l => !DIRECTOR_ONLY.some(p => l.startsWith(p)));
 
-  let line = run.error?.line ?? 'unknown';
+  const line = run.error?.line ?? 'unknown';
 
   const after = (run.newState?.storyCards ?? []) as AidCard[];
 

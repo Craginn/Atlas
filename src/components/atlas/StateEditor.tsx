@@ -421,20 +421,6 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
     event.target.value = '';
   };
 
-  const TabButton: React.FC<{ id: 'raw' | 'delta' | 'history'; icon: React.ElementType; label: string }> = ({ id, icon: Icon, label }) => (
-    <button
-      onClick={() => setActiveTab(id)}
-      className={`flex items-center space-x-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors border-b-2 ${
-        activeTab === id
-          ? 'text-blue-400 border-blue-400 bg-blue-500/5'
-          : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'
-      }`}
-    >
-      <Icon size={12} />
-      <span>{label}</span>
-    </button>
-  );
-
   const lineCount = localText.split('\n').length;
 
   // Calculate current memory usage and percentage of 16MB limit.
@@ -493,9 +479,9 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
       </div>
 
       <div className="flex border-b border-zinc-800 bg-black/20">
-        <TabButton id="raw" icon={Code} label="Raw State" />
-        <TabButton id="delta" icon={GitCommit} label="State Deltas" />
-        <TabButton id="history" icon={History} label={`History${history.length ? ` (${history.length})` : ''}`} />
+        <TabButton label="Raw State" icon={Code} active={activeTab === 'raw'} onClick={() => setActiveTab('raw')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'raw' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
+        <TabButton label="State Deltas" icon={GitCommit} active={activeTab === 'delta'} onClick={() => setActiveTab('delta')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'delta' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
+        <TabButton label={`History${history.length ? ` (${history.length})` : ''}`} icon={History} active={activeTab === 'history'} onClick={() => setActiveTab('history')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'history' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
       </div>
 
       {activeTab === 'raw' ? (

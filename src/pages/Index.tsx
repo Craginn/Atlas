@@ -21,6 +21,7 @@ import { refreshShellStatus } from '@/services/terminal/shellClient';
 import { ScriptingService, mergeScriptStoryCards, PlayerActionType } from '@/services/scriptingService';
 import { validateScriptSyntax } from '@/services/offlineSimulationService';
 import { readHandle } from '@/services/fileLinkService';
+import { EMPTY_FILE_LINKING_CONFIG, EMPTY_LINKED_FILES, LinkedFiles } from '@/utils/fileLinking';
 
 const INITIAL_KNOWLEDGE_BASE: KnowledgeBase = {
   aiInstructions: '',
@@ -196,15 +197,8 @@ const Index: React.FC = () => {
   // The Director's Input box. Lifted out of SimulationEngine so the Block Canvas
   // can bind the same text to `text` in a scratch run.
   const [simInput, setSimInput] = useState<string>('');
-  const [fileLinkingConfig, setFileLinkingConfig] = useState({
-    library: { path: 'Link File', content: '' },
-    input: { path: 'Link File', content: '' },
-    context: { path: 'Link File', content: '' },
-    output: { path: 'Link File', content: '' },
-  });
-  const [linkedFiles, setLinkedFiles] = useState<Record<string, File | null>>({
-    library: null, input: null, context: null, output: null,
-  });
+  const [fileLinkingConfig, setFileLinkingConfig] = useState(EMPTY_FILE_LINKING_CONFIG);
+  const [linkedFiles, setLinkedFiles] = useState<LinkedFiles>(EMPTY_LINKED_FILES);
   // Live file handles (File System Access API) so external edits can be re-read.
   const [fileHandles, setFileHandles] = useState<Record<string, FileSystemFileHandle | null>>({
     library: null, input: null, context: null, output: null,
