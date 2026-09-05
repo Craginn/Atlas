@@ -122,7 +122,10 @@ export const runOfflineSimulation = async (
           logs.push(['ERROR:', ...formatted].join(' '));
         }
       };
-      var _ln = 0, _caught = null;
+      // Hoisted so the catch block can attribute the error: execCode is the
+      // hook's own source (after the trailing modifier(text) rewrite), and
+      // hookLineOffset is how many wrapped lines precede the hook's line 1.
+      var execCode = '', hookLineOffset = 0;
       try {
         const text = input;
         const state = worldState;
@@ -157,18 +160,31 @@ export const runOfflineSimulation = async (
         // sandbox shipped a hardcoded guess at the context heading literals, which
         // is exactly the thing the assembled context must be free to define.
 
-        let execCode = hookCode || code;
+        execCode = hookCode || code;
         if (isModifierScript) {
-            execCode = code.replace(/modifier\\s*\\(\\s*text\\s*\\)\\s*;?\\s*$/, 'return modifier(text);');
+            // Rewrite the trailing modifier(text) call on the HOOK's own code
+            // (execCode = hookCode || code), never on the full bundle: "code" is
+            // Library + hook, so replacing against "code" made execCode the whole
+            // bundle while the Library is ALSO prepended separately below as
+            // libraryPart — the Library was embedded twice in the wrapped
+            // function, every top-level const/let in it (e.g. the RPG engine
+            // Library's "const Say") was declared twice, and the run died with
+            // "Identifier 'X' has already been declared" before the hook's
+            // first line ever ran.
+            execCode = execCode.replace(/modifier\\s*\\(\\s*text\\s*\\)\\s*;?\\s*$/, 'return modifier(text);');
         }
 
-        const instrumented = execCode
-          .split('\\n')
-          .map((line, i) => '  _ln = ' + (i + 1) + ';\\n' + line)
-          .join('\\n');
-
         const libraryPart = hookCode ? code.slice(0, -hookCode.length) : '';
-        const wrappedCode = '(function(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry) {\\n' + libraryPart + '\\n' + instrumented + '\\n})\\n//# sourceURL=userscript.js\\n';
+        const wrapperHeader = '(function(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry) {\\n';
+        const wrappedCode = wrapperHeader + libraryPart + '\\n' + execCode + '\\n})\\n//# sourceURL=userscript.js\\n';
+        // Wrapped lines before the hook's line 1. The catch block maps
+        // userscript.js stack lines back onto the hook's own script with this.
+        // Line attribution comes from the stack (the sourceURL tag names every
+        // frame of the wrapped function) rather than injected "_ln = N;"
+        // statements: injecting a statement before EVERY line corrupted any
+        // multi-line construct — object literals, argument lists — into a
+        // SyntaxError before the script could even run.
+        hookLineOffset = (wrapperHeader + libraryPart + '\\n').split('\\n').length - 1;
         const fn = eval(wrappedCode);
         const result = fn(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry);
 
@@ -200,13 +216,27 @@ export const runOfflineSimulation = async (
         
         self.postMessage({ status: 'success', newState: worldState, logs, result });
       } catch (err) {
-        _caught = err;
         const message = err.message || String(err);
-        const effectiveLn = (hookCode && hookCode.trim().length > 0) ? _ln : (_ln > libraryLineCount ? _ln - libraryLineCount : 0);
-        const lineNumber = effectiveLn > 0 ? String(effectiveLn) : 'unknown';
-        const sourceCode = (hookCode && hookCode.trim().length > 0) ? hookCode : code;
-        const sourceLine = effectiveLn > 0 ? (sourceCode.split(String.fromCharCode(10))[effectiveLn - 1] || '').trim() : '';
-        
+        // Attribute the throw to the first userscript.js stack frame inside the
+        // hook's own code: an error thrown from a Library function lands on the
+        // hook line that called it — the line the editor can show. Frames in
+        // the Library preamble (before the hook region) are skipped; when none
+        // is in the hook, the line is reported as unknown.
+        let lineNumber = 'unknown';
+        let sourceLine = '';
+        if (err && err.stack) {
+          const frameRe = /userscript\\.js:(\\d+)/g;
+          let fm;
+          while ((fm = frameRe.exec(err.stack)) !== null) {
+            const rel = Number(fm[1]) - hookLineOffset;
+            if (rel >= 1) {
+              lineNumber = String(rel);
+              sourceLine = (execCode.split(String.fromCharCode(10))[rel - 1] || '').trim();
+              break;
+            }
+          }
+        }
+
         logs.push('[ERROR] ' + hookName + (lineNumber !== 'unknown' ? ', line ' + lineNumber : '') + ': ' + message);
         self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message, details: sourceLine ? lineNumber + ' | ' + sourceLine : undefined } });
       }
