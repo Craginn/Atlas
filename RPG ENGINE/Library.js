@@ -8340,9 +8340,37 @@ function ensureWorldState() {
         temperature: "mild",
       },
       worldRegistry: { modifiedLocations: {}, activeWorldEvents: [] },
+      dungeon: {
+        levels: {},
+        currentLevel: null,
+        activeMap: null,
+        grid: null,
+        rows: 8,
+        cols: 5,
+        floor: 1,
+        playerPosition: { row: 1, col: "A" },
+        generatedAt: 0,
+        currentLevelName: null,
+        dugfloor: 1,
+      },
     };
   }
   if (!state.world.LocalLocation) state.world.LocalLocation = {};
+  if (!state.world.dungeon) {
+    state.world.dungeon = {
+      levels: {},
+      currentLevel: null,
+      activeMap: null,
+      grid: null,
+      rows: 8,
+      cols: 5,
+      floor: 1,
+      playerPosition: { row: 1, col: "A" },
+      generatedAt: 0,
+      currentLevelName: null,
+      dugfloor: 1,
+    };
+  }
   if (!state.world.time) {
     state.world.time = {
       turn: 0,
@@ -8512,6 +8540,54 @@ function consumeLocationBiomass(name, cost) {
     entry.spawnedSinceFamine = Number.MAX_SAFE_INTEGER;
   }
   return { ok: true, entry };
+}
+
+function tickDungeonDiscovery() {
+  if (!state.world || !state.world.dungeon) return;
+  const dg = state.world.dungeon;
+  if (!dg.levels || !dg.levels.current) return;
+  if (state.PS && state.PS.location === "labyrinth") {
+    const floorKey = "floor_" + (dg.dugfloor || dg.currentFloor || 1);
+    const level = dg.levels[floorKey] || dg.levels.current;
+    if (level && level.grid) {
+      for (const key in level.grid) {
+        const room = level.grid[key];
+        if (room && typeof room.explored === "boolean") {
+          if (room.explored) room.seenThisTurn = true;
+        }
+      }
+    }
+  }
+}
+
+function tickDungeonRegen() {
+  if (!state.world || !state.world.dungeon) return;
+  const dg = state.world.dungeon;
+  if (!dg.levels) return;
+  for (const floorKey in dg.levels) {
+    const level = dg.levels[floorKey];
+    if (!level || !level.grid) continue;
+    for (const roomKey in level.grid) {
+      const room = level.grid[roomKey];
+      if (room && typeof room.explored === "boolean") {
+        room.seenThisTurn = false;
+      }
+    }
+  }
+}
+
+function tickDungeonMovement() {
+  if (!state.world || !state.world.dungeon) return;
+  const dg = state.world.dungeon;
+  if (!dg.levels) return;
+  const floorKey = "floor_" + (dg.dugfloor || dg.currentFloor || 1);
+  const level = dg.levels[floorKey] || dg.levels.current;
+  if (!level || !level.grid) return;
+  if (state.PS && state.PS.location === "labyrinth") {
+    if (!level.playerPosition) {
+      level.playerPosition = { row: 8, col: 0, colLetter: "E" };
+    }
+  }
 }
 
 function tickLocationRegen() {
@@ -11447,25 +11523,23 @@ const AREA_TYPE_KEYS = {
   "*L": { name: "Lair", type: "environment", difficulty: "very_high" },
 };
 
-// Initialize dungeon storage
+// Initialize dungeon storage under state.world.dungeon
 function initDungeon() {
-  if (!state.Dungeon) {
-    state.Dungeon = {
-      name: "Underground Labyrinth",
-      floor: 1,
-      rows: 8,
-      cols: 5,
-      grid: {},
-      playerPosition: { row: 1, col: "A" },
-      generatedAt: Date.now(),
-    };
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  if (!dg.grid) {
+    dg.name = "Underground Labyrinth";
+    dg.floor = 1;
+    dg.rows = 8;
+    dg.cols = 5;
+    dg.playerPosition = { row: 1, col: "A" };
+    dg.grid = {};
 
-    // Initialize empty grid
-    for (let row = 1; row <= state.Dungeon.rows; row++) {
-      for (let colIndex = 0; colIndex < state.Dungeon.cols; colIndex++) {
+    for (let row = 1; row <= dg.rows; row++) {
+      for (let colIndex = 0; colIndex < dg.cols; colIndex++) {
         const col = String.fromCharCode(65 + colIndex); // A-E
         const key = `${row}${col}`;
-        state.Dungeon.grid[key] = {
+        dg.grid[key] = {
           type: "empty",
           description: "Empty corridor",
           explored: false,
@@ -11475,12 +11549,42 @@ function initDungeon() {
         };
       }
     }
+    dg.generatedAt = Date.now();
   }
 }
 
 // Generate dungeon content
 function generateDungeon() {
-  initDungeon();
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  if (!dg.levels) dg.levels = {};
+
+  const floorKey = "floor_" + (dg.dugfloor || dg.floor || 1);
+
+  const existing = dg.levels[floorKey];
+  if (existing && existing.grid && Object.keys(existing.grid).length > 0 && existing.generatedAt) {
+    dg.grid = existing.grid;
+    dg.playerPosition = existing.playerPosition;
+    dg.currentFloor = dg.dugfloor || dg.floor || 1;
+    dg.activeMap = existing.activeMap || dg.activeMap;
+    return dg;
+  }
+
+  dg.name = "Underground Labyrinth";
+  dg.currentFloor = dg.dugfloor || dg.floor || 1;
+  dg.grid = {};
+  dg.playerPosition = { row: 1, col: "A" };
+
+  const rows = dg.rows || 8;
+  const cols = dg.cols || 5;
+
+  // Fill grid with room keys
+  for (let row = 1; row <= rows; row++) {
+    for (let colIndex = 0; colIndex < cols; colIndex++) {
+      const col = String.fromCharCode(65 + colIndex);
+      dg.grid[`${row}${col}`] = null;
+    }
+  }
 
   // Room types with probabilities
   const roomTypes = [
@@ -11497,10 +11601,10 @@ function generateDungeon() {
   const totalWeight = roomTypes.reduce((sum, room) => sum + room.weight, 0);
 
   // Fill grid with rooms
-  Object.keys(state.Dungeon.grid).forEach((key) => {
+  Object.keys(dg.grid).forEach((key) => {
     // Skip player starting position
     if (key === "1A") {
-      state.Dungeon.grid[key] = {
+      dg.grid[key] = {
         type: "start",
         description: "Starting chamber",
         explored: true,
@@ -11525,11 +11629,12 @@ function generateDungeon() {
 
     // Create room with specific elements
     const room = createDungeonRoom(selectedType.type, selectedType.description);
-    state.Dungeon.grid[key] = room;
+    dg.grid[key] = room;
   });
 
   // Add stairs to next floor (always at the bottom-right)
-  state.Dungeon.grid["8E"] = {
+  // The dungeon exist needs to be random not always at the bottom-right, but for simplicity, we place it at 8E
+  dg.grid["8E"] = {
     type: "exit",
     description: "Stairs to next floor",
     explored: false,
@@ -11538,10 +11643,51 @@ function generateDungeon() {
     hazards: [],
   };
 
-  return state.Dungeon;
-}
+  // Build room-list format for showDungeonMapDetailed()
+  const rooms = [];
+  let currentRoomIndex = 0;
+  let roomId = 1;
+  for (let row = 1; row <= rows; row++) {
+    for (let colIndex = 0; colIndex < cols; colIndex++) {
+      const col = String.fromCharCode(65 + colIndex);
+      const room = dg.grid[`${row}${col}`];
+      if (!room) continue;
+      const isStart = room.type === "start";
+      if (isStart) currentRoomIndex = roomId - 1;
+      rooms.push({
+        id: roomId,
+        type: room.type,
+        description: room.description,
+        cleared: room.type === "start",
+        visited: room.type === "start",
+        isExit: room.type === "exit",
+        leadsTo: room.type === "exit" ? dg.currentFloor + 1 : undefined,
+        difficulty: room.enemies && room.enemies.length ? room.enemies.length : undefined,
+      });
+      roomId++;
+    }
+  }
 
-// Create a specific dungeon room
+  const layoutStyle = getRandomLayoutStyle();
+  const mapData = {
+    dungeon: dg.name,
+    floor: dg.currentFloor,
+    rooms,
+    layoutStyle,
+    currentRoomIndex: rooms.length > 0 ? 0 : 0,
+  };
+
+  dg.activeMap = mapData;
+  dg.generatedAt = Date.now();
+  dg.levels[floorKey] = {
+    grid: dg.grid,
+    playerPosition: dg.playerPosition,
+    activeMap: mapData,
+    generatedAt: dg.generatedAt,
+  };
+
+  return dg;
+}// Create a specific dungeon room
 function createDungeonRoom(type, description) {
   const room = {
     type,
@@ -11622,11 +11768,16 @@ function generateRandomEnemies(count, isBoss = false) {
 
 // Build dungeon string for AI Dungeon story card
 function buildDungeonString() {
-  initDungeon();
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  if (!dg.grid) {
+    generateDungeon();
+  }
+  const grid = dg.grid || {};
 
-  let dungeonString = `[Dungeon: ${state.Dungeon.name} - Floor ${state.Dungeon.floor}]\n\n`;
-  dungeonString += `Grid: ${state.Dungeon.rows} rows x ${state.Dungeon.cols} columns (A-E)\n`;
-  dungeonString += `Player Position: Row ${state.Dungeon.playerPosition.row}, Column ${state.Dungeon.playerPosition.col}\n\n`;
+  let dungeonString = `[Dungeon: ${dg.name} - Floor ${dg.floor}]\n\n`;
+  dungeonString += `Grid: ${dg.rows} rows x ${dg.cols} columns (A-E)\n`;
+  dungeonString += `Player Position: Row ${dg.playerPosition.row}, Column ${dg.playerPosition.col}\n\n`;
 
   // Room legend
   dungeonString += `Room Types Legend:\n`;
@@ -11645,12 +11796,12 @@ function buildDungeonString() {
   dungeonString += `   A  B  C  D  E\n`;
   dungeonString += `  ───────────────\n`;
 
-  for (let row = 1; row <= state.Dungeon.rows; row++) {
+  for (let row = 1; row <= dg.rows; row++) {
     let rowStr = `${row} |`;
-    for (let colIndex = 0; colIndex < state.Dungeon.cols; colIndex++) {
+    for (let colIndex = 0; colIndex < dg.cols; colIndex++) {
       const col = String.fromCharCode(65 + colIndex);
       const key = `${row}${col}`;
-      const room = state.Dungeon.grid[key];
+      const room = grid[key];
 
       let symbol = " ";
       switch (room.type) {
@@ -11692,8 +11843,8 @@ function buildDungeonString() {
 
   // Detailed room descriptions
   dungeonString += `Room Details:\n`;
-  Object.keys(state.Dungeon.grid).forEach((key) => {
-    const room = state.Dungeon.grid[key];
+  Object.keys(grid).forEach((key) => {
+    const room = grid[key];
     if (room.explored || room.type === "start") {
       dungeonString += `\n${key}: ${room.description}`;
       if (room.enemies.length > 0) {
@@ -11713,19 +11864,26 @@ function buildDungeonString() {
 
 // Update dungeon story card
 function updateDungeonCard() {
+  ensureWorldState();
   const dungeonString = buildDungeonString();
-  addStoryCard(
-    "dungeon_map",
-    dungeonString,
-    "dungeon",
-    "Dungeon Map",
-    "Current dungeon layout and contents",
-  );
+  const dg = state.world.dungeon;
+  const card = CommunityUtils.StoryCards.find(dg.cardKey || "dungeon_map", true, dungeonString, "Dungeon");
+  if (card) {
+    CommunityUtils.StoryCards.setSettings(card, "Floor", dg.floor);
+    CommunityUtils.StoryCards.setSettings(card, "Position", `${dg.playerPosition.row}${dg.playerPosition.col}`);
+  }
 }
 
-// Player movement
+// Player movement within the dungeon grid
+//The player movement should not be tracked but for now its okay to track it in the state.world.dungeon.playerPosition for the sake of the dungeon map and story card updates. In future iterations, we can remove this tracking if needed.
+// The player can move north, south, east, or west within the grid. Movement is blocked by walls and boundaries.
 function movePlayer(direction) {
-  const { row, col } = state.Dungeon.playerPosition;
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  if (!dg.grid) {
+    generateDungeon();
+  }
+  const { row, col } = dg.playerPosition;
   let newRow = row;
   let newCol = col;
 
@@ -11734,7 +11892,7 @@ function movePlayer(direction) {
       newRow = Math.max(1, row - 1);
       break;
     case "south":
-      newRow = Math.min(state.Dungeon.rows, row + 1);
+      newRow = Math.min(dg.rows, row + 1);
       break;
     case "east":
       newCol = String.fromCharCode(Math.min(69, col.charCodeAt(0) + 1)); // E is 69
@@ -11746,9 +11904,9 @@ function movePlayer(direction) {
 
   // Mark new position as explored
   const newKey = `${newRow}${newCol}`;
-  if (state.Dungeon.grid[newKey]) {
-    state.Dungeon.grid[newKey].explored = true;
-    state.Dungeon.playerPosition = { row: newRow, col: newCol };
+  if (dg.grid[newKey]) {
+    dg.grid[newKey].explored = true;
+    dg.playerPosition = { row: newRow, col: newCol };
     updateDungeonCard();
     return true;
   }
@@ -11758,15 +11916,20 @@ function movePlayer(direction) {
 
 // Get current room
 function getCurrentRoom() {
-  const key = `${state.Dungeon.playerPosition.row}${state.Dungeon.playerPosition.col}`;
-  return state.Dungeon.grid[key];
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  if (!dg.grid) return null;
+  const key = `${dg.playerPosition.row}${dg.playerPosition.col}`;
+  return dg.grid[key];
 }
 
 // Initialize and generate dungeon on first use
 
-// Command: show map
+// Command: show map (grid-based view)
 function showDungeonMap() {
-  if (!state.Dungeon || Object.keys(state.Dungeon.grid).length === 0) {
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  if (!dg.grid || Object.keys(dg.grid).length === 0) {
     generateDungeon();
   }
 
@@ -11874,24 +12037,26 @@ function createRoom(type, floor, playerLevel, roomNumber) {
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
+ // ──────────────────────────────────────────────────────────────────────────────
 // Storage & Display Helpers
 // ──────────────────────────────────────────────────────────────────────────────
-
 function saveDungeonMap(mapData) {
-  // Store the entire map as JSON in a story card / persistent field
-  state.dungeonMap = JSON.stringify(mapData);
+  ensureWorldState();
+  // Store the entire map as JSON in state.world.dungeon.activeMap
+  const dg = state.world.dungeon;
+  dg.activeMap = mapData;
   // Optional: also store shorter version for quick access
-  state.currentFloorSummary = `${mapData.dungeon} - Floor ${mapData.floor} | ${mapData.rooms.length} rooms`;
+  dg.currentFloorSummary = `${mapData.dungeon} - Floor ${mapData.floor} | ${mapData.rooms.length} rooms`;
 }
 
 function getDungeonMap() {
-  if (!state.dungeonMap) return null;
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  const raw = dg.activeMap;
+  if (!raw) return null;
   try {
-    return JSON.parse(state.dungeonMap);
+    return typeof raw === "string" ? JSON.parse(raw) : raw;
   } catch (e) {
-    // Recoverable, but not silent: a corrupted map used to read as "no map
-    // generated". Surface it as a warning so the corruption is visible.
     console.error(
       `getDungeonMap: stored dungeon map is corrupted and could not be parsed: ${e && e.message ? e.message : e}`,
     );
@@ -11899,8 +12064,8 @@ function getDungeonMap() {
   }
 }
 
-// Command: /map
-function showDungeonMap() {
+// Command: /map detailed (room-list view)
+function showDungeonMapDetailed() {
   const map = getDungeonMap();
   if (!map) return "No dungeon map has been generated yet.";
 
@@ -12811,15 +12976,16 @@ const DUNGEON_PREFABS = {
 
 // Dungeon Map Storage & Generator
 const DungeonMapSystem = {
-  // Initialize dungeon storage
+  // Initialize dungeon storage under state.world.dungeon
   _init() {
-    if (!state.dungeonMaps) state.dungeonMaps = {};
-    if (!state.currentDungeon) state.currentDungeon = null;
+    ensureWorldState();
+    const dg = state.world.dungeon;
   },
 
   // Create a new dungeon level
   createDungeonLevel(levelName, areaType, roomIds = []) {
     this._init();
+    const dg = state.world.dungeon;
 
     const levelKey = levelName.toLowerCase().replace(/[^a-z0-9]/g, "_");
     const rooms = roomIds.map((id) => DUNGEON_PREFABS[id]).filter((r) => r);
@@ -12838,15 +13004,17 @@ const DungeonMapSystem = {
       createdAt: new Date().toISOString(),
     };
 
-    state.dungeonMaps[levelKey] = dungeonLevel;
+    dg.levels[levelKey] = dungeonLevel;
+    dg.currentLevel = dungeonLevel;
     return dungeonLevel;
   },
 
   // Get a specific dungeon level
   getDungeonLevel(levelName) {
     this._init();
+    const dg = state.world.dungeon;
     const key = levelName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-    return state.dungeonMaps[key] || null;
+    return dg.levels[key] || null;
   },
 
   // Get a specific room from a dungeon
@@ -12914,15 +13082,19 @@ const DungeonMapSystem = {
   // List all dungeon levels
   listAllDungeons() {
     this._init();
-    return Object.values(state.dungeonMaps);
+    return Object.values(state.world.dungeon.levels);
   },
 
   // Delete a dungeon level
   deleteDungeonLevel(levelName) {
     this._init();
+    const dg = state.world.dungeon;
     const key = levelName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-    if (state.dungeonMaps[key]) {
-      delete state.dungeonMaps[key];
+    if (dg.levels[key]) {
+      delete dg.levels[key];
+      if (dg.currentLevel && dg.currentLevel.key === key) {
+        dg.currentLevel = null;
+      }
       return true;
     }
     return false;
@@ -12930,6 +13102,25 @@ const DungeonMapSystem = {
 };
 
 // When entering new floor / starting dungeon:
+function generateDungeonFloor(dungeonName, floor, playerLevel) {
+  ensureWorldState();
+  const dg = state.world.dungeon;
+  dg.name = dungeonName || "Underground Labyrinth";
+  dg.dugfloor = floor;
+  dg.floor = floor;
+  dg.grid = {};
+  dg.levels = dg.levels || {};
+  generateDungeon();
+  dg.playerPosition = { row: 1, col: "A" };
+  return dg.activeMap || {
+    dungeon: dg.name,
+    floor: dg.currentFloor,
+    rooms: [],
+    layoutStyle: "Linear tunnel",
+    currentRoomIndex: 0,
+  };
+}
+
 function enterDungeonFloor(dungeonName, floor, playerLevel) {
   const newMap = generateDungeonFloor(dungeonName, floor, playerLevel);
   saveDungeonMap(newMap);
@@ -12938,12 +13129,12 @@ function enterDungeonFloor(dungeonName, floor, playerLevel) {
 
 function LabyrinthController() {
   // Read player state
-  const player = state.PS.Name;
+  const player = state.PS;
 
-  const playerLocation = player.location; // e.g. "Top Level"
+  const playerLocation = player.location || "safe haven"; // e.g. "Top Level"
   const playerFloor = player.dugfloor || 1; // new stat you added
   const playerloc = player.playerloc; // current sub-action/command
-  const combatStatus = player.combatStatus || "None";
+  const combatStatus = player.combatstatus || "None";
   let playerInventory = player.inventory || []; // assuming array, but can be object too
 
   // Labyrinth structure - Floor-based with bosses at bottom
@@ -13034,7 +13225,7 @@ function LabyrinthController() {
     // Boss check
     if (playerFloor === level.boss_floor) {
       if (combatStatus !== "Victory") {
-        player.combatStatus = `Fighting ${level.boss_name}`;
+        player.combatstatus = `Fighting ${level.boss_name}`;
         return `*** BOSS FLOOR ***\n${level.boss_name} blocks the path to ${getNextLevel(currentLevel)}!\nDefeat to advance.\n`;
       } else {
         // Boss defeated, advance to next level floor 1
@@ -13042,7 +13233,7 @@ function LabyrinthController() {
         if (nextLevel) {
           player.location = nextLevel;
           player.dugfloor = 1;
-          player.combatStatus = "None";
+          player.combatstatus = "None";
           return `Boss defeated! You descend to ${nextLevel} - Floor 1.\n`;
         }
         return "Labyrinth conquered!";
@@ -13179,7 +13370,7 @@ function dumplog(stream, text) {
 }
 History_Logs = false;
 function logfunc(f, ...args) {
-  let retval = f(...args);
+  let retval = f(...args) || "Debug: No return value";
   if (History_Logs) {
     console.log(f.name, retval);
   }

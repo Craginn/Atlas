@@ -98,6 +98,12 @@ const modifier = (text) => {
     printMonsterStats();
     tickMonsterCooldowns();
     tickLocationRegen();
+    tickStatusEffects();
+    tickAbilityCooldowns();
+    companionCombatTick();
+    tickDungeonDiscovery();
+    tickDungeonRegen();
+    tickDungeonMovement();
 
    
     return text;  // This is what AI Dungeon expects

@@ -40,8 +40,10 @@ let showcommands = {
   'backpack all':         displayBackpackAll,
   'backpack': handleBackpackCommand,
   'help': showhelp,
-  'map': showDungeonMap
-
+  'dungeon map detailed': showDungeonMapDetailed,
+  'dungeon map': showDungeonMap,
+  'map detailed': showDungeonMapDetailed,
+  'map': showDungeonMap,
 }
 
 
@@ -373,12 +375,46 @@ const basecode = (text) => {
 
     state.logMessages['Output'].push("[Game Engine Started!]")
 
-    return text
-  }
+     return text
+   }
 
+   // ── DUNGEON ENTRY ──────────────────────────────────────────────
+   // Player types "enter labyrinth" or "enter dungeon" to descend into
+   // the dungeon. On first entry a floor is generated; on subsequent
+   // entries the player returns to the last explored floor.
+   if (state.PS && state.PS.Name && !state.tempCharacter) {
+     const lowerInput = text.toLowerCase();
+     const isDungeonEntry =
+       lowerInput.includes("enter labyrinth") ||
+       lowerInput.includes("enter dungeon") ||
+       lowerInput.includes("enter the labyrinth") ||
+       lowerInput.includes("descend into") ||
+       lowerInput.includes("go to labyrinth");
 
+     if (isDungeonEntry && (state.PS.location === "safe haven" || state.PS.playerloc === "safe area")) {
+       ensureWorldState();
+       const dg = state.world.dungeon;
 
+       state.PS.location = "labyrinth";
+       state.PS.playerloc = "labyrinth";
+       state.PS.combatstatus = "Not in Combat";
 
+       if (!dg.grid || Object.keys(dg.grid).length === 0) {
+         generateDungeon();
+       }
+
+       const room = getCurrentRoom();
+       let roomDesc = "You stand at the threshold of the labyrinth.";
+       if (room) {
+         roomDesc = `You descend into the ${dg.name}. ${room.description}`;
+       }
+
+       state.logMessages['Input'].push(roomDesc);
+       return text;
+     }
+   }
+
+   // ── DUNGEON FLOOR TRAVERSAL (/descend /ascend) ───────────────────
 
 
 
@@ -541,6 +577,9 @@ const Playercommands = (text) => {
     'damage',
     'defenses',
     'help',
+    'dungeon map detailed',
+    'dungeon map',
+    'map detailed',
     'map',
   ];
   for (const target of showCommandOrder) {
@@ -634,8 +673,108 @@ const Playercommands = (text) => {
 
 
 
+  // ──────────────────────────────────────────────────────────────────
+  //  DUNGEON TRAVERSAL — /descend /ascend
+  //  Moves the player between floors of the labyrinth. State is kept
+  //  in state.world.dungeon (floor, dugfloor) and state.PS (location).
+  // ──────────────────────────────────────────────────────────────────
+  if (lowerText.includes('/descend')) {
+    ensureWorldState();
+    const dg = state.world.dungeon;
+
+    if (state.PS.location !== "labyrinth") {
+      state.overwrite = true;
+      state.output = "You can only descend while inside the labyrinth.";
+      return { text };
+    }
+
+    const currentFloor = dg.dugfloor || 1;
+    const newFloor = currentFloor + 1;
+
+    dg.dugfloor = newFloor;
+    dg.floor = newFloor;
+    dg.grid = {};
+    dg.levels = dg.levels || {};
+    generateDungeon();
+    dg.playerPosition = { row: 1, col: "A" };
+    state.PS.dugfloor = newFloor;
+    state.PS.playerloc = "descend";
+
+    state.overwrite = true;
+    state.output = `You descend to Floor ${newFloor}.`;
+    return { text };
+  }
+
+  if (lowerText.includes('/ascend')) {
+    ensureWorldState();
+    const dg = state.world.dungeon;
+
+    if (state.PS.location !== "labyrinth") {
+      state.overwrite = true;
+      state.output = "You can only ascend while inside the labyrinth.";
+      return { text };
+    }
+
+    const currentFloor = dg.dugfloor || 1;
+    const newFloor = Math.max(1, currentFloor - 1);
+
+    if (newFloor < currentFloor) {
+      if (dg.levels && dg.levels["floor_" + newFloor]) {
+        const level = dg.levels["floor_" + newFloor];
+        dg.grid = level.grid;
+        dg.playerPosition = level.playerPosition;
+        dg.activeMap = level.activeMap;
+      } else {
+        dg.dugfloor = newFloor;
+        dg.floor = newFloor;
+        dg.grid = {};
+        generateDungeon();
+        dg.playerPosition = { row: 1, col: "A" };
+      }
+      state.PS.dugfloor = newFloor;
+      if (state.PS.location === "labyrinth") {
+        state.PS.location = "safe haven";
+        state.PS.playerloc = "safe area";
+        state.PS.combatstatus = "Not in Combat";
+        state.overwrite = true;
+        state.output = `You ascend to Floor ${newFloor} of the labyrinth.`;
+      } else {
+        state.PS.playerloc = "ascend";
+        state.overwrite = true;
+        state.output = `You ascend to Floor ${newFloor}.`;
+      }
+    } else {
+      state.overwrite = true;
+      state.output = "You are already at the top floor of the labyrinth.";
+    }
+    return { text };
+  }
+
+  // ── DUNGEON GRID MOVEMENT (/move north|south|east|west) ──────────────
+  if (lowerText.match(/\/move\s+(north|south|east|west)\b/i)) {
+    if (state.PS.location !== "labyrinth") {
+      state.overwrite = true;
+      state.output = "You can only move this way while inside the labyrinth.";
+      return { text };
+    }
+    const dirMatch = lowerText.match(/\/move\s+(north|south|east|west)/i);
+    const direction = dirMatch ? dirMatch[1] : "north";
+    if (typeof movePlayer === "function") {
+      const moved = movePlayer(direction);
+      if (moved) {
+        state.overwrite = true;
+        state.output = `You move ${direction}.`;
+      } else {
+        state.overwrite = true;
+        state.output = `You cannot move ${direction} from here.`;
+      }
+    }
+    return { text };
+  }
+
+
   //===================================================================\\
-  //                    ALLY SYSTEM — commands                         \\
+  //                    ALLY SYSTEM — commands                        \\
   //  /recruit <name>  /dismiss <name>  /party                         \\
   //  plus narrative detection ("I ask Kaela to join me"), mirroring    \\
   //  how monster spawns are already scanned out of player text.        \\
