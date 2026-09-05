@@ -123,11 +123,11 @@ describe('simulateStep — the simulated AI call', () => {
     // the Library is shared code concatenated ahead of every hook, not a hook of
     // its own. So the executor is never called for a bare "Library" pass, and each
     // hook's code carries the library ahead of it.
-    const calls: { code: string; hook: string }[] = [];
+    const calls: { code: string; hook: string; libraryLineCount: number }[] = [];
     let i = 0;
     const order = ['Input Modifier', 'Context Modifier', 'Output Modifier'];
-    runOfflineSimulation.mockImplementation(async (code, worldState, _input, _isMod, hook) => {
-      calls.push({ code, hook });
+    runOfflineSimulation.mockImplementation(async (code, worldState, _input, _isMod, hook, _history, _hookCode, libraryLineCount) => {
+      calls.push({ code, hook, libraryLineCount });
       i++;
       return { newState: worldState, logs: [], result: null };
     });
@@ -141,6 +141,8 @@ describe('simulateStep — the simulated AI call', () => {
     // Library code is prepended to every hook, and never runs on its own.
     expect(calls.every(c => c.code.includes('function helper() {}'))).toBe(true);
     expect(calls.some(c => c.hook === 'Library')).toBe(false);
+    // libraryLineCount is passed through so the runner can offset error lines.
+    expect(calls.every(c => c.libraryLineCount === 1)).toBe(true);
   });
 
   it('runs the Input hook even when the player typed only whitespace', async () => {

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { StoryCard } from '@/types';
+import { StoryCard, CARD_TYPES } from '@/types';
 import { simulateTriggers } from '@/services/storyCardService';
 import { Layers, Plus, Trash2, Zap, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -8,8 +8,6 @@ interface StoryCardsViewProps {
   cards: StoryCard[];
   setCards: (cards: StoryCard[]) => void;
 }
-
-const CARD_TYPES: StoryCard['type'][] = ['Character', 'Location', 'Faction', 'Class', 'Race', 'Custom'];
 
 const newCard = (): StoryCard => ({
   id: `sc_${Date.now()}_${Math.floor(Math.random() * 1e4)}`,

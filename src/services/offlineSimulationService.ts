@@ -61,14 +61,10 @@ export const runOfflineSimulation = async (
   worldState: WorldState,
   input: string,
   isModifierScript: boolean,
-  // The AID hook this code runs as ("Input Modifier", "Output Modifier", …).
-  // Surfaced in the [DEBUG] EXECUTION ERROR line so failures name their hook.
   hookName = 'Unknown Hook',
-  // AID's `history` global. Passed separately rather than read off worldState:
-  // in AID it is engine-owned and NOT part of `state`, so folding it into the
-  // state object made every turn's text accumulate in the thing scripts persist.
-  // Read-only here — AID gives scripts no way to write it, so nothing comes back.
   history: HistoryEntry[] = [],
+  hookCode?: string,
+  libraryLineCount: number = 0,
 ): Promise<{
   newState: WorldState;
   logs: unknown[];
@@ -76,25 +72,36 @@ export const runOfflineSimulation = async (
   // return is passed through as-is; callers normalize via normalizeModifierResult.
   result: { text?: string; stop?: boolean } | string | null;
   // Present only when execution threw. The caller uses this to halt the
-  // pipeline (the engine stops) and paint the error surface red.
-  error?: { hook: string; line: string; message: string } | null;
+  // pipeline (the engine stops) and paint the error surface red. `details`
+  // carries the code-level follow-up (the failing source line, or the
+  // validator's full suggestion list) — never shown automatically.
+  error?: { hook: string; line: string; message: string; details?: string } | null;
 }> => {
   // Validate syntax before execution
-  const validation = validateScriptSyntax(code, isModifierScript);
+  const validation = validateScriptSyntax(code, isModifierScript, hookCode);
   if (!validation.valid && validation.errors.length > 0) {
-    const errorMessage = formatValidationResults(validation);
-    const first = validation.errors[0];
+    const first = validation.errors.find(e => e.type !== 'SYNTAX_ERROR') ?? validation.errors[0];
+    let mappedLine = first.line;
+    if (libraryLineCount > 0) {
+      const adjusted = first.line - libraryLineCount;
+      mappedLine = adjusted > 0 ? adjusted : 'unknown';
+    }
     return {
       newState: worldState,
-      logs: [errorMessage],
+      logs: [`[ERROR] ${hookName}, line ${mappedLine}: ${first.message}`],
       result: null,
-      error: { hook: hookName, line: String(first?.line ?? 'unknown'), message: first?.message ?? 'Validation failed' },
+      error: {
+        hook: hookName,
+        line: String(mappedLine ?? 'unknown'),
+        message: first.message ?? 'Validation failed',
+        details: formatValidationResults(validation),
+      },
     };
   }
 
   const workerCode = `
     self.onmessage = function(e) {
-      const { code, worldState, input, isModifierScript, hookName, history: turnHistory } = e.data;
+      const { code, hookCode, worldState, input, isModifierScript, hookName, history: turnHistory, libraryLineCount = 0 } = e.data;
       // Tell the host the script is about to run, so its watchdog can time the
       // script rather than the worker's startup (see the timeout below).
       self.postMessage({ status: 'started' });
@@ -115,6 +122,7 @@ export const runOfflineSimulation = async (
           logs.push(['ERROR:', ...formatted].join(' '));
         }
       };
+      var _ln = 0, _caught = null;
       try {
         const text = input;
         const state = worldState;
@@ -149,12 +157,18 @@ export const runOfflineSimulation = async (
         // sandbox shipped a hardcoded guess at the context heading literals, which
         // is exactly the thing the assembled context must be free to define.
 
-        let execCode = code;
+        let execCode = hookCode || code;
         if (isModifierScript) {
             execCode = code.replace(/modifier\\s*\\(\\s*text\\s*\\)\\s*;?\\s*$/, 'return modifier(text);');
         }
 
-        const wrappedCode = '(function(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry) {\\n' + execCode + '\\n})\\n//# sourceURL=userscript.js\\n';
+        const instrumented = execCode
+          .split('\\n')
+          .map((line, i) => '  _ln = ' + (i + 1) + ';\\n' + line)
+          .join('\\n');
+
+        const libraryPart = hookCode ? code.slice(0, -hookCode.length) : '';
+        const wrappedCode = '(function(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry) {\\n' + libraryPart + '\\n' + instrumented + '\\n})\\n//# sourceURL=userscript.js\\n';
         const fn = eval(wrappedCode);
         const result = fn(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry);
 
@@ -186,33 +200,15 @@ export const runOfflineSimulation = async (
         
         self.postMessage({ status: 'success', newState: worldState, logs, result });
       } catch (err) {
-        let lineNumber = 'unknown';
-        let message = err.message || String(err);
-        let stack = '';
-        if (err.stack) {
-          const stackLines = err.stack.split('\\n');
-          for (const sl of stackLines) {
-            const m = sl.match(/userscript\\.js:(\\d+)/);
-            if (m) {
-              lineNumber = String(Math.max(1, Number(m[1]) - 1));
-              break;
-            }
-          }
-          if (lineNumber === 'unknown') {
-            for (const sl of stackLines) {
-              const m = sl.match(/Function:(\\d+)/) || sl.match(/<anonymous>:(\\d+)/);
-              if (m) {
-                lineNumber = String(Math.max(1, Number(m[1]) - 2));
-                break;
-              }
-            }
-          }
-          stack = err.stack;
-        }
-        logs.push('[DEBUG] EXECUTION ERROR Hook: "' + hookName + '" at line: "' + lineNumber + '": "' + message + '".');
-        logs.push('[DEBUG] Stack: ' + stack);
-        logs.push('[DEBUG] WorldState at error:\\n' + JSON.stringify(worldState, null, 2));
-        self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: String(lineNumber), message: message } });
+        _caught = err;
+        const message = err.message || String(err);
+        const effectiveLn = (hookCode && hookCode.trim().length > 0) ? _ln : (_ln > libraryLineCount ? _ln - libraryLineCount : 0);
+        const lineNumber = effectiveLn > 0 ? String(effectiveLn) : 'unknown';
+        const sourceCode = (hookCode && hookCode.trim().length > 0) ? hookCode : code;
+        const sourceLine = effectiveLn > 0 ? (sourceCode.split(String.fromCharCode(10))[effectiveLn - 1] || '').trim() : '';
+        
+        logs.push('[ERROR] ' + hookName + (lineNumber !== 'unknown' ? ', line ' + lineNumber : '') + ': ' + message);
+        self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message, details: sourceLine ? lineNumber + ' | ' + sourceLine : undefined } });
       }
     };
   `;
@@ -243,7 +239,7 @@ export const runOfflineSimulation = async (
       worker.terminate();
       resolve({
         newState: worldState,
-        logs: [`[DEBUG] EXECUTION ERROR Hook: "${hookName}" at line: "unknown": "${message}".`],
+        logs: [`[ERROR] ${hookName}: ${message}`],
         result: null,
         error: { hook: hookName, line: 'unknown', message },
       });
@@ -280,7 +276,7 @@ export const runOfflineSimulation = async (
       clearTimeout(timeout);
       resolve({
         newState: worldState,
-        logs: [`[DEBUG] EXECUTION ERROR Hook: "${hookName}" at line: "unknown": "${e.message}".`],
+        logs: [`[ERROR] ${hookName}: ${e.message}`],
         result: null,
         error: { hook: hookName, line: 'unknown', message: e.message },
       });
@@ -291,7 +287,7 @@ export const runOfflineSimulation = async (
     // Hand scripts AID's exact `{ text, type, rawText }` — `turn` is an Atlas-only
     // annotation for the State Editor and must not appear on the `history` global.
     const aidHistory = history.map(({ text, type, rawText }) => ({ text, type, rawText }));
-    worker.postMessage({ code, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory });
+    worker.postMessage({ code, hookCode, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory, libraryLineCount });
   });
 };
 
@@ -364,10 +360,17 @@ function isEditDistanceOne(a: string, b: string): boolean {
   return edits === 1;
 }
 
-export const validateScriptSyntax = (code: string, isModifierScript = false): ValidationResult => {
+export const validateScriptSyntax = (code: string, isModifierScript = false, hookCode?: string): ValidationResult => {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
   const lines = code.split('\n');
+
+  // NOTE: Library-to-hook redeclaration detection was removed. Top-level
+  // `const`/`let` collisions between a script and the bundled Library are not
+  // a runtime error in AID — each script is evaluated in its own scope, and
+  // mock/test scripts frequently shadow Library names without ill effect.
+  // The JS engine (or the runtime error path) is the source of truth for
+  // actual redeclaration failures, so we no longer pre-emptively flag them.
 
   // ============ 1. BRACKET/BRACE/PAREN MATCHING WITH LINE TRACKING ============
   const checkBracketBalance = () => {

@@ -24,7 +24,7 @@ vi.mock('./offlineSimulationService', () => ({
         ws.storyCards || [], ws.memory || {}, false, console2.log, noop, noop, noop);
       return { newState: ws, logs, result, error: null };
     } catch (err) {
-      logs.push(`[DEBUG] EXECUTION ERROR Hook: "${hookName}": "${(err as Error).message}".`);
+      logs.push(`[ERROR] ${hookName}: ${(err as Error).message}`);
       return { newState: worldState, logs, result: null, error: { hook: hookName, line: 'unknown', message: (err as Error).message } };
     }
   },
@@ -54,7 +54,11 @@ describe('the app surfaces silent (caught-and-logged) script crashes', () => {
     expect(res.executionError).toBeNull();
     // ...but the caught error is surfaced instead of vanishing.
     expect(res.scriptErrors?.length).toBe(1);
-    expect(res.scriptErrors?.[0].hook).toBe('Input Modifier');
+    expect(res.scriptErrors?.[0]).toMatchObject({
+      hook: 'Input Modifier',
+      scriptId: 'i',
+      line: 'unknown',
+    });
     expect(res.scriptErrors?.[0].message).toMatch(/swallowed while attacking/);
     expect(res.scriptErrors?.[0].message).toMatch(/boom/);
   });

@@ -28,6 +28,8 @@ export interface StoryCard {
   notes: string;
 }
 
+export const CARD_TYPES = ['Character', 'Location', 'Faction', 'Class', 'Custom', 'Race'] as const satisfies readonly StoryCard['type'][];
+
 export enum LogType {
   SYSTEM = 'system',
   AI = 'ai',
@@ -100,6 +102,7 @@ export interface ScriptStateTrace {
   before: WorldState;
   after: WorldState;
   stateChanged: boolean;
+  logs?: string[];
 }
 
 // The simulated AI call that sits between the Context and Output hooks. No text is
@@ -155,12 +158,14 @@ export interface SimulationResult {
   executedCode?: { [scriptName: string]: string };
   stateTrace?: ScriptStateTrace[];
   // Set when a hook threw at runtime. The pipeline halts (the engine stops) and
-  // the UI paints the log/output surface red.
-  executionError?: { hook: string; line: string; message: string } | null;
+  // the UI paints the log/output surface red. `details` carries the code-level
+  // follow-up (the failing source line, or the validator's full suggestion
+  // list) — shown only behind the Code Suggestions button, never automatically.
+  executionError?: { hook: string; line: string; message: string; details?: string } | null;
   // Errors a script reported via console.error but caught/swallowed itself, so the
   // hook never threw. These don't halt the pipeline, but a silently-swallowed crash
   // is exactly what hides real bugs — so they're surfaced as a warning.
-  scriptErrors?: { hook: string; message: string }[];
+  scriptErrors?: { hook: string; scriptId: string; line: string; message: string }[];
   // Ids of Story Cards a script created or modified this turn. The Knowledge Base
   // merge uses these to reflect script updates to existing cards (e.g. a settings
   // write via updateStoryCard) without reverting cards the user hand-edited.

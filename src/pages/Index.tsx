@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { WorldState, Script, StoryCard, SentinelReport, SimulationMode, KnowledgeBase, LastSimData, HistoryEntry } from '@/types';
 import { INITIAL_WORLD_STATE, DEFAULT_SCRIPTS } from '@/constants';
 import AILogicEditor from '@/components/atlas/AILogicEditor';
@@ -21,6 +21,7 @@ import { refreshShellStatus } from '@/services/terminal/shellClient';
 import { ScriptingService, mergeScriptStoryCards, PlayerActionType } from '@/services/scriptingService';
 import { validateScriptSyntax } from '@/services/offlineSimulationService';
 import { readHandle } from '@/services/fileLinkService';
+import { EMPTY_FILE_LINKING_CONFIG, EMPTY_LINKED_FILES, LinkedFiles } from '@/utils/fileLinking';
 
 const INITIAL_KNOWLEDGE_BASE: KnowledgeBase = {
   aiInstructions: '',
@@ -196,15 +197,8 @@ const Index: React.FC = () => {
   // The Director's Input box. Lifted out of SimulationEngine so the Block Canvas
   // can bind the same text to `text` in a scratch run.
   const [simInput, setSimInput] = useState<string>('');
-  const [fileLinkingConfig, setFileLinkingConfig] = useState({
-    library: { path: 'Link File', content: '' },
-    input: { path: 'Link File', content: '' },
-    context: { path: 'Link File', content: '' },
-    output: { path: 'Link File', content: '' },
-  });
-  const [linkedFiles, setLinkedFiles] = useState<Record<string, File | null>>({
-    library: null, input: null, context: null, output: null,
-  });
+  const [fileLinkingConfig, setFileLinkingConfig] = useState(EMPTY_FILE_LINKING_CONFIG);
+  const [linkedFiles, setLinkedFiles] = useState<LinkedFiles>(EMPTY_LINKED_FILES);
   // Live file handles (File System Access API) so external edits can be re-read.
   const [fileHandles, setFileHandles] = useState<Record<string, FileSystemFileHandle | null>>({
     library: null, input: null, context: null, output: null,
@@ -419,7 +413,9 @@ const Index: React.FC = () => {
         message: result.executionError
           ? `${result.executionError.hook} failed at line ${result.executionError.line}: ${result.executionError.message}`
           : result.scriptErrors?.length
-          ? `${result.scriptErrors.length} script error(s) logged but caught (see Code Logs): ${result.scriptErrors[0].hook} — ${result.scriptErrors[0].message}`
+          ? `${result.scriptErrors.length} caught error(s): ${result.scriptErrors
+              .map(e => `${e.hook} line ${e.line} — ${e.message}`)
+              .join('; ')}`
           : `Simulation finished with ${triggered.length} scripts triggered.`,
       }));
 
@@ -521,6 +517,26 @@ const Index: React.FC = () => {
     setIsAnalyzing(false);
   }, [scripts]);
 
+  const runtimeErrorsByScriptId = useMemo(() => {
+    const map: Record<string, { line: number; message: string }[]> = {};
+    (lastSimData as LastSimData | undefined)?.stateTrace?.forEach(entry => {
+      if (entry.logs) {
+        entry.logs.forEach((log: string) => {
+          const m = log.match(/^\[ERROR\]\s*(.+?)(?:,\s*line\s*(\d+))?:\s*(.+)$/);
+          if (m) {
+            const [, hook, line, message] = m;
+            const script = scripts.find(s => s.name === hook);
+            if (script) {
+              if (!map[script.id]) map[script.id] = [];
+              map[script.id].push({ line: line ? Number(line) : 0, message });
+            }
+          }
+        });
+      }
+    });
+    return map;
+  }, [lastSimData, scripts]);
+
   const renderView = () => {
     switch (view) {
       case 'simulation':
@@ -537,7 +553,7 @@ const Index: React.FC = () => {
       case 'state':
         return <StateEditor worldState={worldState} setWorldState={handleSetWorldState} previousWorldState={previousWorldState} stateTrace={lastSimData?.stateTrace} hasError={!!lastSimData?.executionError} history={history} />;
       case 'logic':
-        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} />;
+        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} runtimeErrorsByScriptId={runtimeErrorsByScriptId} />;
       case 'blocks':
         // Same `scripts` state as the JS Code Editor — the canvas parses that
         // code into blocks and writes generated code back, so the two views are

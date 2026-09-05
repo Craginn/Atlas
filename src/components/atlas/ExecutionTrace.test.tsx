@@ -66,9 +66,9 @@ describe('ExecutionTrace', () => {
   it('flags the hook that threw, not the whole run', () => {
     render(<ExecutionTrace trace={[
       { scriptName: 'Input Modifier', logs: ['fine'] },
-      { scriptName: 'Output Modifier', logs: ['[DEBUG] EXECUTION ERROR Hook: "Output Modifier"'] },
+      { scriptName: 'Output Modifier', logs: ['[ERROR] Output Modifier, line 12: boom'] },
     ]} />);
-    expect(screen.getByText(/EXECUTION ERROR/)).toBeTruthy();
+    expect(screen.getByText(/\[ERROR\] Output Modifier/)).toBeTruthy();
   });
 
   it('can collapse a hook section', () => {

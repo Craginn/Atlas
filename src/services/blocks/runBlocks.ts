@@ -1,7 +1,7 @@
 import { BlockNode } from './types';
 import { generateCode } from './generate';
 import { runOfflineSimulation } from '../offlineSimulationService';
-import { toAidStoryCard } from '../scriptingService';
+import { toAidStoryCard, fromAidStoryCard } from '../scriptingService';
 import { KnowledgeBase, StoryCard, WorldState } from '../../types';
 
 /** The AID-shaped story card the sandbox actually sees. */
@@ -47,12 +47,12 @@ function buildPreamble(kb?: KnowledgeBase): string {
 
 /**
  * Give the sandbox the user's real cards.
- *
- * The Director's pipeline seeds `worldState.storyCards` from the Knowledge Base
- * before running a hook; without the same step here `storyCards` would be an
- * empty array and every add/update/remove would operate on nothing — the
- * feature would look like it worked while touching no real card.
- */
+  *
+  * The Director's pipeline seeds `worldState.storyCards` from the Knowledge Base
+  * before running a hook; without the same step here `storyCards` would be an
+  * empty array and every add/update/remove would operate on nothing — the
+  * feature would look like it worked while touching no real card.
+  */
 function seedWorldState(worldState: WorldState, kb?: KnowledgeBase): WorldState {
   const clone: WorldState = JSON.parse(JSON.stringify(worldState ?? {}));
   if (kb?.storyCards && !clone.storyCards) {
@@ -60,6 +60,8 @@ function seedWorldState(worldState: WorldState, kb?: KnowledgeBase): WorldState 
   }
   return clone;
 }
+
+export { seedWorldState };
 
 export interface StoryCardChanges {
   added: AidCard[];
@@ -90,7 +92,6 @@ function diffStoryCards(before: AidCard[], after: AidCard[]): StoryCardChanges |
 const DIRECTOR_ONLY = [
   '[DEBUG] Modified Text:',
   '[DEBUG] stop flag:',
-  '[DEBUG] WorldState at error:',
 ];
 
 export interface BlockRunResult {
@@ -157,18 +158,14 @@ export async function runBlocks(
   // it must not be held to the `modifier(text)` contract the Director enforces.
   const run = await runOfflineSimulation(
     buildPreamble(knowledgeBase) + code, seeded, input, false, 'Block Canvas',
+    undefined, code,
   );
 
   const logs = (run.logs ?? [])
     .map(l => (typeof l === 'string' ? l : JSON.stringify(l)))
     .filter(l => !DIRECTOR_ONLY.some(p => l.startsWith(p)));
 
-  // The preamble sits above the user's code, so a raw line number would point
-  // one line further down than the block they actually wrote.
-  let line = run.error?.line ?? 'unknown';
-  if (run.error && /^\d+$/.test(line)) {
-    line = String(Math.max(1, Number(line) - PREAMBLE_LINES));
-  }
+  const line = run.error?.line ?? 'unknown';
 
   const after = (run.newState?.storyCards ?? []) as AidCard[];
 
@@ -190,16 +187,7 @@ export async function runBlocks(
  * running alone never reaches this.
  */
 export function toKnowledgeBaseCards(cards: AidCard[]): StoryCard[] {
-  return cards.map(c => ({
-    id: c.id,
-    title: c.title ?? '',
-    content: c.entry ?? '',
-    keywords: typeof c.keys === 'string'
-      ? c.keys.split(',').map(k => k.trim()).filter(Boolean)
-      : [],
-    type: (c.type ?? 'Custom') as StoryCard['type'],
-    notes: c.description ?? '',
-  }));
+  return cards.map(c => fromAidStoryCard(c));
 }
 
 /** Depth-first lookup so any block, nested or not, can join the run order. */
