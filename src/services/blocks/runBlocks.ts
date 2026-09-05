@@ -1,7 +1,7 @@
 import { BlockNode } from './types';
 import { generateCode } from './generate';
 import { runOfflineSimulation } from '../offlineSimulationService';
-import { toAidStoryCard } from '../scriptingService';
+import { toAidStoryCard, fromAidStoryCard } from '../scriptingService';
 import { KnowledgeBase, StoryCard, WorldState } from '../../types';
 
 /** The AID-shaped story card the sandbox actually sees. */
@@ -60,6 +60,8 @@ function seedWorldState(worldState: WorldState, kb?: KnowledgeBase): WorldState 
   }
   return clone;
 }
+
+export { seedWorldState };
 
 export interface StoryCardChanges {
   added: AidCard[];
@@ -185,16 +187,7 @@ export async function runBlocks(
  * running alone never reaches this.
  */
 export function toKnowledgeBaseCards(cards: AidCard[]): StoryCard[] {
-  return cards.map(c => ({
-    id: c.id,
-    title: c.title ?? '',
-    content: c.entry ?? '',
-    keywords: typeof c.keys === 'string'
-      ? c.keys.split(',').map(k => k.trim()).filter(Boolean)
-      : [],
-    type: (c.type ?? 'Custom') as StoryCard['type'],
-    notes: c.description ?? '',
-  }));
+  return cards.map(c => fromAidStoryCard(c));
 }
 
 /** Depth-first lookup so any block, nested or not, can join the run order. */

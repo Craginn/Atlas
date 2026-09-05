@@ -61,19 +61,10 @@ export const runOfflineSimulation = async (
   worldState: WorldState,
   input: string,
   isModifierScript: boolean,
-  // The AID hook this code runs as ("Input Modifier", "Output Modifier", …).
-  // Surfaced in the [ERROR] log line so failures name their hook.
   hookName = 'Unknown Hook',
-  // AID's `history` global. Passed separately rather than read off worldState:
-  // in AID it is engine-owned and NOT part of `state`, so folding it into the
-  // state object made every turn's text accumulate in the thing scripts persist.
-  // Read-only here — AID gives scripts no way to write it, so nothing comes back.
   history: HistoryEntry[] = [],
-  // The hook's own script (without library/preamble). Passed separately so the
-  // worker can instrument only the user's lines with _ln, keeping reported error
-  // lines aligned with the editor view. When omitted the full `code` is treated
-  // as the hook code.
   hookCode?: string,
+  libraryLineCount: number = 0,
 ): Promise<{
   newState: WorldState;
   logs: unknown[];
@@ -87,22 +78,21 @@ export const runOfflineSimulation = async (
   error?: { hook: string; line: string; message: string; details?: string } | null;
 }> => {
   // Validate syntax before execution
-  const validation = validateScriptSyntax(code, isModifierScript);
+  const validation = validateScriptSyntax(code, isModifierScript, hookCode);
   if (!validation.valid && validation.errors.length > 0) {
-    // Track where the error actually is: V8's parse error ("Unexpected token")
-    // carries no line, so its SYNTAX_ERROR entry pins every failure to line 1.
-    // The structural scanners (brackets/strings) position their findings for
-    // real, so prefer the first of those when one exists.
     const first = validation.errors.find(e => e.type !== 'SYNTAX_ERROR') ?? validation.errors[0];
+    let mappedLine = first.line;
+    if (libraryLineCount > 0) {
+      const adjusted = first.line - libraryLineCount;
+      mappedLine = adjusted > 0 ? adjusted : 'unknown';
+    }
     return {
       newState: worldState,
-      // One curated line in the trace; the full suggestion list rides on the
-      // error as details, shown only via the Code Suggestions button.
-      logs: [`[ERROR] ${hookName}, line ${first.line}: ${first.message}`],
+      logs: [`[ERROR] ${hookName}, line ${mappedLine}: ${first.message}`],
       result: null,
       error: {
         hook: hookName,
-        line: String(first.line ?? 'unknown'),
+        line: String(mappedLine ?? 'unknown'),
         message: first.message ?? 'Validation failed',
         details: formatValidationResults(validation),
       },
@@ -111,7 +101,7 @@ export const runOfflineSimulation = async (
 
   const workerCode = `
     self.onmessage = function(e) {
-      const { code, hookCode, worldState, input, isModifierScript, hookName, history: turnHistory } = e.data;
+      const { code, hookCode, worldState, input, isModifierScript, hookName, history: turnHistory, libraryLineCount = 0 } = e.data;
       // Tell the host the script is about to run, so its watchdog can time the
       // script rather than the worker's startup (see the timeout below).
       self.postMessage({ status: 'started' });
@@ -212,8 +202,10 @@ export const runOfflineSimulation = async (
       } catch (err) {
         _caught = err;
         const message = err.message || String(err);
-        const lineNumber = _ln > 0 ? String(_ln) : 'unknown';
-        const sourceLine = _ln > 0 ? ((hookCode || '').split(String.fromCharCode(10))[_ln - 1] || '').trim() : '';
+        const effectiveLn = (hookCode && hookCode.trim().length > 0) ? _ln : (_ln > libraryLineCount ? _ln - libraryLineCount : 0);
+        const lineNumber = effectiveLn > 0 ? String(effectiveLn) : 'unknown';
+        const sourceCode = (hookCode && hookCode.trim().length > 0) ? hookCode : code;
+        const sourceLine = effectiveLn > 0 ? (sourceCode.split(String.fromCharCode(10))[effectiveLn - 1] || '').trim() : '';
         
         logs.push('[ERROR] ' + hookName + (lineNumber !== 'unknown' ? ', line ' + lineNumber : '') + ': ' + message);
         self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message, details: sourceLine ? lineNumber + ' | ' + sourceLine : undefined } });
@@ -295,7 +287,7 @@ export const runOfflineSimulation = async (
     // Hand scripts AID's exact `{ text, type, rawText }` — `turn` is an Atlas-only
     // annotation for the State Editor and must not appear on the `history` global.
     const aidHistory = history.map(({ text, type, rawText }) => ({ text, type, rawText }));
-    worker.postMessage({ code, hookCode, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory });
+    worker.postMessage({ code, hookCode, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory, libraryLineCount });
   });
 };
 
@@ -368,12 +360,91 @@ function isEditDistanceOne(a: string, b: string): boolean {
   return edits === 1;
 }
 
-export const validateScriptSyntax = (code: string, isModifierScript = false): ValidationResult => {
+export const validateScriptSyntax = (code: string, isModifierScript = false, hookCode?: string): ValidationResult => {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
   const lines = code.split('\n');
 
-  // ============ 1. BRACKET/BRACE/PAREN MATCHING WITH LINE TRACKING ============
+  // ============ 1. LIBRARY-TO-HOOK COLLISION DETECTION ============
+  const checkLibraryCollisions = () => {
+    if (!hookCode || hookCode.trim().length === 0) return;
+
+    const libraryPartRaw = code.slice(0, -hookCode.length);
+    let libraryPart = libraryPartRaw;
+    if (libraryPart.endsWith('\n')) {
+      libraryPart = libraryPart.slice(0, -1);
+    }
+    const libraryLineCount = libraryPart.split('\n').length;
+    const declRe = /\b(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g;
+
+    const extractTopLevelDeclarations = (src: string): Map<string, { line: number; kind: string }> => {
+      const decls = new Map<string, { line: number; kind: string }>();
+      let braceDepth = 0;
+      let inString = false;
+      let stringChar = '';
+
+      const srcLines = src.split('\n');
+      for (let i = 0; i < srcLines.length; i++) {
+        const line = srcLines[i];
+        let c = 0;
+        while (c < line.length) {
+          const char = line[c];
+          const prevChar = c > 0 ? line[c - 1] : '';
+
+          if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
+            if (!inString) {
+              inString = true;
+              stringChar = char;
+            } else if (char === stringChar) {
+              inString = false;
+            }
+          }
+
+          if (!inString) {
+            if (char === '{') braceDepth++;
+            else if (char === '}') braceDepth = Math.max(0, braceDepth - 1);
+          }
+
+          declRe.lastIndex = c;
+          const m = declRe.exec(line);
+          if (m && m.index === c && braceDepth === 0) {
+            const afterKw = line.substring(c);
+            const kindMatch = afterKw.match(/^(const|let|var|function)\b/);
+            const kind = kindMatch?.[1] || '';
+            if (kind !== 'var') {
+              decls.set(m[1], { line: i + 1, kind });
+            }
+            c = declRe.lastIndex;
+            continue;
+          }
+
+          c++;
+        }
+      }
+
+      return decls;
+    };
+
+    const libraryDecls = extractTopLevelDeclarations(libraryPart);
+    const hookDecls = extractTopLevelDeclarations(hookCode);
+
+    for (const [name, hookDecl] of hookDecls) {
+      const libDecl = libraryDecls.get(name);
+      if (libDecl) {
+        errors.push({
+          type: 'LIBRARY_COLLISION',
+          message: `Identifier '${name}' redeclared — Library already declares it at Library.js:${libDecl.line}. Rename your variable or remove the const.`,
+          line: libraryLineCount + hookDecl.line,
+          column: 1,
+          severity: 'error',
+          codeSnippet: getLineOfCode(code, libraryLineCount + hookDecl.line),
+          context: getContextWithCaret(code, libraryLineCount + hookDecl.line, 1)
+        });
+      }
+    }
+  };
+
+  // ============ 2. BRACKET/BRACE/PAREN MATCHING WITH LINE TRACKING ============
   const checkBracketBalance = () => {
     const stack: Array<{ type: string; line: number; column: number; pos: number }> = [];
     let inString = false;
@@ -681,6 +752,7 @@ export const validateScriptSyntax = (code: string, isModifierScript = false): Va
   }
 
   // Semantic checks run regardless — they don't depend on regex tokenization.
+  checkLibraryCollisions();
   checkCommonErrors();
   checkAidApi();
 

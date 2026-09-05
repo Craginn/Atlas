@@ -96,23 +96,23 @@ const basecode = (text) => {
 
     // CHARACTER CREATION IN PROGRESS
     if (state.tempCharacter) {
-      const result = processCharacterInput(text);
+      const result_P = processCharacterInput(text);
 
-      if (result?.error) {
+      if (result_P?.error) {
         state.overwrite = true;
-        state.output = result.message;
+        state.output = result_P.message;
         return text;
       }
 
-      if (result?.message) {
+      if (result_P?.message) {
         state.overwrite = true;
-        state.output = result.message;
+        state.output = result_P.message;
         return text;
       }
 
-      if (result?.complete) {
+      if (result_P?.complete) {
         state.overwrite = true;
-        state.output = result.message;
+        state.output = result_P.message;
         return text;
       }
     }
@@ -343,9 +343,9 @@ const basecode = (text) => {
       return text;
     }
     createCharacter();
-    const result = processCharacterInput('');
+    const result_I = processCharacterInput('');
     state.overwrite = true;
-    state.output = result.message;
+    state.output = result_I.message;
     return text;
   }
 

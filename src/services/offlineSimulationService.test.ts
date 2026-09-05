@@ -70,6 +70,51 @@ describe('validateScriptSyntax — AID API alignment', () => {
     const undocumented = [...res.errors, ...res.warnings].filter(f => f.type === 'UNDOCUMENTED_API');
     expect(undocumented).toHaveLength(0);
   });
+
+  it('detects a Library collision when a hook redeclares a Library const', () => {
+    const libraryCode = `const Say = 'foo';\n`;
+    const hookCode = `const Say = 'x';\nreturn { text };\n`;
+    const res = validateScriptSyntax(libraryCode + hookCode, true, hookCode);
+    const collision = res.errors.find(e => e.type === 'LIBRARY_COLLISION');
+    expect(collision).toBeTruthy();
+    expect(collision!.message).toContain('Say');
+    expect(collision!.message).toContain('Library.js:1');
+    expect(collision!.line).toBe(2);
+  });
+
+  it('detects a Library collision for let redeclaring a Library const', () => {
+    const libraryCode = `const Say = 'foo';\n`;
+    const hookCode = `let Say = 'x';\nreturn { text };\n`;
+    const res = validateScriptSyntax(libraryCode + hookCode, true, hookCode);
+    const collision = res.errors.find(e => e.type === 'LIBRARY_COLLISION');
+    expect(collision).toBeTruthy();
+    expect(collision!.message).toContain('Say');
+  });
+
+  it('does not flag var redeclarations as Library collisions', () => {
+    const libraryCode = `const Say = 'foo';\n`;
+    const hookCode = `var Say = 'x';\nreturn { text };\n`;
+    const res = validateScriptSyntax(libraryCode + hookCode, true, hookCode);
+    const collision = res.errors.find(e => e.type === 'LIBRARY_COLLISION');
+    expect(collision).toBeUndefined();
+  });
+
+  it('does not flag a hook with no conflicting declarations', () => {
+    const libraryCode = `const Say = 'foo';\n`;
+    const hookCode = `const myVar = 'x';\nreturn { text };\n`;
+    const res = validateScriptSyntax(libraryCode + hookCode, true, hookCode);
+    const collision = res.errors.find(e => e.type === 'LIBRARY_COLLISION');
+    expect(collision).toBeUndefined();
+    expect(res.valid).toBe(true);
+  });
+
+  it('surfaces Library collisions before generic syntax errors in runOfflineSimulation', async () => {
+    const libraryCode = 'const Say = "x";\nconst Response = "y"';
+    const hookCode = 'const Say = "y";\nconst x = {;\nreturn { text };';
+    const codeToExecute = libraryCode + '\n' + hookCode;
+    const result = await runOfflineSimulation(codeToExecute, {}, '', true, 'Input Modifier', [], hookCode, libraryCode.split('\n').length);
+    expect(result.error?.message).toContain('redeclared');
+  });
 });
 
 describe('runOfflineSimulation — _ln instrumentation', () => {
@@ -128,5 +173,13 @@ describe('runOfflineSimulation — _ln instrumentation', () => {
 
     const result = await runOfflineSimulation(code, {}, '', true, 'Input Modifier', [], code);
     expect(result.error?.line).toBe('4');
+  });
+
+  it('maps validation error lines back to hook-relative when library is present', async () => {
+    const libraryCode = 'const Say = "x";\nconst Response = "y"';
+    const hookCode = 'const x = {;\nreturn { text };';
+    const codeToExecute = libraryCode + '\n' + hookCode;
+    const result = await runOfflineSimulation(codeToExecute, {}, '', true, 'Input Modifier', [], hookCode, libraryCode.split('\n').length);
+    expect(result.error?.line).toBe('1');
   });
 });

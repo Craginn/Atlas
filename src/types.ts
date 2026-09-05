@@ -28,6 +28,8 @@ export interface StoryCard {
   notes: string;
 }
 
+export const CARD_TYPES = ['Character', 'Location', 'Faction', 'Class', 'Custom', 'Race'] as const satisfies readonly StoryCard['type'][];
+
 export enum LogType {
   SYSTEM = 'system',
   AI = 'ai',

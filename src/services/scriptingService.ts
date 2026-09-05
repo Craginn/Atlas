@@ -1,5 +1,6 @@
 import { runOfflineSimulation } from './offlineSimulationService';
-import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry } from '../types';
+import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry, CARD_TYPES } from '../types';
+import { seedWorldState } from './blocks/runBlocks';
 
 // The sandbox's `storyCards` global follows AID's script-facing schema (keys as a
 // comma-joined string, entry, description, plus id/timestamps/useForCharacterCreation).
@@ -19,8 +20,6 @@ export const toAidStoryCard = (c: StoryCard) => {
     useForCharacterCreation: false,
   };
 };
-
-const CARD_TYPES: StoryCard['type'][] = ['Character', 'Location', 'Faction', 'Class', 'Custom', 'Race'];
 
 /**
  * The inverse of toAidStoryCard: sandbox shape back to the editor's.
@@ -340,11 +339,7 @@ const simulateStep = async (
     ? [...history]
     : (Array.isArray(currentState.history) ? currentState.history : []);
   delete currentState.history;
-  // Expose the Knowledge Base's Story Cards to the sandbox so the AID `storyCards`
-  // global reflects the user's real cards (the executor reads worldState.storyCards).
-  if (knowledgeBase?.storyCards && !currentState.storyCards) {
-    currentState.storyCards = knowledgeBase.storyCards.map(toAidStoryCard);
-  }
+  currentState = seedWorldState(currentState, knowledgeBase);
   // Snapshot the cards the run starts with (id → serialized content) so we can tell
   // which ones a script actually created or MODIFIED this turn. The Knowledge Base
   // merge needs this: a script that updates an existing card (updateStoryCard, e.g.
@@ -493,7 +488,7 @@ const simulateStep = async (
         // The Library's lines shift every reported error line; pass the count so the
         // runner maps error lines back onto the hook's own script — what the editor shows.
         const libraryLineCount = hasLibrary ? libraryCode.split('\n').length : 0;
-        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, script.code);
+        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, script.code, libraryLineCount);
         // Make the "Library ran first" step visible in the trace/Code Logs.
         if (hasLibrary && Array.isArray(scriptLogs)) {
           scriptLogs.unshift(`[DEBUG] Library concatenated and executed before the ${script.name} hook.`);
