@@ -54,7 +54,11 @@ describe('the app surfaces silent (caught-and-logged) script crashes', () => {
     expect(res.executionError).toBeNull();
     // ...but the caught error is surfaced instead of vanishing.
     expect(res.scriptErrors?.length).toBe(1);
-    expect(res.scriptErrors?.[0].hook).toBe('Input Modifier');
+    expect(res.scriptErrors?.[0]).toMatchObject({
+      hook: 'Input Modifier',
+      scriptId: 'i',
+      line: 'unknown',
+    });
     expect(res.scriptErrors?.[0].message).toMatch(/swallowed while attacking/);
     expect(res.scriptErrors?.[0].message).toMatch(/boom/);
   });

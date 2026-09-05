@@ -24,24 +24,11 @@ const SimulationEngine: React.FC<SimulationEngineProps> = ({
 }) => {
   const [context, setContext] = useState('');
   const [output, setOutput] = useState('');
-  // The scenario opening. Kept here alongside context/output because nothing
-  // outside the Director reads it.
   const [opening, setOpening] = useState('');
   const isMobile = useIsMobile();
-  // On mobile the Director and Code Logs share the screen 50/50, which leaves
-  // the Director too short to reach its Execute button without scrolling. Let
-  // the logs collapse to a header bar so the Director can take the full height
-  // when the player just wants to trigger a run.
   const [logsCollapsed, setLogsCollapsed] = useState(false);
-  // Draw attention when a collapsed panel is hiding a failure the user should see.
   const hasIssue = Boolean(lastResult?.executionError) || (lastResult?.scriptErrors?.length ?? 0) > 0;
 
-  // The Director asks for two texts per turn and they are easy to confuse: Input
-  // is the player's action, AI Call is the model's stand-in reply. Answering a
-  // script's question in AI Call sends the hook an empty action, which engines
-  // read as an invalid answer — the failure surfaces as the script rejecting
-  // input the player believes they gave. Catch that exact shape and name it.
-  // A Continue run sends an empty action *on purpose*, so it's never the mix-up.
   const misdirectedAnswer =
     !!lastResult &&
     !lastResult.isProcessing &&
@@ -49,27 +36,20 @@ const SimulationEngine: React.FC<SimulationEngineProps> = ({
     !lastResult.input?.trim() &&
     !!lastResult.aiCall?.simulated?.trim();
 
-  // Linked files used to be copied into these three boxes, which conflated two
-  // unrelated things: the file-linking slots hold the *hook scripts* (Input
-  // Modifier, Context Modifier, Output Modifier), while these boxes hold a
-  // turn's player action, context, and stand-in AI reply. Linking an Input
-  // Modifier therefore pasted a JavaScript file into the player-action box.
-  // The slots now load into the script editor, where they belong.
+  const directorProps = {
+    onExecute, isProcessing,
+    input, context, output, opening,
+    result: lastResult?.output ?? '',
+    setInput, setContext, setOutput,
+    setOpening,
+    misdirectedAnswer,
+  };
 
   if (isMobile) {
     return (
       <div className="h-full flex flex-col text-white bg-zinc-950">
-        {/* Director takes whatever the collapsed logs don't; collapsing frees the
-            full height so its Execute button is reachable without scrolling. */}
         <div className="bg-zinc-950 flex flex-col min-h-0 min-w-0 flex-1">
-          <Director
-            onExecute={onExecute} isProcessing={isProcessing}
-            input={input} context={context} output={output} opening={opening}
-            result={lastResult?.output ?? ''}
-            setInput={setInput} setContext={setContext} setOutput={setOutput}
-            setOpening={setOpening}
-            misdirectedAnswer={misdirectedAnswer}
-          />
+          <Director {...directorProps} />
         </div>
         <div className={`bg-zinc-950 flex flex-col min-h-0 min-w-0 border-t border-zinc-800/50 ${
           logsCollapsed ? 'shrink-0' : 'flex-1'
@@ -110,14 +90,7 @@ const SimulationEngine: React.FC<SimulationEngineProps> = ({
           side they'd be ~180px wide each on a phone. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 grid-rows-2 md:grid-cols-2 md:grid-rows-[minmax(0,1fr)] gap-px bg-zinc-800/50 overflow-hidden">
         <div className="bg-zinc-950 flex flex-col min-h-0 min-w-0">
-          <Director
-            onExecute={onExecute} isProcessing={isProcessing}
-            input={input} context={context} output={output} opening={opening}
-            result={lastResult?.output ?? ''}
-            setInput={setInput} setContext={setContext} setOutput={setOutput}
-            setOpening={setOpening}
-            misdirectedAnswer={misdirectedAnswer}
-          />
+          <Director {...directorProps} />
         </div>
         <div className="bg-zinc-950 flex flex-col min-h-0 min-w-0">
           <HeimdallPanel lastResult={lastResult} isProcessing={isProcessing} report={report} />

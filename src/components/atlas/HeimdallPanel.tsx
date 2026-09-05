@@ -3,24 +3,13 @@ import { Activity, Terminal, AlertTriangle, Bot, MessageSquare, ArrowRightToLine
 import { SimulationResult, SentinelReport, LogType, LogEntry } from '@/types';
 import { RobustLogViewer } from './RobustLogViewer';
 import ExecutionTrace, { TraceEntry } from './ExecutionTrace';
+import TabButton from '@/components/ui/TabButton';
 
 interface HeimdallPanelProps {
   lastResult: (SimulationResult & { input?: string; context?: string }) | null;
   isProcessing: boolean;
   report: SentinelReport | null;
 }
-
-const TabButton = ({ label, icon: Icon, active, onClick }: { label: string; icon: any; active: boolean; onClick: () => void }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-      active ? 'bg-zinc-700/50 text-white' : 'text-zinc-400 hover:bg-zinc-800/50'
-    }`}
-  >
-    <Icon size={14} />
-    <span>{label}</span>
-  </button>
-);
 
 // One labelled channel of the run: the AI Call, the Output, or the state.message
 // toast — each its own box so they're never conflated with one another.
@@ -142,8 +131,8 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
         hasExecutionError ? 'border-red-500/40' : 'border-zinc-800/50'
       }`}>
         <div className="flex items-center space-x-2">
-          <TabButton label="Logs" icon={Terminal} active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} />
-          <TabButton label="Code Logs" icon={Activity} active={activeTab === 'trace'} onClick={() => setActiveTab('trace')} />
+          <TabButton label="Logs" icon={Terminal} active={activeTab === 'logs'} onClick={() => setActiveTab('logs')} className={activeTab === 'logs' ? 'bg-zinc-700/50 text-white' : 'text-zinc-400 hover:bg-zinc-800/50'} />
+          <TabButton label="Code Logs" icon={Activity} active={activeTab === 'trace'} onClick={() => setActiveTab('trace')} className={activeTab === 'trace' ? 'bg-zinc-700/50 text-white' : 'text-zinc-400 hover:bg-zinc-800/50'} />
         </div>
         {hasExecutionError && (
           <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wider">

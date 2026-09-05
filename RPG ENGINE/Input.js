@@ -96,23 +96,23 @@ const basecode = (text) => {
 
     // CHARACTER CREATION IN PROGRESS
     if (state.tempCharacter) {
-      const result = processCharacterInput(text);
+      const result_P = processCharacterInput(text);
 
-      if (result?.error) {
+      if (result_P?.error) {
         state.overwrite = true;
-        state.output = result.message;
+        state.output = result_P.message;
         return text;
       }
 
-      if (result?.message) {
+      if (result_P?.message) {
         state.overwrite = true;
-        state.output = result.message;
+        state.output = result_P.message;
         return text;
       }
 
-      if (result?.complete) {
+      if (result_P?.complete) {
         state.overwrite = true;
-        state.output = result.message;
+        state.output = result_P.message;
         return text;
       }
     }
@@ -343,9 +343,9 @@ const basecode = (text) => {
       return text;
     }
     createCharacter();
-    const result = processCharacterInput('');
+    const result_I = processCharacterInput('');
     state.overwrite = true;
-    state.output = result.message;
+    state.output = result_I.message;
     return text;
   }
 
@@ -479,9 +479,9 @@ const Playercommands = (text) => {
           }
 
           if (missing.length > 0) {
-            state.overwrite = true;
-            state.output = `You do not have the required ingredients to craft ${template.name}. You need: ${missing.join(", ")}.`;
-            return text;
+          state.overwrite = true;
+          state.output = `You do not have the required ingredients to craft ${template.name}. You need: ${missing.join(", ")}.`;
+          return { text };
           }
 
           // Consume ingredients from whichever container holds them.
@@ -506,19 +506,19 @@ const Playercommands = (text) => {
 
           state.overwrite = true;
           state.output = `You crafted a ${craftedItem.name}. It has been added to your backpack.`;
-          return text;
+          return { text };
         } else {
           state.awaitingCraftChoice = false;
           state.craftingOptions = [];
 
           state.overwrite = true;
           state.output = "You are no longer in the Safe Haven, so you can't craft right now.";
-          return text;
+          return { text };
         }
       } else {
         state.overwrite = true;
         state.output = "That is not a valid crafting option. Please choose a number from the crafting list.";
-        return text;
+        return { text };
       }
     }
   }
@@ -546,7 +546,7 @@ const Playercommands = (text) => {
   for (const target of showCommandOrder) {
     let ran;
     ([ran, text] = command(text, target));
-    if (ran) return text;
+    if (ran) return { text };
   }
 
   const lowerText = text.toLowerCase();
@@ -608,14 +608,14 @@ const Playercommands = (text) => {
   const shopMatch = lowerText.match(/\/shop/);
   const isInSafeHaven = state.PS?.location === "safe haven";
   if (shopMatch) {
-    if (!isInSafeHaven) {
-      state.overwrite = true;
-      state.logMessages['Output'].push(`[You can only visit the shop while in the Safe Haven.]`);
-      return text;
-    }
+      if (!isInSafeHaven) {
+        state.overwrite = true;
+        state.logMessages['Output'].push(`[You can only visit the shop while in the Safe Haven.]`);
+        return { text };
+      }
 
-    shopMenu();
-    return { text };
+      shopMenu();
+      return { text };
   }
 
   if (lowerText.includes('/new player')) {
@@ -623,13 +623,13 @@ const Playercommands = (text) => {
     if (!gate.allowed) {
       state.overwrite = true;
       state.output = gate.message;
-      return text;
+      return { text };
     }
     createCharacter();
     const result = processCharacterInput('');
     state.overwrite = true;
     state.output = result.message;
-    return text;
+    return { text };
   }
 
 
@@ -648,7 +648,7 @@ const Playercommands = (text) => {
   if (/\/party\b/i.test(lowerText) || /\bshow party\b/i.test(lowerText)) {
     state.output = displayParty();
     state.overwrite = true;
-    return text;
+    return { text };
   }
 
   // Matched against `text`, not `lowerText`, so the captured name keeps its
@@ -660,7 +660,7 @@ const Playercommands = (text) => {
     text = text.replace(recruitCmd[0], '').trim();
     state.overwrite = true;
     state.output = '';
-    return text;
+    return { text };
   }
 
   const dismissCmd = text.match(/\/dismiss\s+(.+)/i);
@@ -670,7 +670,7 @@ const Playercommands = (text) => {
     text = text.replace(dismissCmd[0], '').trim();
     state.overwrite = true;
     state.output = '';
-    return text;
+    return { text };
   }
 
   // Narrative recruiting. Capture group 1 is the name; the whole match is the
@@ -713,14 +713,10 @@ const Playercommands = (text) => {
       let used
         ; ([used, text] = useSkill(skillHit, text));
       if (!used) {
-        // useSkill already pushed the specific reason (out of melee reach, on
-        // cooldown, not enough mana/HP, no valid target…). Suppress the AI turn
-        // but don't stack a misleading generic "failed to cast" on top of it —
-        // e.g. closing the distance for a melee skill is not a failure.
         state.overwrite = true
         state.output = ''
       }
-      return text
+      return { text }
     }
     // A cast-family verb naming an ability the player doesn't know still reports failure
     // (so they learn they lack it). A bare "use X" is left to fall through to the item and
@@ -730,12 +726,43 @@ const Playercommands = (text) => {
         .replace(/\s+\b(?:on|at|the|a|an|my|myself|it|them)\b.*$/i, '')
         .replace(/[.!?]+$/, '')
         .trim();
-      if (attempted) {
-        state.logMessages['Output'].push(`You have failed to cast ${attempted}.`)
-        state.overwrite = true
-        state.output = ''
-        return text
+    if (attempted) {
+      state.logMessages['Output'].push(`You have failed to cast ${attempted}.`)
+      state.overwrite = true
+      state.output = ''
+      return { text }
+    }
+  }
+
+  // --- SUMMON DIRECTION COMMANDS ---
+  // Direct your summons with simple phrases like:
+  //   "<summon name> attack <monster>"
+  //   "<summon name> follow"
+  //   "<summon name> stay"
+  const summonDirectMatch = lowerText.match(/\b(\w+)\s+(attack|kill|fight|follow|stay|defend)\b(.*)/i);
+  if (summonDirectMatch && !skillVerb) {
+    const summonName = summonDirectMatch[1];
+    const action = summonDirectMatch[2].toLowerCase();
+    const targetPart = summonDirectMatch[3].trim();
+    const summon = findCompanion(summonName);
+    if (summon && summon.kind === "summon" && !summon.isDead) {
+      if (action === "follow" || action === "stay" || action === "defend") {
+        summon.directedAction = action;
+        state.logMessages['Output'].push(`${summon.name} will ${action}.`);
+      } else if (action === "attack" || action === "kill" || action === "fight") {
+        const monsters = (state.MS && state.MS.activeMonsters) || [];
+        const target = monsters.find((m) => targetPart && targetPart.includes(m.name.toLowerCase()));
+        if (target) {
+          summon.directedTarget = target.name;
+          summon.directedAction = "attack";
+          state.logMessages['Output'].push(`${summon.name} will attack ${target.name}.`);
+        } else {
+          state.logMessages['Output'].push(`${summon.name} doesn't see a target matching "${targetPart}".`);
+        }
       }
+      state.overwrite = true;
+      state.output = '';
+      return { text };
     }
   }
 
@@ -744,7 +771,7 @@ const Playercommands = (text) => {
   if (useItemMatch) {
     const itemName = useItemMatch[1].trim();
     useItem(itemName); // Call the function to use the item
-    return text
+    return { text }
   }
 
   // Command to equip an item (e.g., "equip sword", "equip armor")
@@ -752,7 +779,7 @@ const Playercommands = (text) => {
   if (equipMatch) {
     const itemName = equipMatch[1].trim();
     equipItem(itemName);
-    return text
+    return { text }
   }
 
   // Match exactly "equip all" (case-insensitive)
@@ -763,7 +790,7 @@ const Playercommands = (text) => {
         equipItem(item.name);
       }
     });
-    return "All valid items equipped.";
+    return { text: "All valid items equipped." };
   }
 
 
@@ -773,7 +800,7 @@ const Playercommands = (text) => {
   if (unequipMatch) {
     const slotName = unequipMatch[1].trim();
     unequipItem(slotName);
-    return text
+    return { text }
   }
 
   // --- GENERALIZED ITEM PICKUP COMMAND ---
@@ -792,7 +819,7 @@ const Playercommands = (text) => {
       } else {
         state.logMessages['Output'].push("?? Theres nothing around to pick up.");
       }
-      return;
+      return { text };
     }
 
     // Handle single-item pickup
@@ -805,6 +832,7 @@ const Playercommands = (text) => {
     } else {
       state.logMessages['Output'].push(`?? You search for "${itemQuery}" but can't seem to find anything like that.`);
     }
+    return { text };
   }
 
 
@@ -818,7 +846,7 @@ const Playercommands = (text) => {
   Authornote();
   return { text }
 }
-
+}
 
 
 // Removed all individual 'pick up' conditions like 'pick up shiny sword' as they are now handled by the generalized command.

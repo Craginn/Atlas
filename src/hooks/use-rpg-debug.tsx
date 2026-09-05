@@ -4,6 +4,7 @@ import {
   loadRpgFixture, fixtureAvailable, saveSnapshot, readSnapshot, applySnapshot,
   clearSnapshot, hasSnapshot, readRpgEnabled, writeRpgEnabled,
 } from '@/services/debug/rpgFixture';
+import { createModuleStore } from './use-module-store';
 
 // The RPG debug toggle.
 //
@@ -14,26 +15,25 @@ import {
 // The flag is module-level rather than component state so the Settings switch
 // and any other caller see the same value, and so it survives the panel closing.
 
-let enabled = readRpgEnabled();
-const listeners = new Set<() => void>();
-
-const notify = () => listeners.forEach(fn => fn());
-const subscribe = (fn: () => void) => {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-};
-const getSnapshot = () => enabled;
-
 export interface RpgDebugResult {
   ok: boolean;
   message: string;
 }
 
+const { useStore: useEnabledStore, setValue: setEnabled, getValue } = createModuleStore<boolean>({
+  initial: readRpgEnabled(),
+  onChange(next) {
+    writeRpgEnabled(next);
+  },
+});
+
+getValue();
+
 export function useRpgDebug(
   scripts: Script[],
   setScripts: React.Dispatch<React.SetStateAction<Script[]>>,
 ) {
-  const isEnabled = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const isEnabled = useEnabledStore();
   const [busy, setBusy] = React.useState(false);
 
   // Read through a ref: toggling is async, and `scripts` captured at render
@@ -51,8 +51,6 @@ export function useRpgDebug(
 
     setBusy(true);
     try {
-      // Snapshot before touching anything, so a failure part-way through still
-      // leaves a way back.
       saveSnapshot(scriptsRef.current);
 
       const { byScriptName, skipped } = await loadRpgFixture();
@@ -67,9 +65,7 @@ export function useRpgDebug(
         }),
       );
 
-      enabled = true;
-      writeRpgEnabled(true);
-      notify();
+      setEnabled(true);
 
       const parts = [`Loaded RPG fixture into ${loaded.length} script slot(s).`];
       if (skipped.length) parts.push(`Skipped unmapped file(s): ${skipped.join(', ')}.`);
@@ -88,11 +84,7 @@ export function useRpgDebug(
   const disable = React.useCallback((): RpgDebugResult => {
     const snapshot = readSnapshot();
     if (!snapshot) {
-      // Never blank the slots as a guess at what "off" means — that would be
-      // exactly the data loss the snapshot exists to prevent.
-      enabled = false;
-      writeRpgEnabled(false);
-      notify();
+      setEnabled(false);
       return {
         ok: false,
         message:
@@ -103,9 +95,7 @@ export function useRpgDebug(
 
     setScripts(prev => applySnapshot(prev, snapshot));
     clearSnapshot();
-    enabled = false;
-    writeRpgEnabled(false);
-    notify();
+    setEnabled(false);
     return { ok: true, message: 'Restored the code that was in the slots before.' };
   }, [setScripts]);
 

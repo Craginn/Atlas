@@ -11,7 +11,8 @@ import {
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { bracketMatching, foldGutter, foldKeymap, indentOnInput } from '@codemirror/language';
 import { openSearchPanel, searchKeymap, SearchQuery, setSearchQuery } from '@codemirror/search';
-import { EditorView, keymap, lineNumbers } from '@codemirror/view';
+import { EditorView, Decoration, WidgetType, keymap, lineNumbers, ViewPlugin } from '@codemirror/view';
+import { RangeSet, EditorState, StateEffect, StateField } from '@codemirror/state';
 import { Copy, Search, AlertCircle } from 'lucide-react';
 import { validateScriptSyntax, AID_GLOBALS } from '@/services/offlineSimulationService';
 import { atlasTheme } from './codeEditorTheme';
@@ -70,9 +71,61 @@ interface CodeBufferProps {
   // the find panel pre-filled with a query. `nonce` changes on each request so
   // re-searching the same term still re-triggers.
   findRequest?: { query: string; nonce: number } | null;
+  runtimeErrors?: { line: number; message: string }[];
 }
 
-const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadOnly = false, isActive, color, findRequest }) => {
+const setRuntimeErrors = StateEffect.define<{ line: number; message: string }[]>();
+
+const runtimeErrorField = StateField.define<{ line: number; message: string }[]>({
+  create() { return []; },
+  update(errors, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setRuntimeErrors)) return e.value;
+    }
+    return errors;
+  },
+});
+
+function buildDecoSet(view: EditorView, errors: { line: number; message: string }[]): RangeSet<Decoration> {
+  if (!errors.length) return RangeSet.empty;
+  return RangeSet.of(
+    errors.flatMap(e => {
+      if (e.line < 1 || e.line > view.state.doc.lines) return [];
+      const lineHandle = view.state.doc.line(e.line);
+      return [
+        Decoration.line({ class: 'cm-runtime-error-line' }).range(lineHandle.from, lineHandle.to),
+        Decoration.widget({ widget: new GutterErrorWidget(e.line), side: 1 }).range(lineHandle.from),
+      ];
+    })
+  );
+}
+
+const errorDecorationPlugin = ViewPlugin.fromClass(class {
+  decorations;
+  constructor(view) {
+    this.decorations = buildDecoSet(view, []);
+  }
+  update(update) {
+    const errors = update.state.field(runtimeErrorField);
+    this.decorations = buildDecoSet(update.view, errors);
+  }
+}, {
+  decorations: v => v.decorations,
+});
+
+class GutterErrorWidget extends WidgetType {
+  constructor(private line: number) { super(); }
+  toDOM() {
+    const el = document.createElement('div');
+    el.className = 'cm-gutter-error-dot';
+    el.title = `Runtime error at line ${this.line}`;
+    el.textContent = '●';
+    return el;
+  }
+  ignoreEvent() { return false; }
+}
+
+const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadOnly = false, isActive, color, findRequest, runtimeErrors }) => {
   const safeValue = value || '';
   const cmRef = useRef<ReactCodeMirrorRef>(null);
 
@@ -106,6 +159,8 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
       ...foldKeymap,
       ...completionKeymap,
     ]),
+    runtimeErrorField,
+    errorDecorationPlugin,
   ], []);
 
   const handleChange = useCallback((newValue: string) => {
@@ -128,6 +183,12 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: findRequest.query })) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findRequest?.nonce]);
+
+  useEffect(() => {
+    const view = cmRef.current?.view;
+    if (!view) return;
+    view.dispatch({ effects: setRuntimeErrors.of(runtimeErrors ?? []) });
+  }, [runtimeErrors]);
 
   if (!isActive) return null;
 

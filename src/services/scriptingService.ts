@@ -1,5 +1,6 @@
 import { runOfflineSimulation } from './offlineSimulationService';
-import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry } from '../types';
+import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry, CARD_TYPES } from '../types';
+import { matchStoryCards } from '@/services/storyCardService';
 
 // The sandbox's `storyCards` global follows AID's script-facing schema (keys as a
 // comma-joined string, entry, description, plus id/timestamps/useForCharacterCreation).
@@ -19,8 +20,6 @@ export const toAidStoryCard = (c: StoryCard) => {
     useForCharacterCreation: false,
   };
 };
-
-const CARD_TYPES: StoryCard['type'][] = ['Character', 'Location', 'Faction', 'Class', 'Custom', 'Race'];
 
 /**
  * The inverse of toAidStoryCard: sandbox shape back to the editor's.
@@ -43,6 +42,20 @@ export const fromAidStoryCard = (c: {
   type: CARD_TYPES.includes(c.type as StoryCard['type']) ? (c.type as StoryCard['type']) : 'Custom',
   notes: c.description ?? '',
 });
+
+/**
+ * Seed storyCards from the Knowledge Base only when absent.
+ *
+ * The Director's pipeline calls this to give the sandbox the user's real cards on
+ * the first turn. The block-canvas variant deep-clones first (see runBlocks.ts)
+ * because scratch runs mutate their sandbox copy; the Director mutates in-place.
+ */
+export const seedStoryCards = (state: WorldState, kb?: KnowledgeBase): WorldState => {
+  if (kb?.storyCards && !state.storyCards) {
+    return { ...state, storyCards: kb.storyCards.map(toAidStoryCard) };
+  }
+  return state;
+};
 
 /**
  * Fold cards a script created back into the Knowledge Base.
@@ -106,14 +119,7 @@ const CONTEXT_HISTORY_TURNS = 8;
  * a key of `sword` fires on "broadsword".
  */
 export const selectTriggeredCards = (cards: StoryCard[], recentText: string): StoryCard[] => {
-  const haystack = recentText.toLowerCase();
-  if (!haystack.trim()) return [];
-  return cards.filter(card =>
-    (card.keywords ?? []).some(key => {
-      const k = key.trim().toLowerCase();
-      return k.length > 0 && haystack.includes(k);
-    })
-  );
+  return matchStoryCards(recentText, cards).map(m => m.card);
 };
 
 /**
@@ -340,11 +346,7 @@ const simulateStep = async (
     ? [...history]
     : (Array.isArray(currentState.history) ? currentState.history : []);
   delete currentState.history;
-  // Expose the Knowledge Base's Story Cards to the sandbox so the AID `storyCards`
-  // global reflects the user's real cards (the executor reads worldState.storyCards).
-  if (knowledgeBase?.storyCards && !currentState.storyCards) {
-    currentState.storyCards = knowledgeBase.storyCards.map(toAidStoryCard);
-  }
+  currentState = seedStoryCards(currentState, knowledgeBase);
   // Snapshot the cards the run starts with (id → serialized content) so we can tell
   // which ones a script actually created or MODIFIED this turn. The Knowledge Base
   // merge needs this: a script that updates an existing card (updateStoryCard, e.g.
@@ -392,7 +394,7 @@ const simulateStep = async (
   // don't run against a half-applied state, and flags the run as failed for the UI.
   let executionError: { hook: string; line: string; message: string } | null = null;
   // Errors scripts reported via console.error but caught themselves (no throw).
-  const scriptErrors: { hook: string; message: string }[] = [];
+  const scriptErrors: { hook: string; scriptId: string; line: string; message: string }[] = [];
   let aiCall: AiCallTrace | undefined;
   let aiCallDone = false;
   // state.message is a player-facing toast, tracked separately from the AI Call
@@ -493,7 +495,7 @@ const simulateStep = async (
         // The Library's lines shift every reported error line; pass the count so the
         // runner maps error lines back onto the hook's own script — what the editor shows.
         const libraryLineCount = hasLibrary ? libraryCode.split('\n').length : 0;
-        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, libraryLineCount);
+        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, script.code, libraryLineCount);
         // Make the "Library ran first" step visible in the trace/Code Logs.
         if (hasLibrary && Array.isArray(scriptLogs)) {
           scriptLogs.unshift(`[DEBUG] Library concatenated and executed before the ${script.name} hook.`);
@@ -506,7 +508,23 @@ const simulateStep = async (
         if (Array.isArray(scriptLogs)) {
           for (const entry of scriptLogs) {
             if (typeof entry === 'string' && entry.startsWith('ERROR:')) {
-              scriptErrors.push({ hook: script.name, message: entry.slice('ERROR:'.length).trim() });
+              const trimmed = entry.slice('ERROR:'.length).trim();
+              const errMatch = trimmed.match(/^(.+?),\s*line\s*(\S+?)\s*:\s*(.+)$/);
+              if (errMatch) {
+                scriptErrors.push({
+                  hook: errMatch[1],
+                  scriptId: script.id,
+                  line: errMatch[2],
+                  message: errMatch[3],
+                });
+              } else {
+                scriptErrors.push({
+                  hook: script.name,
+                  scriptId: script.id,
+                  line: 'unknown',
+                  message: trimmed,
+                });
+              }
             }
           }
         }
