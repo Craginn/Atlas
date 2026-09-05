@@ -7,6 +7,7 @@ import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-javascript';
 import 'prismjs/components/prism-json';
 import '@/styles/prism-custom-theme.css';
+import TabButton from '@/components/ui/TabButton';
 
 // Normalize the default export: under some bundler interop paths the CJS default
 // arrives as a namespace object ({ default: Editor }) rather than the component,
