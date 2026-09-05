@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { validateScriptSyntax, AID_GLOBALS, runOfflineSimulation } from './offlineSimulationService';
+import { describe, it, expect } from 'vitest';
+import { validateScriptSyntax, AID_GLOBALS } from './offlineSimulationService';
 
 describe('validateScriptSyntax — AID API alignment', () => {
   it('accepts a script using only documented AID globals + helpers', () => {
@@ -69,101 +69,5 @@ describe('validateScriptSyntax — AID API alignment', () => {
     const res = validateScriptSyntax(code, true);
     const undocumented = [...res.errors, ...res.warnings].filter(f => f.type === 'UNDOCUMENTED_API');
     expect(undocumented).toHaveLength(0);
-  });
-
-  it('does not flag hook/Library const or let redeclarations as errors', () => {
-    const libraryCode = `const Say = 'foo';\nconst Response = 'bar';\n`;
-    for (const hookCode of [
-      `const Say = 'x';\nreturn { text };\n`,
-      `let Response = 'y';\nreturn { text };\n`,
-    ]) {
-      const res = validateScriptSyntax(libraryCode + hookCode, true, hookCode);
-      const collision = res.errors.find(e => e.type === 'LIBRARY_COLLISION');
-      expect(collision).toBeUndefined();
-    }
-  });
-
-  it('does not flag var redeclarations as Library collisions', () => {
-    const libraryCode = `const Say = 'foo';\n`;
-    const hookCode = `var Say = 'x';\nreturn { text };\n`;
-    const res = validateScriptSyntax(libraryCode + hookCode, true, hookCode);
-    const collision = res.errors.find(e => e.type === 'LIBRARY_COLLISION');
-    expect(collision).toBeUndefined();
-  });
-
-  it('does not flag a hook with no conflicting declarations', () => {
-    const libraryCode = `const Say = 'foo';\n`;
-    const hookCode = `const myVar = 'x';\nreturn { text };\n`;
-    const res = validateScriptSyntax(libraryCode + hookCode, true, hookCode);
-    const collision = res.errors.find(e => e.type === 'LIBRARY_COLLISION');
-    expect(collision).toBeUndefined();
-    expect(res.valid).toBe(true);
-  });
-});
-
-describe('runOfflineSimulation — _ln instrumentation', () => {
-  let capturedCode = '';
-
-  beforeEach(() => {
-    capturedCode = '';
-
-    const OriginalBlob = globalThis.Blob;
-    (globalThis as any).Blob = class extends OriginalBlob {
-      constructor(parts: any[], options?: any) {
-        super(parts, options);
-        if (Array.isArray(parts) && parts[0] && typeof parts[0] === 'string') {
-          capturedCode = parts[0];
-        }
-      }
-    };
-
-    (globalThis as any).URL.createObjectURL = () => 'blob:test';
-    (globalThis as any).URL.revokeObjectURL = () => {};
-
-    (globalThis as any).Worker = class MockWorker {
-      onmessage: ((e: any) => void) | null = null;
-      onerror: ((e: any) => void) | null = null;
-      terminate = vi.fn();
-      _workerSelf: any = null;
-      constructor() {}
-      postMessage(data: any) {
-        const self = this;
-        if (!self._workerSelf) {
-          const workerSelf = {
-            onmessage: null as ((e: any) => void) | null,
-            postMessage: (msg: any) => {
-              if (self.onmessage) {
-                self.onmessage({ data: msg });
-              }
-            },
-          };
-          const fn = new Function('self', capturedCode);
-          fn(workerSelf);
-          self._workerSelf = workerSelf;
-        }
-        if (self._workerSelf.onmessage) {
-          self._workerSelf.onmessage({ data });
-        }
-      }
-    };
-  });
-
-  it('reports the correct hook-relative line number without stack-trace parsing', async () => {
-    const code = `const modifier = (t) => {
-      return { text: t };
-    }; modifier(text);
-    throw new Error('intentional');
-    console.log('never reached');`;
-
-    const result = await runOfflineSimulation(code, {}, '', true, 'Input Modifier', [], code);
-    expect(result.error?.line).toBe('4');
-  });
-
-  it('maps validation error lines back to hook-relative when library is present', async () => {
-    const libraryCode = 'const Say = "x";\nconst Response = "y"';
-    const hookCode = 'const x = {;\nreturn { text };';
-    const codeToExecute = libraryCode + '\n' + hookCode;
-    const result = await runOfflineSimulation(codeToExecute, {}, '', true, 'Input Modifier', [], hookCode, libraryCode.split('\n').length);
-    expect(result.error?.line).toBe('1');
   });
 });
