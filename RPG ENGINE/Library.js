@@ -3035,7 +3035,6 @@ function spawnLootInArea(area) {
 
   const lootArea = state.worldLoot[area];
   const itemCount = Math.floor(Math.random() * 3) + 1; // 1-3 items
-
   for (let i = 0; i < itemCount; i++) {
     let item;
 
