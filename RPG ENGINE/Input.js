@@ -872,6 +872,7 @@ const Playercommands = (text) => {
       return { text }
     }
   }
+  }
 
   // --- SUMMON DIRECTION COMMANDS ---
   // Direct your summons with simple phrases like:
@@ -984,7 +985,6 @@ const Playercommands = (text) => {
   playerAttack();
   Authornote();
   return { text }
-}
 }
 
 
