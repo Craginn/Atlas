@@ -59,7 +59,8 @@ const RPG_CONFIG_DEFAULTS = {
 // newlines, trailing prose would otherwise glue onto the last setting's value.
 const RPG_CONFIG_HEADER =
   "RPG world configuration. Edit the values below to tune the world.\n" +
-  "Game Mode: open-world | rogue-like   Difficulty: easy | medium | hard\n" +
+  "Game Mode: open-world | rogue-like\n" +
+  "Difficulty: easy | medium | hard\n" +
   "World Layout: Open | Ascii Dungeon\n";
 
 // Render the canonical entry (header + one setting per line) from a values map.
@@ -351,12 +352,13 @@ function rpgCreationGate() {
   };
 }
 
-// ---- Output Format Configuration -------------------------------------------
+
+// Prompting Engine
 const OUTPUT_FORMATS = {
   default: {
     header: `# STRICT OUTPUT FORMAT\n The response MUST follow this exact structure:`,
-    lineTemplate: `1. ("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major)`,
-    example: `1. ([name]) ([name] strikes [name] with their mighty blade, drawing blood) ([Name] attacked [Name] with their blade, hurting them) (local) (moderate)`,
+    lineTemplate: `("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major)`,
+    example: `([name]) ([name] strikes [name] with their mighty blade, drawing blood) ([Name] attacked [Name] with their blade, hurting them)`,
     rules: [
       `EVERY line MUST contain: ("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major|plot defining)`,
       `Avoid paragraphs`,
@@ -368,40 +370,39 @@ const OUTPUT_FORMATS = {
   },
   combat: {
     header: `# COMBAT OUTPUT FORMAT\n The response MUST follow this exact combat structure:`,
-    lineTemplate: `1. ([Name]) ([Action Beat]) ([Result/Damage]) (Scope) (Priority)`,
-    example: `1. (Kaelen) (Swings broadsword at Goblin) (Hits for 12 dmg, Goblin reels) (local) (major)`,
+    lineTemplate: `[Name] [Action Beat] [Result/Damage]`,
+    example: `Kaelen Swings broadsword at Goblin Hits for 12 dmg, Goblin reels`,
     rules: [
-      `EVERY line MUST follow: ([Name]) ([Action]) ([Result]) (Scope) (Priority)`,
-      `Prioritize mechanical results (damage, status effects, misses)`,
+      `EVERY line MUST follow: [Name] [Action] [Result]. In a flowery explination format.`,
+      `Prioritize mechanical results (damage, status effects, and misses if needed only.)`,
       `Keep beats extremely concise and telegraphic`,
-      `Avoid flowery prose during combat exchanges`,
-      `Output only the numbered list`,
+      `Allow flowery prose during combat exchanges without deviation from the results`,
+      `Output as a prosed pharagraph`,
     ],
   },
   // Extension: used while a monster is active and still alive after being hit.
   // The player's attack is described as landing on a live target.
   combat_alive: {
     header: `# COMBAT — MONSTER ACTIVE\n The response MUST follow this structure when a monster is still alive after being attacked:`,
-    lineTemplate: `1. ([Player Name]) ([Attack Beat — how the player attacked]) ([Result — monster still alive, damage dealt]) (Scope) (Priority)`,
-    example: `1. (Kaelen) (Swings broadsword at the Goblin) (Hits for 12 dmg, Goblin reels but stays standing) (local) (major)`,
+    lineTemplate: `[Player Name] [Attack Beat — how the player attacked] [Result — monster still alive, damage dealt]`,
+    example: `[Kaelen] [Swings broadsword at the Goblin] [Hits for 12 dmg, Goblin is hurt but stays standing]`,
     rules: [
-      `EVERY line MUST follow: ([Player Name]) ([Attack Beat]) ([Result]) (Scope) (Priority)`,
+      `EVERY line MUST follow: [Player Name] [Attack Beat] [Result]`,
       `The Result MUST describe the monster STILL BEING ALIVE (wounded, snarling, defiant, standing)`,
       `Include the damage dealt and the monster's remaining health`,
-      `The Attack Beat MUST be in present tense and telegraphic`,
-      `Output only the numbered list`,
+      `The Attack Beat MUST be in present tense and telegraphic`
     ],
   },
   // Extension: used when a monster is actually dead / defeated by the player's attack.
   combat_dead: {
     header: `# COMBAT — MONSTER DEFEATED\n The response MUST follow this structure when a monster falls to the player's attack:`,
-    lineTemplate: `1. ([Player Name]) ([Finishing Attack Beat]) ([Defeat Result — monster slain, falls, defeated]) (Scope) (Priority)`,
-    example: `1. (Kaelen) (Drives blade through the Goblin's chest) (Goblin collapses, defeated) (local) (major)`,
+    lineTemplate: `[Player Name] [Finishing Attack Beat] [Defeated: [Monster Name]]`,
+    example: `Kaelen Drives blade through the Goblin's chest Defeated: Goblin`,
     rules: [
-      `EVERY line MUST follow: ([Player Name]) ([Attack Beat]) ([Defeat Result]) (Scope) (Priority)`,
+      `EVERY line MUST follow: [Player Name] [Attack Beat] [Defeated: [Monster Name]]`,
       `The Result MUST announce the monster FALLING and being DEFEATED (slain, falls, defeated, collapses)`,
       `The Attack Beat MUST be in present tense and telegraphic`,
-      `Output only the numbered list`,
+      `The output needs to be a prosed pharagraph`
     ],
   },
   exploration: {
@@ -8473,9 +8474,17 @@ const CARRYING_CAPACITY_CONFIG = {
   },
 };
 
+// ===========================================================================
+// OPEN WORLD MAP & STATE MANAGEMENT SYSTEM
+// ===========================================================================
+
+/**
+ * Ensures the world state is properly initialized with all necessary tracking structures.
+ * Safe to call multiple times; it will not overwrite existing valid data.
+ */
 function ensureWorldState() {
   const layout = (state.rpgConfig && state.rpgConfig.worldLayout) || "Open";
-
+  log(state.word)
   if (!state.world) {
     state.world = {
       map: {
@@ -8484,11 +8493,11 @@ function ensureWorldState() {
         territory: [],
         terrain: [],
         biome: [],
-        LocalLocation: {},
+        LocalLocation: {}, // Key: locationId, Value: Location Object
       },
-      interactionRegistry: {},
-      buildingRegistry: {},
-      monsterRegistry: {},
+      interactionRegistry: {}, // Key: interactionId, Value: Interaction Object
+      buildingRegistry: {},    // Key: buildingId, Value: Building Object
+      monsterRegistry: {},     // Key: monsterTypeId, Value: Monster Template
       time: {
         turn: 0,
         day: 1,
@@ -8503,11 +8512,13 @@ function ensureWorldState() {
         visibilityModifier: 1.0,
         temperature: "mild",
       },
-      worldRegistry: { modifiedLocations: {}, activeWorldEvents: [] },
+      worldRegistry: { 
+        modifiedLocations: {}, 
+        activeWorldEvents: [] 
+      },
     };
 
     if (layout === "Ascii Dungeon") {
-      // ASCII GRID WORLD — placeholder structure
       state.world.asciiWorld = {
         grid: null,
         floor: 1,
@@ -8518,10 +8529,9 @@ function ensureWorldState() {
         regions: {},
         generatedAt: 0,
       };
-      // Dungeon is a sub-region of asciiWorld
       state.world.dungeon = null;
     } else {
-      // OPEN WORLD — unified structure (current default)
+      // OPEN WORLD — unified structure
       state.world.dungeon = {
         map: [],
         levels: [],
@@ -8538,90 +8548,352 @@ function ensureWorldState() {
       };
     }
   }
-  if (!state.world.LocalLocation) state.world.LocalLocation = {};
-  if (layout !== "Ascii Dungeon" && !state.world.dungeon) {
-    state.world.dungeon = {
-      levels: [],
-      currentLevel: null,
-      activeMap: null,
-      grid: null,
-      rows: 8,
-      cols: 5,
-      floor: 1,
-      playerPosition: { row: 1, col: "A" },
-      generatedAt: 0,
-      currentLevelName: null,
-      dugfloor: 1,
-    };
-  }
+
+  // Ensure nested objects exist even if state.world was partially defined elsewhere
+  if (!state.world.map) state.world.map = { LocalLocation: {} };
+  if (!state.world.map.LocalLocation) state.world.map.LocalLocation = {};
+  if (!state.world.interactionRegistry) state.world.interactionRegistry = {};
+  if (!state.world.buildingRegistry) state.world.buildingRegistry = {};
+  if (!state.world.monsterRegistry) state.world.monsterRegistry = {};
+  
   if (!state.world.time) {
-    state.world.time = {
-      turn: 0,
-      day: 1,
-      hour: 6,
-      minute: 0,
-      cyclePhase: "dawn",
-      lightLevel: 1.0,
-    };
+    state.world.time = { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0 };
   }
   if (!state.world.weather) {
-    state.world.weather = {
-      current: "clear",
-      intensity: 0,
-      visibilityModifier: 1.0,
-      temperature: "mild",
-    };
+    state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild" };
   }
   if (!state.world.worldRegistry) {
-    state.world.worldRegistry = {
-      modifiedLocations: {},
-      activeWorldEvents: [],
-    };
+    state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: [] };
   } else {
-    if (!state.world.worldRegistry.modifiedLocations)
-      state.world.worldRegistry.modifiedLocations = {};
-    if (!Array.isArray(state.world.worldRegistry.activeWorldEvents))
-      state.world.worldRegistry.activeWorldEvents = [];
+    if (!state.world.worldRegistry.modifiedLocations) state.world.worldRegistry.modifiedLocations = {};
+    if (!Array.isArray(state.world.worldRegistry.activeWorldEvents)) state.world.worldRegistry.activeWorldEvents = [];
   }
 }
 
-function getCurrentLocationKey() {
-  const playerloc =
-    state.PS && state.PS.playerloc ? state.PS.playerloc : "safe area";
-  return playerloc.toLowerCase().replace(/\s+/g, "");
+/**
+ * Adds or updates a location in the Open World map.
+ * @param {Object} locationData - The location configuration.
+ */
+function addLocation(locationData) {
+  ensureWorldState();
+  if (!locationData || !locationData.id) {
+    console.error("addLocation: locationData must have an 'id' property.");
+    return false;
+  }
+  
+  const locId = locationData.id.toLowerCase().replace(/\s+/g, "_");
+  
+  // Merge with existing location if it exists, otherwise create new
+  state.world.map.LocalLocation[locId] = {
+    id: locId,
+    name: locationData.name || "Unknown Location",
+    type: locationData.type || "wilderness", // town, dungeon, wilderness, etc.
+    biome: locationData.biome || "temperate",
+    description: locationData.description || "A mysterious place.",
+    exits: locationData.exits || {}, // e.g., { north: "safe_haven_market", down: "labyrinth_1" }
+    interactions: locationData.interactions || [], // Array of interactionIds
+    buildings: locationData.buildings || [],       // Array of buildingIds
+    monsters: locationData.monsters || [],         // Array of monster names/types that can spawn here
+    flags: locationData.flags || { discovered: false, locked: false, looted: false },
+    ...locationData // Allow overriding defaults
+  };
+  
+  return true;
 }
 
+/**
+ * Retrieves a location object by its ID.
+ * @param {string} locationId - The ID of the location.
+ * @returns {Object|null} The location object or null if not found.
+ */
+function getLocation(locationId) {
+  ensureWorldState();
+  if (!locationId) return null;
+  const locId = locationId.toLowerCase().replace(/\s+/g, "_");
+  return state.world.map.LocalLocation[locId] || null;
+}
+
+/**
+ * Gets the player's current rich location object based on state.PS.playerloc or state.PS.location.
+ * @returns {Object|null} The current location object.
+ */
+function getCurrentLocation() {
+  if (!state.PS) return null;
+  ensureWorldState();
+  
+  // Prefer playerloc (specific area), fallback to location (general area)
+  const targetLoc = state.PS.playerloc || state.PS.location;
+  if (!targetLoc) return null;
+  
+  return getLocation(targetLoc);
+}
+
+/**
+ * Adds an interaction (NPC, object, event) to a specific location and the global registry.
+ * @param {string} locationId - The location to add the interaction to.
+ * @param {Object} interactionData - The interaction configuration.
+ */
+function addInteraction(locationId, interactionData) {
+  ensureWorldState();
+  if (!interactionData || !interactionData.id) {
+    console.error("addInteraction: interactionData must have an 'id' property.");
+    return false;
+  }
+
+  const intId = interactionData.id.toLowerCase().replace(/\s+/g, "_");
+  const locId = locationId.toLowerCase().replace(/\s+/g, "_");
+
+  // Add to global registry
+  state.world.interactionRegistry[intId] = {
+    id: intId,
+    name: interactionData.name || "Unknown Interaction",
+    type: interactionData.type || "object", // npc, object, event, loot
+    description: interactionData.description || "",
+    state: interactionData.state || "active", // active, completed, destroyed, hidden
+    ...interactionData
+  };
+
+  // Link to location if it exists
+  const loc = getLocation(locId);
+  if (loc) {
+    if (!loc.interactions.includes(intId)) {
+      loc.interactions.push(intId);
+    }
+    return true;
+  }
+  
+  console.warn(`addInteraction: Location '${locId}' not found. Interaction created in registry but not linked.`);
+  return true;
+}
+
+/**
+ * Moves the player to a new location if a valid exit exists.
+ * @param {string} direction - The direction to move (e.g., "north", "south", "down", "enter").
+ * @returns {Object} Result object with success status and message.
+ */
+function movePlayer(direction) {
+  if (!state.PS) return { success: false, message: "Player state not initialized." };
+  
+  const currentLoc = getCurrentLocation();
+  if (!currentLoc) {
+    return { success: false, message: "You are in an undefined location." };
+  }
+
+  const dir = direction.toLowerCase().trim();
+  const nextLocId = currentLoc.exits[dir];
+
+  if (!nextLocId) {
+    return { 
+      success: false, 
+      message: `You cannot go ${dir} from here. Available exits: ${Object.keys(currentLoc.exits).join(", ") || "none"}.` 
+    };
+  }
+
+  const targetLoc = getLocation(nextLocId);
+  if (!targetLoc) {
+    return { success: false, message: `The path to ${nextLocId} leads to an uncharted void (Location data missing).` };
+  }
+
+  // Update player position
+  state.PS.playerloc = targetLoc.id;
+  state.PS.location = targetLoc.type === "dungeon" ? "labyrinth" : state.PS.location; // Auto-update broad location if needed
+  
+  // Mark as discovered if not already
+  if (!targetLoc.flags.discovered) {
+    targetLoc.flags.discovered = true;
+    state.world.worldRegistry.modifiedLocations[targetLoc.id] = true;
+  }
+
+  // Advance time for travel (e.g., 15 minutes)
+  if (state.world.time) {
+    state.world.time.minute += 15;
+    if (state.world.time.minute >= 60) {
+      state.world.time.minute -= 60;
+      state.world.time.hour += 1;
+      if (state.world.time.hour >= 24) {
+        state.world.time.hour -= 24;
+        state.world.time.day += 1;
+      }
+    }
+  }
+
+  return { 
+    success: true, 
+    message: `You travel ${dir} and arrive at: ${targetLoc.name}.`,
+    location: targetLoc
+  };
+}
+
+/**
+ * Seeds a basic default Open World map for testing and initial gameplay.
+ * Call this once during game initialization or character creation finalization.
+ */
+
+  // Default Open World
+function initializeDefaultOpenWorld() {
+  ensureWorldState();
+
+  // 1. Safe Haven (Hub)
+  addLocation({
+    id: "safe_haven",
+    name: "Safe Haven",
+    type: "town",
+    biome: "temperate",
+    description: "A fortified settlement offering rest, trade, and preparation for the labyrinth.",
+    exits: {
+      north: "safe_haven_market",
+      south: "labyrinth_entrance"
+    },
+    interactions: ["guard_gate", "notice_board", "innkeeper"],
+    buildings: ["tavern", "blacksmith", "general_store"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("safe_haven", {
+    id: "notice_board",
+    name: "Adventurer's Notice Board",
+    type: "object",
+    description: "A wooden board covered in requests for monster cores and exploration.",
+    state: "active"
+  });
+
+  // 2. Safe Haven Market
+  addLocation({
+    id: "safe_haven_market",
+    name: "Safe Haven Market",
+    type: "town_sub",
+    biome: "temperate",
+    description: "A bustling courtyard where merchants sell supplies and adventurers trade loot.",
+    exits: {
+      south: "safe_haven"
+    },
+    interactions: ["merchant_supplies", "merchant_potions"],
+    buildings: ["general_store"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  // 3. Labyrinth Entrance
+  addLocation({
+    id: "labyrinth_entrance",
+    name: "Labyrinth Entrance",
+    type: "dungeon_entrance",
+    biome: "stone",
+    description: "A massive, ominous stairway leading down into the earth. The air grows cold.",
+    exits: {
+      north: "safe_haven",
+      down: "labyrinth_top_level"
+    },
+    interactions: ["legion_identification_stone"],
+    buildings: [],
+    monsters: ["Maze Rat", "Gloom Spider"], 
+    flags: { discovered: true, locked: false }
+  });
+
+  // 4. Labyrinth Top Level
+  addLocation({
+    id: "labyrinth_top_level",
+    name: "Labyrinth: Top Level",
+    type: "dungeon",
+    biome: "cave",
+    description: "The upper echelons of the labyrinth. Faint light filters from above, but shadows stretch long.",
+    exits: {
+      up: "labyrinth_entrance",
+      north: "labyrinth_middle_level",
+      east: "labyrinth_side_cavern"
+    },
+    interactions: ["abandoned_campfire"],
+    buildings: [],
+    monsters: ["Maze Rat", "Gloom Spider", "Hollow Skeleton", "Goblin"],
+    flags: { discovered: false, locked: false }
+  });
+
+  // 5. Labyrinth Side Cavern (Example of a branching path)
+  addLocation({
+    id: "labyrinth_side_cavern",
+    name: "Labyrinth: Side Cavern",
+    type: "dungeon",
+    biome: "cave",
+    description: "A damp, echoing cavern with strange glowing fungi on the walls.",
+    exits: {
+      west: "labyrinth_top_level"
+    },
+    interactions: ["glowing_fungi_patch", "hidden_chest"],
+    buildings: [],
+    monsters: ["Sludge Crawler", "Cave Tick"],
+    flags: { discovered: false, locked: false }
+  });
+
+  console.log("Default Open World map initialized successfully.");
+}
+
+/**
+ * Gets a sanitized, lowercase key for the player's current specific location.
+ * Falls back to "safe_area" if player state is missing.
+ */
+function getCurrentLocationKey() {
+  if (!state.PS) return "safe_area";
+  // Prefer playerloc (specific area), fallback to location (general area)
+  const playerloc = state.PS.playerloc || state.PS.location || "safe area";
+  return playerloc.toLowerCase().replace(/\s+/g, "_");
+}
+
+/**
+ * Retrieves or initializes a location entry. 
+ * Fixes the path to state.world.map.LocalLocation and merges rich Open World 
+ * defaults with the existing biomass/spawning tracking system.
+ */
 function getLocationEntry(key) {
   ensureWorldState();
   if (!key) return null;
-  if (!state.world.LocalLocation[key]) {
-    state.world.LocalLocation[key] = {
+
+  // Ensure we are using the correct path defined in ensureWorldState()
+  const locMap = state.world.map.LocalLocation;
+  
+  if (!locMap[key]) {
+    locMap[key] = {
+      // --- Open World Map Defaults ---
+      id: key,
+      displayName: key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+      zoneType: "unknown",
+      subArea: "",
+      exits: {},
+      interactions: [],
+      entities: [],
+      flags: { discovered: false, danger: 0, locked: false, looted: false },
+      
+      // --- Biomass / Spawning Tracking (Required by existing spawn system) ---
       biomass: 0,
       lastRegenTurn: 0,
       famine: false,
       spawnedSinceFamine: 0,
     };
   }
-  return state.world.LocalLocation[key];
+  
+  return locMap[key];
 }
 
+/**
+ * Returns a fully populated, rich location object for the player's current position.
+ * Ensures all display and tracking properties are initialized for Gametrack() and UI.
+ */
 function getRichLocation() {
   ensureWorldState();
   const key = getCurrentLocationKey();
   const entry = getLocationEntry(key);
+  
   if (!entry) return null;
-  if (!entry.id) {
-    entry.id = key;
-    entry.playerloc = state.PS && state.PS.playerloc ? state.PS.playerloc : key;
-    entry.zoneType = entry.zoneType || "unknown";
-    entry.displayName =
-      entry.displayName || (state.PS && state.PS.playerloc) || key;
-    entry.subArea = entry.subArea || "";
-    entry.exits = entry.exits || {};
-    entry.interactions = entry.interactions || [];
-    entry.entities = entry.entities || [];
-    entry.flags = entry.flags || {};
+
+  // Dynamically enrich with player state if defaults are missing
+  if (!entry.playerloc) {
+    entry.playerloc = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
   }
+  if (!entry.displayName || entry.displayName === key) {
+    const fallbackName = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
+    entry.displayName = fallbackName.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }
+
   return entry;
 }
 
