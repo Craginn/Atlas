@@ -355,6 +355,32 @@ const OUTPUT_FORMATS = {
       `Output only the numbered list`,
     ],
   },
+  // Extension: used while a monster is active and still alive after being hit.
+  // The player's attack is described as landing on a live target.
+  combat_alive: {
+    header: `# COMBAT — MONSTER ACTIVE\n The response MUST follow this structure when a monster is still alive after being attacked:`,
+    lineTemplate: `1. ([Player Name]) ([Attack Beat — how the player attacked]) ([Result — monster still alive, damage dealt]) (Scope) (Priority)`,
+    example: `1. (Kaelen) (Swings broadsword at the Goblin) (Hits for 12 dmg, Goblin reels but stays standing) (local) (major)`,
+    rules: [
+      `EVERY line MUST follow: ([Player Name]) ([Attack Beat]) ([Result]) (Scope) (Priority)`,
+      `The Result MUST describe the monster STILL BEING ALIVE (wounded, snarling, defiant, standing)`,
+      `Include the damage dealt and the monster's remaining health`,
+      `The Attack Beat MUST be in present tense and telegraphic`,
+      `Output only the numbered list`,
+    ],
+  },
+  // Extension: used when a monster is actually dead / defeated by the player's attack.
+  combat_dead: {
+    header: `# COMBAT — MONSTER DEFEATED\n The response MUST follow this structure when a monster falls to the player's attack:`,
+    lineTemplate: `1. ([Player Name]) ([Finishing Attack Beat]) ([Defeat Result — monster slain, falls, defeated]) (Scope) (Priority)`,
+    example: `1. (Kaelen) (Drives blade through the Goblin's chest) (Goblin collapses, defeated) (local) (major)`,
+    rules: [
+      `EVERY line MUST follow: ([Player Name]) ([Attack Beat]) ([Defeat Result]) (Scope) (Priority)`,
+      `The Result MUST announce the monster FALLING and being DEFEATED (slain, falls, defeated, collapses)`,
+      `The Attack Beat MUST be in present tense and telegraphic`,
+      `Output only the numbered list`,
+    ],
+  },
   exploration: {
     header: `# EXPLORATION OUTPUT FORMAT\n The response MUST follow this environmental structure:`,
     lineTemplate: `1. (Location/Entity) (Sensory Detail/Discovery) (Immediate Effect/Context) (Scope) (Importance)`,
@@ -389,6 +415,7 @@ function getOutputFormat(type = "default") {
 function updateOutputFormat(type, updates) {
   const current = getOutputFormat(type);
   state.outputFormats[type] = { ...current, ...updates };
+  console.log(state.outputFormats)
 }
 
 function resetOutputFormat(type = "default") {
@@ -399,6 +426,66 @@ function resetOutputFormat(type = "default") {
       JSON.stringify(OUTPUT_FORMATS[type] || OUTPUT_FORMATS.default),
     );
   }
+}
+
+// Renders a single combat line in the strict OUTPUT_FORMATS structure.
+// When `isDead` is false the `combat_alive` format is used (attack describes
+// the monster surviving the blow); when `isDead` is true the `combat_dead`
+// format is used (attack describes the monster being defeated).
+//
+// @param {string} playerName   - Name of the attacking player.
+// @param {string} targetName   - Name of the monster being attacked.
+// @param {number} damage       - Damage dealt by the attack.
+// @param {boolean} isDead      - Whether the monster was killed by this attack.
+// @param {string} actionBeat    - Present-tense telegraphic description of the attack.
+// @param {number} remaining    - Monster's health after the attack (0 when dead).
+function renderCombatOutput(playerName, targetName, damage, isDead, actionBeat, remaining) {
+  getOutputFormat(isDead ? "combat_dead" : "combat_alive");
+
+  let result;
+  let beat = actionBeat || (isDead ? "Delivers the killing blow" : "Strikes");
+
+  if (isDead) {
+    result = `${targetName} collapses, defeated!`;
+  } else {
+    result = `${damage} dmg dealt, ${targetName} still alive (${remaining} HP remaining)`;
+  }
+
+  return `1. (${playerName}) (${beat}) (${result}) (local) (major)`;
+}
+
+// Maps the first verb of a matched attack phrase to a present-tense beat.
+const ATTACK_BEAT_MAP = {
+  strike: "Strikes",
+  hit: "Hits",
+  attack: "Attacks",
+  slash: "Slashes",
+  stab: "Stabs",
+  pummel: "Pummels",
+  maul: "Mauls",
+  vanquish: "Vanquishes",
+  slay: "Slays",
+  eliminate: "Eliminates",
+  tackle: "Tackles",
+  ambush: "Ambushes",
+  wallop: "Wallops",
+  defeat: "Defeats",
+};
+
+// Extracts a present-tense telegraphic action beat from the player's input text
+// by matching against playerattackWords. Returns null when no attack verb
+// is recognized so the caller can fall back to a default beat.
+function parseAttackBeat(inputText) {
+  if (!inputText) return null;
+  const lower = inputText.toLowerCase().trim();
+  for (const word of playerattackWords) {
+    const w = (word || "").trim().toLowerCase();
+    if (w && lower.includes(w)) {
+      const verb = w.split(/\s+/)[0].replace(/[^a-z]/g, "");
+      return ATTACK_BEAT_MAP[verb] || "Attacks";
+    }
+  }
+  return null;
 }
 
 // Skill registration system
@@ -8121,8 +8208,9 @@ function playerAttack() {
       target.health -= dmg;
       if (target.health < 0) target.health = 0;
 
+      const actionBeat = parseAttackBeat(text) || "Strikes";
       state.logMessages["Output"].push(
-        `[${PlayerName}|Hit:${target.name}|Damage:${dmg}]`,
+        renderCombatOutput(PlayerName, target.name, dmg, false, actionBeat, target.health),
       );
 
       // Basic attacks carry the player's chosen elemental aspect.
@@ -8141,7 +8229,7 @@ function playerAttack() {
           target.health = target.maxHealth;
           rescalePackDamage(target);
           state.logMessages["Output"].push(
-            `[One ${target.name} dies. ${target.count} remain.]`,
+            renderCombatOutput(PlayerName, target.name, dmg, true, "Slays one", target.health),
           );
           onMonsterDefeated(deadOne);
         } else {
@@ -8157,7 +8245,7 @@ function playerAttack() {
             `\n${PlayerName}|Defeated:${target.name}`,
           );
           state.logMessages["Output"].push(
-            `(${PlayerName}|Defeated:${target.name})`,
+            renderCombatOutput(PlayerName, target.name, dmg, true, "Delivers the killing blow", 0),
           );
           onMonsterDefeated(defeatedSnapshot);
 
@@ -8842,7 +8930,7 @@ function InsertMonster(text) {
         rescalePackDamage(m);
 
         state.logMessages["Output"].push(
-          `[One ${m.name} dies. ${m.count} remain.]`,
+          renderCombatOutput(state.PS.Name, m.name, 0, true, "Slays one", 0),
         );
         onMonsterDefeated(deadOne);
       } else {
@@ -8854,7 +8942,9 @@ function InsertMonster(text) {
           (x) => x !== m,
         );
 
-        state.logMessages["Output"].push(`[${m.name} has been slain!]`);
+        state.logMessages["Output"].push(
+          renderCombatOutput(state.PS.Name, m.name, 0, true, parseAttackBeat(text) || "Kills", 0),
+        );
         onMonsterDefeated(defeatedSnapshot);
       }
     }
@@ -9707,7 +9797,7 @@ function damageMonster(target, amount, ability, PlayerName) {
   if (target.health < 0) target.health = 0;
 
   state.logMessages["Output"].push(
-    `✨${PlayerName}|Used:${ability.displayName}|Target:${target.name}|Damage:${amount}`,
+    renderCombatOutput(PlayerName, target.name, amount, false, `Uses ${ability.displayName}`, target.health),
   );
 
   // Chance to inflict the ability's matching status effect on a survivor.
@@ -9724,7 +9814,7 @@ function damageMonster(target, amount, ability, PlayerName) {
       target.health = target.maxHealth;
       rescalePackDamage(target);
       state.logMessages["Output"].push(
-        `[One ${target.name} dies. ${target.count} remain.]`,
+        renderCombatOutput(PlayerName, target.name, amount, true, "Slays one", target.health),
       );
       onMonsterDefeated(deadOne);
     } else {
@@ -9735,7 +9825,7 @@ function damageMonster(target, amount, ability, PlayerName) {
         (x) => x !== target,
       );
       state.logMessages["Output"].push(
-        `☠️(${PlayerName}|Defeated:${target.name})`,
+        renderCombatOutput(PlayerName, target.name, amount, true, "Delivers the killing blow", 0),
       );
       state.logMessages["Input"].push(`${PlayerName}|Defeated:${target.name}`);
       onMonsterDefeated(defeatedSnapshot);
