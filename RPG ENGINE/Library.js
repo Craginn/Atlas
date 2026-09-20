@@ -50,6 +50,7 @@ const RPG_CONFIG_CARD_KEYS = "RPG Config";
 const RPG_CONFIG_DEFAULTS = {
   Enabled: false, // master gate — must be true to create a player
   "Game Mode": "open-world", // open-world | rogue-like
+  "World Layout": "Open", // Open | Ascii Dungeon
   Difficulty: "medium", // easy | medium | hard
   Permadeath: false, // is death final
   Survival: true, // hunger/thirst/fatigue systems on/off
@@ -58,7 +59,8 @@ const RPG_CONFIG_DEFAULTS = {
 // newlines, trailing prose would otherwise glue onto the last setting's value.
 const RPG_CONFIG_HEADER =
   "RPG world configuration. Edit the values below to tune the world.\n" +
-  "Game Mode: open-world | rogue-like   Difficulty: easy | medium | hard\n";
+  "Game Mode: open-world | rogue-like   Difficulty: easy | medium | hard\n" +
+  "World Layout: Open | Ascii Dungeon\n";
 
 // Render the canonical entry (header + one setting per line) from a values map.
 function buildRpgConfigEntry(values) {
@@ -111,13 +113,19 @@ function getRpgConfig() {
     RPG_CONFIG_ENTRY,
     "Custom",
   );
+  // Derive default World Layout from Game Mode before reading the card
+  const tempGameMode = readRpgSetting(
+    card,
+    "Game Mode",
+    RPG_CONFIG_DEFAULTS["Game Mode"],
+  );
+  const derivedLayout =
+    tempGameMode === "rogue-like" ? "Ascii Dungeon" : "Open";
+
   const cfg = {
     enabled: readRpgSetting(card, "Enabled", RPG_CONFIG_DEFAULTS.Enabled),
-    gameMode: readRpgSetting(
-      card,
-      "Game Mode",
-      RPG_CONFIG_DEFAULTS["Game Mode"],
-    ),
+    gameMode: tempGameMode,
+    worldLayout: readRpgSetting(card, "World Layout", derivedLayout),
     difficulty: readRpgSetting(
       card,
       "Difficulty",
@@ -136,6 +144,11 @@ function getRpgConfig() {
   return cfg;
 }
 
+// Get the current world layout (Open | Ascii Dungeon)
+function getWorldLayout() {
+  return (state.rpgConfig && state.rpgConfig.worldLayout) || "Open";
+}
+
 // Self-heal: if the card's settings are not on their own lines, rewrite it in the
 // canonical shape (preserving the values just parsed) so later reads and
 // setSettings writes — which ARE line-anchored — behave.
@@ -146,6 +159,7 @@ function repairRpgConfigCard(card, cfg) {
   const newEntry = buildRpgConfigEntry({
     Enabled: cfg.enabled,
     "Game Mode": cfg.gameMode,
+    "World Layout": cfg.worldLayout,
     Difficulty: cfg.difficulty,
     Permadeath: cfg.permadeath,
     Survival: cfg.survival,
@@ -191,9 +205,18 @@ function isSurvivalOn() {
   return getRpgConfig().survival !== false;
 }
 
-// Game Mode decides where a new character wakes up.
+// Game Mode and World Layout decide where a new character wakes up.
 function rpgStartingLocation() {
-  return getRpgConfig().gameMode === "rogue-like"
+  const cfg = getRpgConfig();
+  const isRogueLike = cfg.gameMode === "rogue-like";
+  const isAsciiDungeon = cfg.worldLayout === "Ascii Dungeon";
+
+  // If Ascii Dungeon layout, start in the ascii world regardless of game mode
+  if (isAsciiDungeon) {
+    return { location: "ascii world", playerloc: "ascii world entrance" };
+  }
+  // Otherwise use game mode for open world
+  return isRogueLike
     ? { location: "dungeon", playerloc: "dungeon entrance" }
     : { location: "safe haven", playerloc: "safe area" };
 }
@@ -415,7 +438,7 @@ function getOutputFormat(type = "default") {
 function updateOutputFormat(type, updates) {
   const current = getOutputFormat(type);
   state.outputFormats[type] = { ...current, ...updates };
-  console.log(state.outputFormats)
+  console.log(state.outputFormats);
 }
 
 function resetOutputFormat(type = "default") {
@@ -439,7 +462,14 @@ function resetOutputFormat(type = "default") {
 // @param {boolean} isDead      - Whether the monster was killed by this attack.
 // @param {string} actionBeat    - Present-tense telegraphic description of the attack.
 // @param {number} remaining    - Monster's health after the attack (0 when dead).
-function renderCombatOutput(playerName, targetName, damage, isDead, actionBeat, remaining) {
+function renderCombatOutput(
+  playerName,
+  targetName,
+  damage,
+  isDead,
+  actionBeat,
+  remaining,
+) {
   getOutputFormat(isDead ? "combat_dead" : "combat_alive");
 
   let result;
@@ -1881,7 +1911,9 @@ function companionCombatTick() {
     let target = null;
     if (c.kind === "summon" && c.directedTarget) {
       target = monsters.find(
-        (m) => m.name.toLowerCase() === String(c.directedTarget).toLowerCase() && m.health > 0,
+        (m) =>
+          m.name.toLowerCase() === String(c.directedTarget).toLowerCase() &&
+          m.health > 0,
       );
     }
     if (!target && state.MS.lastTarget) {
@@ -6629,7 +6661,9 @@ function buildKnownAbility(key) {
 }
 
 function getStartingSkills(StarterSkills) {
-  const key = String(StarterSkills || "").toLowerCase().trim();
+  const key = String(StarterSkills || "")
+    .toLowerCase()
+    .trim();
   const keys = STARTING_ABILITIES[key] || STARTING_ABILITIES.default;
   const skills = {};
   for (const k of keys) skills[k] = buildKnownAbility(k);
@@ -7755,7 +7789,13 @@ function createMonster(identifier) {
     // Higher tier monsters spawn closer to increase threat.
     const isRanged = libEntry.range === "ranged";
     const baseSpawnDistance = isRanged ? 30 : 10; // Ranged: 60, Melee: 40
-    const tierDistanceMod = { mythic: -15, legendary: -10, rare: -5, magic: 0, common: 5 };
+    const tierDistanceMod = {
+      mythic: -15,
+      legendary: -10,
+      rare: -5,
+      magic: 0,
+      common: 5,
+    };
     const tierMod = tierDistanceMod[tierData.tier?.toLowerCase()] ?? 0;
     const rarityDistanceMod = {
       Legendary: -5,
@@ -8196,8 +8236,12 @@ function playerAttack() {
       const oldDistance = target.distance;
       SpatialManager.updateDistance(target, -playerSpeed);
       SpatialManager.updateProximity(state.PS, target);
-      console.log(`Closing distance: ${oldDistance} -> ${target.distance} (speed: ${playerSpeed}, range needed: ${playerBaseRange}, nearTarget: ${state.PS.nearTarget})`);
-      state.logMessages["Output"].push(`[${PlayerName} closes the distance to ${target.name}.]`);
+      console.log(
+        `Closing distance: ${oldDistance} -> ${target.distance} (speed: ${playerSpeed}, range needed: ${playerBaseRange}, nearTarget: ${state.PS.nearTarget})`,
+      );
+      state.logMessages["Output"].push(
+        `[${PlayerName} closes the distance to ${target.name}.]`,
+      );
       return text; // Skip damage phase this turn
     } else {
       const dmg = getPlayerDamage();
@@ -8210,7 +8254,14 @@ function playerAttack() {
 
       const actionBeat = parseAttackBeat(text) || "Strikes";
       state.logMessages["Output"].push(
-        renderCombatOutput(PlayerName, target.name, dmg, false, actionBeat, target.health),
+        renderCombatOutput(
+          PlayerName,
+          target.name,
+          dmg,
+          false,
+          actionBeat,
+          target.health,
+        ),
       );
 
       // Basic attacks carry the player's chosen elemental aspect.
@@ -8229,7 +8280,14 @@ function playerAttack() {
           target.health = target.maxHealth;
           rescalePackDamage(target);
           state.logMessages["Output"].push(
-            renderCombatOutput(PlayerName, target.name, dmg, true, "Slays one", target.health),
+            renderCombatOutput(
+              PlayerName,
+              target.name,
+              dmg,
+              true,
+              "Slays one",
+              target.health,
+            ),
           );
           onMonsterDefeated(deadOne);
         } else {
@@ -8245,7 +8303,14 @@ function playerAttack() {
             `\n${PlayerName}|Defeated:${target.name}`,
           );
           state.logMessages["Output"].push(
-            renderCombatOutput(PlayerName, target.name, dmg, true, "Delivers the killing blow", 0),
+            renderCombatOutput(
+              PlayerName,
+              target.name,
+              dmg,
+              true,
+              "Delivers the killing blow",
+              0,
+            ),
           );
           onMonsterDefeated(defeatedSnapshot);
 
@@ -8387,7 +8452,7 @@ function recordCorpse(monster) {
   while (state.MS.corpses.length > MAX_CORPSES) state.MS.corpses.shift();
 }
 
-// ---- CARRYING CAPACITY / BIOMASS SYSTEM ----
+// ---- Monster CARRYING CAPACITY / BIOMASS SYSTEM ----
 const CARRYING_CAPACITY_CONFIG = {
   costPerSpawn: 10,
   regenPerTurn: 5,
@@ -8409,9 +8474,21 @@ const CARRYING_CAPACITY_CONFIG = {
 };
 
 function ensureWorldState() {
+  const layout = (state.rpgConfig && state.rpgConfig.worldLayout) || "Open";
+
   if (!state.world) {
     state.world = {
-      LocalLocation: {},
+      map: {
+        continent: [],
+        region: [],
+        territory: [],
+        terrain: [],
+        biome: [],
+        LocalLocation: {},
+      },
+      interactionRegistry: {},
+      buildingRegistry: {},
+      monsterRegistry: {},
       time: {
         turn: 0,
         day: 1,
@@ -8427,25 +8504,44 @@ function ensureWorldState() {
         temperature: "mild",
       },
       worldRegistry: { modifiedLocations: {}, activeWorldEvents: [] },
-      dungeon: {
-        levels: {},
+    };
+
+    if (layout === "Ascii Dungeon") {
+      // ASCII GRID WORLD — placeholder structure
+      state.world.asciiWorld = {
+        grid: null,
+        floor: 1,
+        dugfloor: 1,
+        rows: 50,
+        cols: 50,
+        playerPosition: { x: 25, y: 25 },
+        regions: {},
+        generatedAt: 0,
+      };
+      // Dungeon is a sub-region of asciiWorld
+      state.world.dungeon = null;
+    } else {
+      // OPEN WORLD — unified structure (current default)
+      state.world.dungeon = {
+        map: [],
+        levels: [],
         currentLevel: null,
         activeMap: null,
-        grid: null,
-        rows: 8,
-        cols: 5,
         floor: 1,
-        playerPosition: { row: 1, col: "A" },
+        playerPosition: {},
         generatedAt: 0,
+        interactionRegistry: {},
+        buildingRegistry: {},
+        monsterRegistry: {},
         currentLevelName: null,
         dugfloor: 1,
-      },
-    };
+      };
+    }
   }
   if (!state.world.LocalLocation) state.world.LocalLocation = {};
-  if (!state.world.dungeon) {
+  if (layout !== "Ascii Dungeon" && !state.world.dungeon) {
     state.world.dungeon = {
-      levels: {},
+      levels: [],
       currentLevel: null,
       activeMap: null,
       grid: null,
@@ -8943,7 +9039,14 @@ function InsertMonster(text) {
         );
 
         state.logMessages["Output"].push(
-          renderCombatOutput(state.PS.Name, m.name, 0, true, parseAttackBeat(text) || "Kills", 0),
+          renderCombatOutput(
+            state.PS.Name,
+            m.name,
+            0,
+            true,
+            parseAttackBeat(text) || "Kills",
+            0,
+          ),
         );
         onMonsterDefeated(defeatedSnapshot);
       }
@@ -9797,7 +9900,14 @@ function damageMonster(target, amount, ability, PlayerName) {
   if (target.health < 0) target.health = 0;
 
   state.logMessages["Output"].push(
-    renderCombatOutput(PlayerName, target.name, amount, false, `Uses ${ability.displayName}`, target.health),
+    renderCombatOutput(
+      PlayerName,
+      target.name,
+      amount,
+      false,
+      `Uses ${ability.displayName}`,
+      target.health,
+    ),
   );
 
   // Chance to inflict the ability's matching status effect on a survivor.
@@ -9814,7 +9924,14 @@ function damageMonster(target, amount, ability, PlayerName) {
       target.health = target.maxHealth;
       rescalePackDamage(target);
       state.logMessages["Output"].push(
-        renderCombatOutput(PlayerName, target.name, amount, true, "Slays one", target.health),
+        renderCombatOutput(
+          PlayerName,
+          target.name,
+          amount,
+          true,
+          "Slays one",
+          target.health,
+        ),
       );
       onMonsterDefeated(deadOne);
     } else {
@@ -9825,7 +9942,14 @@ function damageMonster(target, amount, ability, PlayerName) {
         (x) => x !== target,
       );
       state.logMessages["Output"].push(
-        renderCombatOutput(PlayerName, target.name, amount, true, "Delivers the killing blow", 0),
+        renderCombatOutput(
+          PlayerName,
+          target.name,
+          amount,
+          true,
+          "Delivers the killing blow",
+          0,
+        ),
       );
       state.logMessages["Input"].push(`${PlayerName}|Defeated:${target.name}`);
       onMonsterDefeated(defeatedSnapshot);
@@ -11651,7 +11775,12 @@ function generateDungeon() {
   const floorKey = "floor_" + (dg.dugfloor || dg.floor || 1);
 
   const existing = dg.levels[floorKey];
-  if (existing && existing.grid && Object.keys(existing.grid).length > 0 && existing.generatedAt) {
+  if (
+    existing &&
+    existing.grid &&
+    Object.keys(existing.grid).length > 0 &&
+    existing.generatedAt
+  ) {
     dg.grid = existing.grid;
     dg.playerPosition = existing.playerPosition;
     dg.currentFloor = dg.dugfloor || dg.floor || 1;
@@ -11751,7 +11880,8 @@ function generateDungeon() {
         visited: room.type === "start",
         isExit: room.type === "exit",
         leadsTo: room.type === "exit" ? dg.currentFloor + 1 : undefined,
-        difficulty: room.enemies && room.enemies.length ? room.enemies.length : undefined,
+        difficulty:
+          room.enemies && room.enemies.length ? room.enemies.length : undefined,
       });
       roomId++;
     }
@@ -11776,7 +11906,7 @@ function generateDungeon() {
   };
 
   return dg;
-}// Create a specific dungeon room
+} // Create a specific dungeon room
 function createDungeonRoom(type, description) {
   const room = {
     type,
@@ -11956,10 +12086,19 @@ function updateDungeonCard() {
   ensureWorldState();
   const dungeonString = buildDungeonString();
   const dg = state.world.dungeon;
-  const card = CommunityUtils.StoryCards.find(dg.cardKey || "dungeon_map", true, dungeonString, "Dungeon");
+  const card = CommunityUtils.StoryCards.find(
+    dg.cardKey || "dungeon_map",
+    true,
+    dungeonString,
+    "Dungeon",
+  );
   if (card) {
     CommunityUtils.StoryCards.setSettings(card, "Floor", dg.floor);
-    CommunityUtils.StoryCards.setSettings(card, "Position", `${dg.playerPosition.row}${dg.playerPosition.col}`);
+    CommunityUtils.StoryCards.setSettings(
+      card,
+      "Position",
+      `${dg.playerPosition.row}${dg.playerPosition.col}`,
+    );
   }
 }
 
@@ -12126,7 +12265,7 @@ function createRoom(type, floor, playerLevel, roomNumber) {
   }
 }
 
- // ──────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
 // Storage & Display Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 function saveDungeonMap(mapData) {
@@ -13201,13 +13340,15 @@ function generateDungeonFloor(dungeonName, floor, playerLevel) {
   dg.levels = dg.levels || {};
   generateDungeon();
   dg.playerPosition = { row: 1, col: "A" };
-  return dg.activeMap || {
-    dungeon: dg.name,
-    floor: dg.currentFloor,
-    rooms: [],
-    layoutStyle: "Linear tunnel",
-    currentRoomIndex: 0,
-  };
+  return (
+    dg.activeMap || {
+      dungeon: dg.name,
+      floor: dg.currentFloor,
+      rooms: [],
+      layoutStyle: "Linear tunnel",
+      currentRoomIndex: 0,
+    }
+  );
 }
 
 function enterDungeonFloor(dungeonName, floor, playerLevel) {
