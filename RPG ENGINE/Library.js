@@ -7451,7 +7451,7 @@ if (!state.MS) {
   };
 }
 
-if (!state.world || !state.world.LocalLocation) {
+if (!state.world || !state.world.map || !state.world.map.locations) {
   ensureWorldState();
 }
 
@@ -8516,6 +8516,81 @@ const LABYRINTH_LEVEL_CONFIG = {
  * Ensures the world state is properly initialized with all necessary tracking structures.
  * Safe to call multiple times; it will not overwrite existing valid data.
  */
+// ============================================================================
+// ENHANCED WORLD SYSTEM - Supports multiple dungeons, dynamic events, and rich interactions
+// ============================================================================
+
+const WORLD_EVENTS = {
+  "goblin_raid": {
+    id: "goblin_raid", name: "Goblin Raid", description: "Goblins have been spotted near the town walls!", triggerChance: 0.3, duration: 5,
+    effect: (location) => {
+      location.monsters = location.monsters || [];
+      location.monsters.push("Goblin", "Goblin Warrior", "Goblin Shaman");
+      location.flags.raid = true;
+      return `Goblins are raiding ${location.name}!`;
+    },
+    onComplete: (location) => {
+      location.flags.raid = false;
+      location.monsters = location.monsters.filter(m => m !== "Goblin" && m !== "Goblin Warrior" && m !== "Goblin Shaman");
+      return `Goblin raid repelled from ${location.name}!`;
+    }
+  },
+  "merchant_caravan": {
+    id: "merchant_caravan", name: "Traveling Merchant", description: "A merchant caravan has set up camp nearby.", triggerChance: 0.2, duration: 3,
+    effect: (location) => {
+      location.interactions = location.interactions || [];
+      if (!location.interactions.includes("merchant_caravan")) location.interactions.push("merchant_caravan");
+      return `Merchant caravan arrived at ${location.name}!`;
+    },
+    onComplete: (location) => {
+      location.interactions = location.interactions.filter(i => i !== "merchant_caravan");
+      return `Merchant caravan left ${location.name}.`;
+    }
+  }
+};
+
+function initializeWorldRegistries() {
+  const registries = state.world.registries;
+  registries.interactions = {
+    "town_notice_board": { id: "town_notice_board", name: "Town Notice Board", type: "interaction", description: "A wooden board with various notices.", state: "active", options: [{ text: "Read notices", action: "read_notices" }, { text: "Post notice", action: "post_notice", requiresItem: "paper_and_ink" }] },
+    "blacksmith": { id: "blacksmith", name: "Blacksmith", type: "shop", description: "A sturdy forge with the sound of hammering.", state: "active", inventory: generateBlacksmithInventory(), buyPriceMultiplier: 1.2, sellPriceMultiplier: 0.8 },
+    "merchant": { id: "merchant", name: "General Merchant", type: "shop", description: "A traveling merchant with exotic goods.", state: "active", inventory: generateMerchantInventory(), buyPriceMultiplier: 1.5, sellPriceMultiplier: 0.6 },
+    "legion_identification_stone": { id: "legion_identification_stone", name: "Legion Identification Stone", type: "object", description: "A magical stone that marks you as a Legion member.", state: "active", effect: () => { state.PS.legionMember = true; return "You've been marked as a Legion member!"; } }
+  };
+  registries.buildings = {
+    "town_hall": { id: "town_hall", name: "Town Hall", type: "building", description: "The administrative center of the town.", services: ["rest", "storage", "quests"], requirements: { wood: 50, stone: 30, gold: 100 } },
+    "inn": { id: "inn", name: "Inn", type: "building", description: "A place to rest and recover.", services: ["rest", "heal"], requirements: { wood: 20, stone: 10 } }
+  };
+  registries.monsters = {
+    "Maze Rat": { name: "Maze Rat", health: 15, damage: 3, experience: 10, loot: ["minor_health_potion", "gold_coin"], habitat: ["ancient_stone", "damp_cavern"], spawnChance: 0.8 },
+    "Chitterling": { name: "Chitterling", health: 20, damage: 4, experience: 12, loot: ["minor_mana_potion", "rope"], habitat: ["ancient_stone"], spawnChance: 0.6 }
+  };
+  registries.items = {
+    "minor_health_potion": { name: "Minor Health Potion", type: "consumable", effect: { health: 20 }, value: 15 },
+    "gold_coin": { name: "Gold Coin", type: "currency", value: 1 }
+  };
+}
+
+function generateBlacksmithInventory() {
+  return [{ name: "Iron Sword", type: "weapon", value: 50, modifiers: { strength: 2, damage: 8 } }, { name: "Iron Shield", type: "armor", value: 40, modifiers: { maxHealth: 20 } }, { name: "Health Potion", type: "consumable", value: 15, effect: { health: 30 } }, { name: "Antidote", type: "consumable", value: 10, effect: { curePoison: true } }].map(item => ({ ...item, price: Math.floor(item.value * 1.2) }));
+}
+
+function generateMerchantInventory() {
+  return [{ name: "Rope", type: "misc", value: 10 }, { name: "Torch", type: "misc", value: 5 }, { name: "Bread Loaf", type: "consumable", value: 8, effect: { hunger: 30 } }, { name: "Magic Potion", type: "consumable", value: 20, effect: { mana: 20 } }, { name: "Lockpicks", type: "tool", value: 25 }].map(item => ({ ...item, price: Math.floor(item.value * 1.5) }));
+}
+
+function handleReadNotices() {
+  const notices = ["Adventurers needed! The Labyrinth grows more dangerous every day.", "Beware of increased goblin activity near the Eastern Plains.", "The blacksmith is offering discounted weapon repairs this week.", "Lost: One golden amulet. Reward offered. Inquire at the tavern.", "WARNING: Do not drink from the fountain on Floor 3 of the Labyrinth."];
+  return { success: true, message: `Notice Board:\n${notices[Math.floor(Math.random() * notices.length)]}` };
+}
+
+function handlePostNotice() {
+  if (!state.PS.inventory.some(i => i.name === "paper_and_ink")) return { success: false, message: "You need paper and ink to post a notice." };
+  const itemIndex = state.PS.inventory.findIndex(i => i.name === "paper_and_ink");
+  if (itemIndex !== -1) state.PS.inventory.splice(itemIndex, 1);
+  return { success: true, message: "You post a notice on the board. It reads: 'Looking for adventure!'" };
+}
+
 /**
  * Ensures the world state is properly initialized with all necessary tracking structures and default world data.
  * Safe to call multiple times; it will not overwrite existing valid data.
@@ -8528,18 +8603,38 @@ function ensureWorldState() {
       map: {
         continent: ["The Realm"], region: ["The Starting Lands"], territory: ["Safe Haven Territory", "Labyrinth Depths"],
         terrain: ["grassland", "stone", "cave", "void"], biome: ["temperate", "ancient stone", "damp cavern", "obsidian depths", "void-touched"],
-        LocalLocation: {
-          safe_haven: { id: "safe_haven", name: "Safe Haven", type: "town", biome: "temperate", description: "A fortified settlement.", exits: { north: "safe_haven_market", south: "labyrinth_entrance" }, interactions: ["notice_board"], buildings: ["tavern"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0 },
-          safe_haven_market: { id: "safe_haven_market", name: "Safe Haven Market", type: "town_sub", biome: "temperate", description: "A bustling courtyard.", exits: { south: "safe_haven" }, interactions: ["merchant_supplies"], buildings: ["general_store"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0 },
-          labyrinth_entrance: { id: "labyrinth_entrance", name: "Labyrinth Entrance", type: "dungeon_entrance", biome: "ancient stone", description: "A massive, ominous stairway.", exits: { north: "safe_haven", down: "labyrinth_top_level_floor_1" }, interactions: ["legion_identification_stone"], buildings: [], monsters: ["Maze Rat"], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0 }
+        locations: {
+          "safe_haven": { id: "safe_haven", name: "Safe Haven", type: "town", biome: "temperate", description: "A fortified settlement with shops and services.", exits: { north: "safe_haven_market", south: "labyrinth_entrance", east: "eastern_plains", north2: "northern_mountains" }, interactions: ["town_notice_board", "blacksmith", "merchant", "tavern"], buildings: ["town_hall", "inn", "guild_hall"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
+          "safe_haven_market": { id: "safe_haven_market", name: "Safe Haven Market", type: "town_sub", biome: "temperate", description: "A bustling courtyard.", exits: { south: "safe_haven" }, interactions: ["merchant_supplies"], buildings: ["general_store"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
+          "labyrinth_entrance": { id: "labyrinth_entrance", name: "Labyrinth Entrance", type: "dungeon_entrance", biome: "ancient_stone", description: "A massive, ominous stairway descends into darkness.", exits: { north: "safe_haven", down: "labyrinth_top_level_floor_1" }, interactions: ["legion_identification_stone"], buildings: [], monsters: ["Maze Rat", "Chitterling", "Stone Mites"], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
+          "eastern_plains": { id: "eastern_plains", name: "Eastern Plains", type: "wilderness", biome: "grassland", description: "Vast open plains with tall grass and scattered trees.", exits: { west: "safe_haven", north: "ancient_ruins" }, interactions: ["berry_bush", "ancient_statue"], buildings: [], monsters: ["Giant Spider", "Wolf", "Bandit"], flags: { discovered: false, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
+          "northern_mountains": { id: "northern_mountains", name: "Northern Mountains", type: "wilderness", biome: "mountain", description: "Rugged mountain paths and rocky cliffs.", exits: { south: "safe_haven", north: "mountain_pass" }, interactions: ["mountain_spring", "cave_entrance"], buildings: [], monsters: ["Mountain Lion", "Eagle", "Ice Golem"], flags: { discovered: false, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] }
         },
+        connections: [
+          { from: "safe_haven", to: "labyrinth_entrance", type: "path", distance: 10 },
+          { from: "safe_haven", to: "eastern_plains", type: "road", distance: 15 },
+          { from: "safe_haven", to: "northern_mountains", type: "trail", distance: 20 }
+        ]
       },
-      interactionRegistry: { notice_board: { id: "notice_board", name: "Adventurer's Notice Board", type: "object", description: "A wooden board.", state: "active" } },
-      buildingRegistry: {}, monsterRegistry: {},
-      time: { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0 },
-      weather: { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild" },
-      worldRegistry: { modifiedLocations: { "safe_haven": true, "safe_haven_market": true, "labyrinth_entrance": true }, activeWorldEvents: [] },
+      registries: { interactions: {}, buildings: {}, monsters: {}, items: {}, events: {} },
+      time: { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0, season: "spring" },
+      weather: { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild", precipitation: 0 },
+      dungeons: {
+        "labyrinth": {
+          name: "The Grand Labyrinth",
+          levels: {
+            "top_level": { name: "Top Level", floors: 50, biome: "ancient_stone", difficulty: 1, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap"], monsterPool: ["Maze Rat", "Chitterling", "Stone Mites", "Gloom Spider"], maxBiomass: 100, currentBiomass: 0 },
+            "middle_level": { name: "Middle Level", floors: 25, biome: "damp_cavern", difficulty: 3, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "merchant"], monsterPool: ["Labyrinth Stalker", "Warden Construct", "Gloom Revenant"], maxBiomass: 150, currentBiomass: 0 },
+            "low_level": { name: "Low Level", floors: 25, biome: "obsidian_depths", difficulty: 5, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Bloodcap Brute", "Gravemaw Ghoul", "Fleshbound Horror"], maxBiomass: 200, currentBiomass: 0 },
+            "sub_level": { name: "Sub Level", floors: 100, biome: "void_touched", difficulty: 8, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Soul Leech", "Ironbound Carcass", "Shadowbound Serpent"], maxBiomass: 300, currentBiomass: 0 }
+          },
+          currentFloor: 1, maxFloors: 100, generatedFloors: {}, playerPosition: { row: 1, col: "A" }, lastGenerated: 0
+        }
+      },
+      currentDungeon: "labyrinth", exploredLocations: new Set(), activeWorldEvents: [], completedWorldEvents: []
     };
+    
+    initializeWorldRegistries();
   }
 
   // =========================================================================
@@ -8582,62 +8677,342 @@ function ensureWorldState() {
   }
 
   // Ensure nested objects exist
-  if (!state.world.map) state.world.map = { LocalLocation: {} };
-  if (!state.world.map.LocalLocation) state.world.map.LocalLocation = {};
-  if (!state.world.interactionRegistry) state.world.interactionRegistry = {};
-  if (!state.world.buildingRegistry) state.world.buildingRegistry = {};
-  if (!state.world.monsterRegistry) state.world.monsterRegistry = {};
-  if (!state.world.time) state.world.time = { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0 };
-  if (!state.world.weather) state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild" };
-  if (!state.world.worldRegistry) state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: [] };
+  if (!state.world.map) state.world.map = { locations: {}, connections: [] };
+  if (!state.world.map.locations) state.world.map.locations = {};
+  if (!state.world.map.connections) state.world.map.connections = [];
+  if (!state.world.registries) initializeWorldRegistries();
+  if (!state.world.time) state.world.time = { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0, season: "spring" };
+  if (!state.world.weather) state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild", precipitation: 0 };
+  if (!state.world.dungeons) state.world.dungeons = {};
+  if (!state.world.currentDungeon) state.world.currentDungeon = "labyrinth";
+  if (!state.world.exploredLocations) state.world.exploredLocations = new Set();
+  if (!state.world.activeWorldEvents) state.world.activeWorldEvents = [];
+  if (!state.world.completedWorldEvents) state.world.completedWorldEvents = [];
+  
+  if (!state.world.dungeons["labyrinth"]) {
+    state.world.dungeons["labyrinth"] = {
+      name: "The Grand Labyrinth",
+      levels: {
+        "top_level": { name: "Top Level", floors: 50, biome: "ancient_stone", difficulty: 1, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap"], monsterPool: ["Maze Rat", "Chitterling", "Stone Mites", "Gloom Spider"], maxBiomass: 100, currentBiomass: 0 },
+        "middle_level": { name: "Middle Level", floors: 25, biome: "damp_cavern", difficulty: 3, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "merchant"], monsterPool: ["Labyrinth Stalker", "Warden Construct", "Gloom Revenant"], maxBiomass: 150, currentBiomass: 0 },
+        "low_level": { name: "Low Level", floors: 25, biome: "obsidian_depths", difficulty: 5, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Bloodcap Brute", "Gravemaw Ghoul", "Fleshbound Horror"], maxBiomass: 200, currentBiomass: 0 },
+        "sub_level": { name: "Sub Level", floors: 100, biome: "void_touched", difficulty: 8, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Soul Leech", "Ironbound Carcass", "Shadowbound Serpent"], maxBiomass: 300, currentBiomass: 0 }
+      },
+      currentFloor: 1, maxFloors: 100, generatedFloors: {}, playerPosition: { row: 1, col: "A" }, lastGenerated: 0
+    };
+  }
+  
+  // Legacy support - map LocalLocation to locations for backward compatibility
+  if (state.world.map.LocalLocation && Object.keys(state.world.map.locations).length === 0) {
+    state.world.map.locations = { ...state.world.map.locations, ...state.world.map.LocalLocation };
+  }
+  
+  // Legacy registries
+  if (!state.world.interactionRegistry) state.world.interactionRegistry = state.world.registries.interactions;
+  if (!state.world.buildingRegistry) state.world.buildingRegistry = state.world.registries.buildings;
+  if (!state.world.monsterRegistry) state.world.monsterRegistry = state.world.registries.monsters;
+  if (!state.world.worldRegistry) state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: state.world.activeWorldEvents };
 }
 
-/**
- * Adds or updates a location in the Open World map.
- * @param {Object} locationData - The location configuration.
- */
+function generateWorldEvents() {
+  const events = [];
+  for (const location of Object.values(state.world.map.locations)) {
+    if (location.dynamicEvents && location.dynamicEvents.length > 0) continue;
+    if (Math.random() < 0.1) {
+      const eventKeys = Object.keys(WORLD_EVENTS);
+      const randomEvent = WORLD_EVENTS[eventKeys[Math.floor(Math.random() * eventKeys.length)]];
+      const eventMessage = randomEvent.effect(location);
+      events.push({ locationId: location.id, eventId: randomEvent.id, message: eventMessage, turnsRemaining: randomEvent.duration });
+      state.world.activeWorldEvents.push({ locationId: location.id, eventId: randomEvent.id, turnsRemaining: randomEvent.duration });
+    }
+  }
+  return events;
+}
+
+function tickWorldEvents() {
+  const activeEvents = state.world.activeWorldEvents;
+  for (let i = activeEvents.length - 1; i >= 0; i--) {
+    activeEvents[i].turnsRemaining--;
+    if (activeEvents[i].turnsRemaining <= 0) {
+      const event = WORLD_EVENTS[activeEvents[i].eventId];
+      const location = state.world.map.locations[activeEvents[i].locationId];
+      const completionMessage = event.onComplete(location);
+      state.world.completedWorldEvents.push({ locationId: activeEvents[i].locationId, eventId: activeEvents[i].eventId, message: completionMessage, turn: state.world.time.turn });
+      activeEvents.splice(i, 1);
+    }
+  }
+}
+
+function getLocation(locationId) {
+  const cleanId = locationId.toLowerCase().replace(/\s+/g, "_");
+  const location = state.world.map.locations[cleanId];
+  return location || generateNewLocation(cleanId);
+}
+
+function generateNewLocation(locationId) {
+  const baseLocations = {
+    "eastern_plains": { name: "Eastern Plains", type: "wilderness", biome: "grassland", description: "Vast open plains with tall grass and scattered trees.", exits: { west: "safe_haven", north: "ancient_ruins" }, monsters: ["Giant Spider", "Wolf", "Bandit"], interactions: ["berry_bush", "ancient_statue"] },
+    "northern_mountains": { name: "Northern Mountains", type: "wilderness", biome: "mountain", description: "Rugged mountain paths and rocky cliffs.", exits: { south: "safe_haven", north: "mountain_pass" }, monsters: ["Mountain Lion", "Eagle", "Ice Golem"], interactions: ["mountain_spring", "cave_entrance"] }
+  };
+  if (baseLocations[locationId]) {
+    state.world.map.locations[locationId] = baseLocations[locationId];
+    return state.world.map.locations[locationId];
+  }
+  return {
+    id: locationId, name: locationId.replace(/_/g, " ").split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+    type: "wilderness", biome: "temperate", description: `The ${locationId} area.`, exits: { west: "safe_haven" },
+    monsters: ["Giant Rat", "Wolf", "Bandit"], interactions: ["berry_bush", "old_tree"], flags: { discovered: false, locked: false, looted: false }
+  };
+}
+
+function getRichLocation() {
+  ensureWorldState();
+  const key = getCurrentLocationKey();
+  const entry = getLocationEntry(key);
+  if (!entry) return null;
+  const activeEvent = state.world.activeWorldEvents.find(e => e.locationId === key);
+  if (activeEvent) {
+    entry.activeEvent = { id: activeEvent.eventId, message: activeEvent.message, turnsRemaining: activeEvent.turnsRemaining };
+  }
+  return entry;
+}
+
+function getLocationEntry(key) {
+  ensureWorldState();
+  const cleanKey = key.toLowerCase().replace(/\s+/g, "_");
+  const dungeonFloorMatch = cleanKey.match(/^labyrinth_(top_level|middle_level|low_level|sub_level)_floor_(\d+)$/);
+  if (dungeonFloorMatch) {
+    return getDungeonFloor(dungeonFloorMatch[1], dungeonFloorMatch[1], parseInt(dungeonFloorMatch[2], 10));
+  }
+  return getLocation(cleanKey);
+}
+
+function getDungeonFloor(dungeonKey, levelKey, floorNum) {
+  const dungeon = state.world.dungeons[dungeonKey];
+  if (!dungeon || !dungeon.levels[levelKey]) return null;
+  const level = dungeon.levels[levelKey];
+  const floorKey = `${levelKey}_floor_${floorNum}`;
+  if (!dungeon.generatedFloors[floorKey]) generateDungeonFloor(dungeonKey, levelKey, floorNum);
+  return dungeon.generatedFloors[floorKey];
+}
+
+function generateDungeonFloor(dungeonKey, levelKey, floorNum) {
+  const dungeon = state.world.dungeons[dungeonKey];
+  const level = dungeon.levels[levelKey];
+  const floorData = {
+    id: `${levelKey}_floor_${floorNum}`, displayName: `Floor ${floorNum} of ${level.name}`, zoneType: "dungeon", subArea: level.name,
+    exits: {}, interactions: [], entities: [], flags: { discovered: false, danger: level.difficulty, locked: false, looted: false },
+    monsters: [], isBossFloor: floorNum === level.floors, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0
+  };
+  if (floorNum > 1) floorData.exits.up = `${levelKey}_floor_${floorNum - 1}`;
+  if (floorNum < level.floors) floorData.exits.down = `${levelKey}_floor_${floorNum + 1}`;
+  
+  const monsterCount = Math.min(5, 2 + Math.floor(floorNum / 5));
+  for (let i = 0; i < monsterCount; i++) {
+    const monsterPool = level.monsterPool || ["Goblin", "Skeleton", "Wolf"];
+    const monster = monsterPool[Math.floor(Math.random() * monsterPool.length)];
+    floorData.monsters.push({ name: monster, count: 1 + Math.floor(Math.random() * 3), level: Math.max(1, floorNum - 2 + Math.floor(Math.random() * 3)), health: 20 + floorNum * 10, maxHealth: 20 + floorNum * 10, damage: 5 + floorNum * 2 });
+  }
+  const possibleInteractions = ["campfire", "treasure_chest", "altar", "fountain", "lore_stone"];
+  const interactionCount = Math.min(3, 1 + Math.floor(floorNum / 10));
+  for (let i = 0; i < interactionCount; i++) {
+    floorData.interactions.push(possibleInteractions[Math.floor(Math.random() * possibleInteractions.length)]);
+  }
+  dungeon.generatedFloors[`${levelKey}_floor_${floorNum}`] = floorData;
+  dungeon.lastGenerated = Date.now();
+  return floorData;
+}
+
+function travelToLocation(destination) {
+  const currentLoc = getCurrentLocationKey();
+  const destinationLoc = destination.toLowerCase().replace(/\s+/g, "_");
+  const destData = getLocation(destinationLoc);
+  if (!destData) return { success: false, message: "Unknown destination." };
+  
+  const currentData = getLocation(currentLoc);
+  const connection = currentData.exits[destinationLoc] || currentData.exits[destination.toLowerCase()];
+  if (!connection && !destData.exits[currentLoc]) return { success: false, message: "No known path to that location." };
+  
+  state.PS.location = destData.type === "dungeon_entrance" ? "labyrinth" : "overworld";
+  state.PS.playerloc = destinationLoc;
+  destData.flags.discovered = true;
+  if (destData.type === "dungeon_entrance") enterDungeon("labyrinth", 1);
+  
+  return { success: true, message: `You travel to ${destData.name}.`, location: destData };
+}
+
+function enterDungeonFloor(floorNum) {
+  const dungeon = state.world.dungeons["labyrinth"];
+  if (!dungeon) return { success: false, message: "Dungeon not found." };
+  const levelKey = getCurrentDungeonLevel();
+  const floorKey = `${levelKey}_floor_${floorNum}`;
+  if (!dungeon.generatedFloors[floorKey]) generateDungeonFloor("labyrinth", levelKey, floorNum);
+  state.PS.playerloc = floorKey;
+  state.PS.location = "labyrinth";
+  return { success: true, message: `You descend to Floor ${floorNum} of the Labyrinth.`, floorData: dungeon.generatedFloors[floorKey] };
+}
+
 function addLocation(locationData) {
   ensureWorldState();
-  if (!locationData || !locationData.id) {
-    console.error("addLocation: locationData must have an 'id' property.");
-    return false;
-  }
-
-  const locId = locationData.id.toLowerCase().replace(/\s+/g, "_");
-
-  // Merge with existing location if it exists, otherwise create new
-  state.world.map.LocalLocation[locId] = {
-    id: locId,
-    name: locationData.name || "Unknown Location",
-    type: locationData.type || "wilderness", // town, dungeon, wilderness, etc.
-    biome: locationData.biome || "temperate",
-    description: locationData.description || "A mysterious place.",
-    exits: locationData.exits || {}, // e.g., { north: "safe_haven_market", down: "labyrinth_1" }
-    interactions: locationData.interactions || [], // Array of interactionIds
-    buildings: locationData.buildings || [], // Array of buildingIds
-    monsters: locationData.monsters || [], // Array of monster names/types that can spawn here
-    flags: locationData.flags || {
-      discovered: false,
-      locked: false,
-      looted: false,
-    },
-    ...locationData, // Allow overriding defaults
+  const cleanId = locationData.id.toLowerCase().replace(/\s+/g, "_");
+  state.world.map.locations[cleanId] = {
+    id: cleanId, name: locationData.name || "Unknown Location", type: locationData.type || "wilderness", biome: locationData.biome || "temperate",
+    description: locationData.description || "A mysterious place.", exits: locationData.exits || {}, interactions: locationData.interactions || [],
+    buildings: locationData.buildings || [], monsters: locationData.monsters || [], flags: locationData.flags || { discovered: false, locked: false, looted: false },
+    biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [], ...locationData
   };
+  return cleanId;
+}
 
+function connectLocations(fromId, toId, type = "path", distance = 10) {
+  ensureWorldState();
+  const from = state.world.map.locations[fromId.toLowerCase().replace(/\s+/g, "_")];
+  const to = state.world.map.locations[toId.toLowerCase().replace(/\s+/g, "_")];
+  if (!from || !to) return false;
+  if (!from.exits) from.exits = {};
+  if (!to.exits) to.exits = {};
+  from.exits[to.id] = type;
+  to.exits[from.id] = type;
+  state.world.map.connections.push({ from: from.id, to: to.id, type, distance });
   return true;
 }
 
-/**
- * Retrieves a location object by its ID.
- * @param {string} locationId - The ID of the location.
- * @returns {Object|null} The location object or null if not found.
- */
-function getLocation(locationId) {
-  ensureWorldState();
-  if (!locationId) return null;
-  // Route through getLocationEntry so labyrinth floors are properly resolved
-  return getLocationEntry(locationId);
+function generateDungeonLevel(dungeonKey, levelKey) {
+  const dungeon = state.world.dungeons[dungeonKey];
+  const level = dungeon.levels[levelKey];
+  if (!dungeon || !level) return;
+  for (let i = 1; i <= level.floors; i++) generateDungeonFloor(dungeonKey, levelKey, i);
+  dungeon.currentFloor = 1;
+  dungeon.lastGenerated = Date.now();
 }
+
+function enterDungeon(dungeonKey, startingFloor = 1) {
+  ensureWorldState();
+  const dungeon = state.world.dungeons[dungeonKey];
+  if (!dungeon) { console.error(`Dungeon "${dungeonKey}" not found.`); return false; }
+  if (!dungeon.generatedFloors[`${getCurrentDungeonLevel()}_floor_1`]) generateDungeonFloor(dungeonKey, getCurrentDungeonLevel(), 1);
+  state.world.currentDungeon = dungeonKey;
+  state.PS.location = "labyrinth";
+  state.PS.playerloc = `${getCurrentDungeonLevel()}_floor_1`;
+  return true;
+}
+
+function getCurrentDungeonLevel() {
+  const dungeon = state.world.dungeons[state.world.currentDungeon];
+  if (!dungeon) return null;
+  const floor = dungeon.currentFloor || 1;
+  for (const levelKey of Object.keys(dungeon.levels)) {
+    if (floor <= dungeon.levels[levelKey].floors) return levelKey;
+  }
+  return Object.keys(dungeon.levels)[0];
+}
+
+function interactWithObject(interactionId, optionIndex = 0) {
+  const interaction = state.world.registries.interactions[interactionId];
+  if (!interaction || interaction.state !== "active") return { success: false, message: "Nothing happens." };
+  const options = interaction.options || [];
+  const selectedOption = options[optionIndex] || options[0];
+  switch (selectedOption.action) {
+    case "read_notices": return handleReadNotices();
+    case "post_notice": return handlePostNotice();
+    case "shop_buy": return { success: false, message: "Please use the /shop command to purchase items." };
+    case "shop_sell": return { success: false, message: "Selling items is not currently supported." };
+    default: return { success: false, message: "Invalid action." };
+  }
+}
+
+function shopPurchase(itemName) {
+  const merchantInteractions = Object.values(state.world.registries.interactions).filter(i => i.type === "shop" && i.state === "active");
+  for (const merchant of merchantInteractions) {
+    const item = merchant.inventory.find(i => i.name.toLowerCase() === itemName.toLowerCase());
+    if (item) {
+      if (state.PS.gold >= item.price) {
+        state.PS.gold -= item.price;
+        addItem(item);
+        return { success: true, message: `You purchased ${item.name} for ${item.price} gold.` };
+      }
+      return { success: false, message: `You need ${item.price - state.PS.gold} more gold to buy ${item.name}.` };
+    }
+  }
+  return { success: false, message: "Item not available in any shop." };
+}
+
+function advanceWorldTime(hours = 1) {
+  ensureWorldState();
+  const t = state.world.time;
+  t.hour += hours;
+  while (t.hour >= 24) {
+    t.hour -= 24; t.day++;
+    if (t.day % 30 === 0) {
+      const seasons = ["spring", "summer", "fall", "winter"];
+      t.season = seasons[(seasons.indexOf(t.season) + 1) % 4];
+    }
+  }
+  if (t.hour >= 5 && t.hour < 9) t.cyclePhase = "dawn";
+  else if (t.hour >= 9 && t.hour < 17) t.cyclePhase = "day";
+  else if (t.hour >= 17 && t.hour < 21) t.cyclePhase = "dusk";
+  else t.cyclePhase = "night";
+  
+  const phaseBase = { "dawn": 0.6, "day": 1.0, "dusk": 0.45, "night": 0.1 }[t.cyclePhase] || 0.1;
+  t.lightLevel = Math.max(0, Math.min(1, phaseBase - ((state.world.weather.intensity || 0) * 0.3)));
+  
+  tickWorldEvents();
+  generateWorldEvents();
+  naturalRegen();
+}
+
+function consumeLocationBiomass(amount) {
+  const key = getCurrentLocationKey();
+  const location = getLocationEntry(key);
+  if (!location) return { ok: false, reason: "no_location" };
+  if (location.biomass + amount > 100) return { ok: false, reason: "over_capacity" };
+  location.biomass += amount;
+  location.spawnedSinceFamine = (location.spawnedSinceFamine || 0) + 1;
+  if (location.biomass >= 100 && !location.famine) {
+    location.famine = true;
+    location.spawnedSinceFamine = Number.MAX_SAFE_INTEGER;
+  }
+  return { ok: true, location };
+}
+
+function regenerateLocationBiomass() {
+  ensureWorldState();
+  for (const loc of Object.values(state.world.map.locations)) {
+    if (loc.biomass > 0) loc.biomass = Math.max(0, loc.biomass - 5);
+    if (loc.famine && loc.biomass <= 0) { loc.famine = false; loc.spawnedSinceFamine = 0; }
+  }
+}
+
+function getCurrentLocationKey() {
+  if (!state.PS) return "safe_haven";
+  const playerloc = state.PS.playerloc || state.PS.location || "safe_haven";
+  if (playerloc.includes("labyrinth_") && playerloc.includes("_floor_")) return playerloc;
+  return playerloc.toLowerCase().replace(/\s+/g, "_");
+}
+
+function initializeWorld() {
+  ensureWorldState();
+  addLocation({ id: "safe_haven", name: "Safe Haven", type: "town", biome: "temperate", description: "A fortified settlement with shops and services.", exits: { north: "safe_haven_market", south: "labyrinth_entrance", east: "eastern_plains", north2: "northern_mountains" }, interactions: ["town_notice_board", "blacksmith", "merchant", "tavern"], buildings: ["town_hall", "inn", "guild_hall"], monsters: [], flags: { discovered: true, locked: false, looted: false } });
+  addLocation({ id: "labyrinth_entrance", name: "Labyrinth Entrance", type: "dungeon_entrance", biome: "ancient_stone", description: "A massive, ominous stairway descends into darkness.", exits: { north: "safe_haven", down: "labyrinth_top_level_floor_1" }, interactions: ["legion_identification_stone"], buildings: [], monsters: ["Maze Rat", "Chitterling", "Stone Mites"], flags: { discovered: true, locked: false, looted: false } });
+  connectLocations("safe_haven", "labyrinth_entrance", "path", 10);
+  connectLocations("safe_haven", "eastern_plains", "road", 15);
+  connectLocations("safe_haven", "northern_mountains", "trail", 20);
+}
+
+function displayWorldState() {
+  const world = state.world;
+  let output = "=== WORLD STATE ===\n";
+  output += `\nTime: Day ${world.time.day}, ${world.time.hour}:${world.time.minute} (${world.time.cyclePhase})\n`;
+  output += `Weather: ${world.weather.current} (Intensity: ${world.weather.intensity}, Temp: ${world.weather.temperature})\n`;
+  output += `\nLocations Discovered: ${Object.keys(world.map.locations).length}\n`;
+  output += `\nActive World Events:\n`;
+  world.activeWorldEvents.forEach(e => { output += `- ${e.message} (Turns: ${e.turnsRemaining})\n`; });
+  output += `\nCurrent Dungeon: ${world.currentDungeon || "None"}\n`;
+  output += `Dungeon Floors Generated: ${Object.values(world.dungeons).reduce((sum, d) => sum + Object.keys(d.generatedFloors).length, 0)}\n`;
+  return output;
+}
+
+initializeWorld();
 
 /**
  * Gets the player's current rich location object based on state.PS.playerloc or state.PS.location.
@@ -8765,87 +9140,6 @@ function movePlayer(direction) {
  * Call this once during game initialization or character creation finalization.
  */
 
-// Default Open World
-function getCurrentLocationKey() {
-  if (!state.PS) return "safe_area";
-  const playerloc = state.PS.playerloc || state.PS.location || "safe area";
-  
-  // If already a specific generated floor key, use it directly
-  if (playerloc.startsWith("labyrinth_") && playerloc.includes("_floor_")) {
-    return playerloc.toLowerCase().replace(/\s+/g, "_");
-  }
-  
-  // Fallback: construct the key dynamically based on total dugfloor
-  if (state.PS.dugfloor && (state.PS.location === "labyrinth" || playerloc === "labyrinth")) {
-    const floor = state.PS.dugfloor;
-    let levelKey = "top_level";
-    let relativeFloor = floor;
-    
-    if (floor > 50) { levelKey = "middle_level"; relativeFloor = floor - 50; }
-    if (floor > 75) { levelKey = "low_level"; relativeFloor = floor - 75; }
-    if (floor > 100) { levelKey = "sub_level"; relativeFloor = floor - 100; }
-    
-    return `labyrinth_${levelKey}_floor_${relativeFloor}`;
-  }
-  
-  return playerloc.toLowerCase().replace(/\s+/g, "_");
-}
-
-function getLocationEntry(key) {
-  ensureWorldState();
-  if (!key) return null;
-  const locMap = state.world.map.LocalLocation;
-  
-  if (!locMap[key]) {
-    // Check if it's a labyrinth floor key that needs procedural generation
-    const floorMatch = key.match(/^labyrinth_(top_level|middle_level|low_level|sub_level)_floor_(\d+)$/);
-    if (floorMatch) {
-      const floorNum = parseInt(floorMatch[2], 10);
-      return procedurallyGenerateLabyrinthFloor(floorNum);
-    }
-    
-    // Fallback for other dynamic locations
-    locMap[key] = {
-      id: key,
-      displayName: key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
-      zoneType: "unknown",
-      subArea: "",
-      exits: {},
-      interactions: [],
-      entities: [],
-      flags: { discovered: false, danger: 0, locked: false, looted: false },
-      biomass: 0,
-      lastRegenTurn: 0,
-      famine: false,
-      spawnedSinceFamine: 0,
-    };
-  }
-  return locMap[key];
-}
-
-function getRichLocation() {
-  ensureWorldState();
-  const key = getCurrentLocationKey();
-  const entry = getLocationEntry(key);
-  if (!entry) return null;
-
-  // Dynamically enrich with player state if defaults are missing
-  if (!entry.playerloc) entry.playerloc = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
-  if (!entry.displayName || entry.displayName === key) {
-    const fallbackName = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
-    entry.displayName = fallbackName.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  }
-  
-  // Ensure all rich display properties exist
-  if (!entry.exits) entry.exits = {};
-  if (!entry.interactions) entry.interactions = [];
-  if (!entry.entities) entry.entities = [];
-  if (!entry.flags) entry.flags = { discovered: false, danger: 0, locked: false, looted: false };
-  if (!entry.monsters) entry.monsters = [];
-
-  return entry;
-}
-
 // procedural Generation
 // This is the core generation logic for the Open State, building rich text, interactions, and biomass tracking on the fly
 function procedurallyGenerateLabyrinthFloor(floorNumber) {
@@ -8961,82 +9255,7 @@ function procedurallyGenerateLabyrinthFloor(floorNumber) {
 }
 
 
-/**
- * Retrieves or initializes a location entry.
- * Fixes the path to state.world.map.LocalLocation and merges rich Open World
- * defaults with the existing biomass/spawning tracking system.
- */
-function getLocationEntry(key) {
-  ensureWorldState();
-  if (!key) return null;
-  
-  const cleanKey = key.toLowerCase().replace(/\s+/g, "_");
-  
-  // 1. Check if it's a labyrinth floor key (Fixed regex to include _ before floor)
-  const floorMatch = cleanKey.match(/^labyrinth_(top_level|middle_level|low_level|sub_level)_floor_(\d+)$/);
-  if (floorMatch) {
-    const levelKey = floorMatch[1];
-    const floorNum = parseInt(floorMatch[2], 10);
-    const dg = state.world.labyrinth;
-    
-    // If it exists in the labyrinth generator, return it
-    if (dg.levels[levelKey] && dg.levels[levelKey].generatedFloors[floorNum]) {
-      return dg.levels[levelKey].generatedFloors[floorNum];
-    }
-    
-    // Otherwise, generate it and return the new data
-    return procedurallyGenerateLabyrinthFloor(floorNum);
-  }
-  
-  // 2. Fallback for other locations (Safe Haven, etc.)
-  const locMap = state.world.map.LocalLocation;
-  if (!locMap[cleanKey]) {
-    locMap[cleanKey] = {
-      id: cleanKey,
-      displayName: cleanKey.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
-      zoneType: "unknown",
-      subArea: "",
-      exits: {},
-      interactions: [],
-      entities: [],
-      flags: { discovered: false, danger: 0, locked: false, looted: false },
-      biomass: 0,
-      lastRegenTurn: 0,
-      famine: false,
-      spawnedSinceFamine: 0,
-    };
-  }
-  return locMap[cleanKey];
-}
 
-/**
- * Returns a fully populated, rich location object for the player's current position.
- * Ensures all display and tracking properties are initialized for Gametrack() and UI.
- */
-function getRichLocation() {
-  ensureWorldState();
-  const key = getCurrentLocationKey();
-  const entry = getLocationEntry(key);
-  if (!entry) return null;
-
-  // Dynamically enrich with player state if defaults are missing
-  if (!entry.playerloc) {
-    entry.playerloc = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
-  }
-  if (!entry.displayName || entry.displayName === key) {
-    const fallbackName = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
-    entry.displayName = fallbackName.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  }
-  
-  // Ensure all rich display properties exist
-  if (!entry.exits) entry.exits = {};
-  if (!entry.interactions) entry.interactions = [];
-  if (!entry.entities) entry.entities = [];
-  if (!entry.flags) entry.flags = { discovered: false, danger: 0, locked: false, looted: false };
-  if (!entry.monsters) entry.monsters = [];
-
-  return entry;
-}
 
 const CYCLE_PHASE_BASELINES = { dawn: 0.6, day: 1.0, dusk: 0.45, night: 0.1 };
 
@@ -9122,22 +9341,6 @@ function computeSpawnCost(count, modifiers) {
   return Math.max(1, Math.round(base * mult));
 }
 
-function consumeLocationBiomass(name, cost) {
-  const key = getCurrentLocationKey();
-  const entry = getLocationEntry(key);
-  if (!entry) return { ok: false, reason: "no-location" };
-  if (entry.famine) return { ok: false, reason: "famine" };
-  const capacity = CARRYING_CAPACITY_CONFIG.capacity;
-  if (entry.biomass + cost > capacity)
-    return { ok: false, reason: "over-capacity" };
-  entry.biomass += cost;
-  if (entry.biomass >= capacity && !entry.famine) {
-    entry.famine = true;
-    entry.spawnedSinceFamine = Number.MAX_SAFE_INTEGER;
-  }
-  return { ok: true, entry };
-}
-
 function tickDungeonDiscovery() {
   if (!state.world || !state.world.dungeon) return;
   const dg = state.world.dungeon;
@@ -9202,15 +9405,32 @@ function tickLocationRegen() {
     }
   };
 
-  // 1. Regen Open World / Town locations
-  if (state.world.map && state.world.map.LocalLocation) {
+  // 1. Regen Open World / Town locations (new structure: state.world.map.locations)
+  if (state.world.map && state.world.map.locations) {
+    for (const key in state.world.map.locations) {
+      regenEntry(state.world.map.locations[key]);
+    }
+  }
+  // Legacy support for LocalLocation
+  else if (state.world.map && state.world.map.LocalLocation) {
     for (const key in state.world.map.LocalLocation) {
       regenEntry(state.world.map.LocalLocation[key]);
     }
   }
 
-  // 2. Regen Labyrinth floors (Unified under state.world.labyrinth)
-  if (state.world.labyrinth && state.world.labyrinth.levels) {
+  // 2. Regen Labyrinth floors (Unified under state.world.dungeons.labyrinth)
+  if (state.world.dungeons && state.world.dungeons.labyrinth && state.world.dungeons.labyrinth.levels) {
+    for (const levelKey in state.world.dungeons.labyrinth.levels) {
+      const level = state.world.dungeons.labyrinth.levels[levelKey];
+      if (level && level.generatedFloors) {
+        for (const floorNum in level.generatedFloors) {
+          regenEntry(level.generatedFloors[floorNum]);
+        }
+      }
+    }
+  }
+  // Legacy support for state.world.labyrinth
+  else if (state.world.labyrinth && state.world.labyrinth.levels) {
     for (const levelKey in state.world.labyrinth.levels) {
       const level = state.world.labyrinth.levels[levelKey];
       if (level && level.generatedFloors) {
@@ -9247,7 +9467,7 @@ function spawn(name, count = 1, modifiers = {}) {
   const charge = consumeLocationBiomass(name, cost);
   if (!charge.ok && charge.reason === "famine") {
     const key = getCurrentLocationKey();
-    const entry = state.world.LocalLocation[key];
+    const entry = getLocationEntry(key);
     if (entry && entry.spawnedSinceFamine === Number.MAX_SAFE_INTEGER) {
       state.logMessages["Input"].push(
         `The ${key.replace(/([A-Z])/g, " $1").trim()} has been picked clean — no monsters can be found here for now.`,
@@ -12538,7 +12758,7 @@ function updateDungeonCard() {
 // Player movement within the dungeon grid
 //The player movement should not be tracked but for now its okay to track it in the state.world.dungeon.playerPosition for the sake of the dungeon map and story card updates. In future iterations, we can remove this tracking if needed.
 // The player can move north, south, east, or west within the grid. Movement is blocked by walls and boundaries.
-function movePlayer(direction) {
+function movePlayerAsciiDungeon(direction) {
   ensureWorldState();
   const dg = state.world.dungeon;
   if (!dg.grid) {
@@ -13763,7 +13983,7 @@ const DungeonMapSystem = {
 };
 
 // When entering new floor / starting dungeon:
-function generateDungeonFloor(dungeonName, floor, playerLevel) {
+function generateAsciiDungeonFloor(dungeonName, floor, playerLevel) {
   ensureWorldState();
   const dg = state.world.dungeon;
   dg.name = dungeonName || "Underground Labyrinth";
@@ -13784,8 +14004,8 @@ function generateDungeonFloor(dungeonName, floor, playerLevel) {
   );
 }
 
-function enterDungeonFloor(dungeonName, floor, playerLevel) {
-  const newMap = generateDungeonFloor(dungeonName, floor, playerLevel);
+function enterAsciiDungeonFloor(dungeonName, floor, playerLevel) {
+  const newMap = generateAsciiDungeonFloor(dungeonName, floor, playerLevel);
   saveDungeonMap(newMap);
   return "You descend into a new floor...";
 }
