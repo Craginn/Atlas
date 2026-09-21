@@ -382,8 +382,8 @@ const basecode = (text) => {
    // Player types "enter labyrinth" or "enter dungeon" to descend into
    // the dungeon. On first entry a floor is generated; on subsequent
    // entries the player returns to the last explored floor.
+   const lowerInput = text.toLowerCase();
    if (state.PS && state.PS.Name && !state.tempCharacter) {
-     const lowerInput = text.toLowerCase();
      const isDungeonEntry =
        lowerInput.includes("enter labyrinth") ||
        lowerInput.includes("enter dungeon") ||
@@ -415,7 +415,29 @@ const basecode = (text) => {
    }
 
    // ── DUNGEON FLOOR TRAVERSAL (/descend /ascend) ───────────────────
-
+   if (lowerInput.includes('/descend')) {
+  ensureWorldState();
+  if (state.PS.location !== "labyrinth" && state.PS.playerloc !== "labyrinth_entrance") {
+     state.overwrite = true;
+     state.output = "You can only descend while inside the labyrinth.";
+     return { text };
+  }
+  
+  const currentFloor = state.PS.dugfloor || 1;
+  const newFloor = currentFloor + 1;
+  
+  // Update player state
+  state.PS.dugfloor = newFloor;
+  state.PS.location = "labyrinth";
+  
+  // Force generation of the new location entry so it exists in locMap immediately
+  // AND updates state.world.dungeon properly
+  const newLoc = procedurallyGenerateLabyrinthFloor(newFloor);
+  state.PS.playerloc = newLoc.id;
+  
+  state.overwrite = true;
+  state.output = `You descend deeper into the labyrinth... arriving at Floor ${newFloor} (${newLoc.displayName}).`;
+  }
 
 
   // --- END GENERALIZED ITEM PICKUP COMMAND ---
