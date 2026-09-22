@@ -410,12 +410,19 @@ if (state.PS && state.PS.Name && !state.tempCharacter) {
       state.logMessages['Input'].push(roomDesc);
     } else {
       // --- OPEN WORLD ENTRY ---
-      const floor1 = procedurallyGenerateLabyrinthFloor(1);
-      state.PS.location = "labyrinth";
-      state.PS.playerloc = floor1.id;
-      state.PS.dugfloor = 1;
-      state.PS.combatstatus = "Not in Combat";
-      state.logMessages['Input'].push(`You descend into the labyrinth. ${floor1.description}`);
+      ensureWorldState();
+      const entered = enterDungeon("labyrinth", 1);
+      if (entered) {
+        const dungeon = state.world.dungeons.labyrinth;
+        const levelKey = getCurrentDungeonLevel();
+        const floorKey = `${levelKey}_floor_1`;
+        const floorData = dungeon.generatedFloors[floorKey];
+        state.PS.location = "labyrinth";
+        state.PS.playerloc = floorKey;
+        state.PS.dugfloor = 1;
+        state.PS.combatstatus = "Not in Combat";
+        state.logMessages['Input'].push(`You descend into the labyrinth. ${floorData ? floorData.displayName : 'Floor 1 of the Top Level'}.`);
+      }
     }
     return text;
   }
@@ -450,13 +457,18 @@ if (lowerInput.includes('/descend')) {
     // --- OPEN WORLD DESCEND ---
     const currentFloor = state.PS.dugfloor || 1;
     const newFloor = currentFloor + 1;
-    const newLoc = procedurallyGenerateLabyrinthFloor(newFloor);
+    const result = enterDungeonFloor(newFloor);
     
-    state.PS.dugfloor = newFloor;
-    state.PS.location = "labyrinth";
-    state.PS.playerloc = newLoc.id;
-    state.overwrite = true;
-    state.output = `You descend deeper into the labyrinth... arriving at Floor ${newFloor} (${newLoc.displayName}).`;
+    if (result.success) {
+      state.PS.dugfloor = newFloor;
+      state.PS.location = "labyrinth";
+      state.PS.playerloc = result.floorData.id;
+      state.overwrite = true;
+      state.output = result.message;
+    } else {
+      state.overwrite = true;
+      state.output = result.message;
+    }
   }
   return { text };
 }
@@ -501,16 +513,18 @@ if (lowerInput.includes('/ascend')) {
       return { text };
     }
     const newFloor = currentFloor - 1;
-    let levelKey = "top_level"; let relativeFloor = newFloor;
-    if (newFloor > 50) { levelKey = "middle_level"; relativeFloor = newFloor - 50; }
-    if (newFloor > 75) { levelKey = "low_level"; relativeFloor = newFloor - 75; }
-    if (newFloor > 100) { levelKey = "sub_level"; relativeFloor = newFloor - 100; }
+    const result = enterDungeonFloor(newFloor);
     
-    const prevLocId = `labyrinth_${levelKey}_floor_${relativeFloor}`;
-    state.PS.dugfloor = newFloor;
-    state.PS.playerloc = prevLocId;
-    state.overwrite = true;
-    state.output = `You ascend back to Floor ${newFloor}.`;
+    if (result.success) {
+      state.PS.dugfloor = newFloor;
+      state.PS.location = "labyrinth";
+      state.PS.playerloc = result.floorData.id;
+      state.overwrite = true;
+      state.output = result.message;
+    } else {
+      state.overwrite = true;
+      state.output = result.message;
+    }
   }
   return { text };
 }
