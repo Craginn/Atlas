@@ -10427,6 +10427,7 @@ function useSkill(skillName, text) {
     }
   }
 
+  // This is for when a use skill cost is paid in health or mana, and the player doesn't have enough to pay for it. The skill will not be used, and a message will be logged to the output.
   // --- PAY COST ---
   if (manaCost) updateStat("mana", manaCost);
   if (healthCost) {
