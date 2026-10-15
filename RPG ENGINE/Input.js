@@ -1028,6 +1028,8 @@ const Playercommands = (text) => {
 // Removed all individual 'pick up' conditions like 'pick up shiny sword' as they are now handled by the generalized command.
 
 function modifier(text) {
+  // Fresh per-turn combat events for the Scene Brief, before any combat runs.
+  resetSceneTurnEvents()
   text = logfunc(basecode, text)
   console.log('AAA')
   text = logfunc(HTscript, text).text;

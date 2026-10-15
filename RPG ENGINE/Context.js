@@ -105,7 +105,10 @@ const modifier = (text) => {
     tickDungeonRegen();
     tickDungeonMovement();
 
-   
+    // Last, after the censors above (which strip from "-", "[" or "|" onward):
+    // append the gated Scene Brief — intent, scene facts, and output guidance.
+    text = injectSceneBrief(text);
+
     return text;  // This is what AI Dungeon expects
   }
 }

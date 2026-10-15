@@ -353,108 +353,466 @@ function rpgCreationGate() {
 }
 
 // Prompting Engine
+// ===========================================================================
+// OUTPUT_FORMATS are small, composable guidance modules. Each turn the Scene
+// Composer (buildSceneBrief) opens only the modules whose gate passes, so one
+// prompt can carry several situations at once — fighting a goblin in a forest
+// opens Combat + Surroundings together — while guidance the turn doesn't need
+// (dialogue, crafting, rest...) never reaches the AI.
+//
+//   label    -> section name shown in the brief
+//   priority -> higher wins when more than SCENE_BRIEF_CAP modules open
+//   gate     -> when the module opens; ANY one passing opens it:
+//                 actions:  parsed player action types (PLAYER_ACTION_MATCHERS)
+//                 triggers: words searched for in the player's input
+//                 when:     a SCENE_STATE_GATES check against engine state
+//               No gate (or `always: true`) = open every turn, outside the cap.
+//   focus    -> one line telling the AI what this part of the response covers
+//   rules    -> short extra rules; duplicates across open modules are dropped
+//
+// Runtime tweaks go through updateOutputFormat / resetOutputFormat, which keep
+// only the overrides in state (never a full copy of this table).
+// ===========================================================================
+const OUTPUT_FORMATS_VERSION = 2;
+const SCENE_BRIEF_CAP = 5; // max situational modules, scene facts and actions per turn
+
 const OUTPUT_FORMATS = {
   default: {
-    header: `# STRICT OUTPUT FORMAT\n The response MUST follow this exact structure:`,
-    lineTemplate: `("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major)`,
-    example: `([name]) ([name] strikes [name] with their mighty blade, drawing blood) ([Name] attacked [Name] with their blade, hurting them)`,
+    label: "Style",
+    priority: 100,
+    gate: { always: true },
+    focus:
+      "Continue the story by resolving the player's intentions in the order given.",
     rules: [
-      `EVERY line MUST contain: ("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major|plot defining)`,
-      `Avoid paragraphs`,
-      `Avoid adding any text outside this structure`,
-      `Output only a numbered list`,
-      `Include the player's intended action(s) first, in order`,
-      `Avoid making up decisions, actions, or dialogue for the player`,
+      "Never invent actions, choices or dialogue for the player",
+      "Show the outcome of each intention before introducing anything new",
+      "Stay consistent with every Scene fact",
+      "Write story prose only: no lists, headings or notes",
     ],
+  },
+  combat_dead: {
+    label: "Kill",
+    priority: 95,
+    gate: { when: "monsterDefeated" },
+    focus:
+      "A foe fell this turn: describe the finishing blow and the body going still.",
+    rules: ["A defeated foe stays dead and takes no further action"],
   },
   combat: {
-    header: `# COMBAT OUTPUT FORMAT\n The response MUST follow this exact combat structure:`,
-    lineTemplate: `[Name] [Action Beat] [Result/Damage]`,
-    example: `Kaelen Swings broadsword at Goblin Hits for 12 dmg, Goblin reels`,
+    label: "Combat",
+    priority: 90,
+    gate: {
+      actions: ["combat"],
+      when: "monstersAlive",
+      triggers: ["fight", "battle", "enemy", "ambush"],
+    },
+    focus:
+      "Show each blow landing or missing and its effect; foes still standing stay a threat and react.",
     rules: [
-      `EVERY line MUST follow: [Name] [Action] [Result]. In a flowery explination format.`,
-      `Prioritize mechanical results (damage, status effects, and misses if needed only.)`,
-      `Keep beats extremely concise and telegraphic`,
-      `Allow flowery prose during combat exchanges without deviation from the results`,
-      `Output as a prosed pharagraph`,
+      "Only the listed foes are present; add no new enemies mid-fight",
+      "Foes only die when the Scene says they are defeated",
     ],
   },
-  // Extension: used while a monster is active and still alive after being hit.
-  // The player's attack is described as landing on a live target.
-  combat_alive: {
-    header: `# COMBAT — MONSTER ACTIVE\n The response MUST follow this structure when a monster is still alive after being attacked:`,
-    lineTemplate: `[Player Name] [Attack Beat — how the player attacked] [Result — monster still alive, damage dealt]`,
-    example: `[Kaelen] [Swings broadsword at the Goblin] [Hits for 12 dmg, Goblin is hurt but stays standing]`,
-    rules: [
-      `EVERY line MUST follow: [Player Name] [Attack Beat] [Result]`,
-      `The Result MUST describe the monster STILL BEING ALIVE (wounded, snarling, defiant, standing)`,
-      `Include the damage dealt and the monster's remaining health`,
-      `The Attack Beat MUST be in present tense and telegraphic`,
-    ],
+  danger: {
+    label: "Danger",
+    priority: 85,
+    gate: { when: "playerLow" },
+    focus:
+      "The player is badly hurt: let the wounds slow them and raise the stakes.",
+    rules: [],
   },
-  // Extension: used when a monster is actually dead / defeated by the player's attack.
-  combat_dead: {
-    header: `# COMBAT — MONSTER DEFEATED\n The response MUST follow this structure when a monster falls to the player's attack:`,
-    lineTemplate: `[Player Name] [Finishing Attack Beat] [Defeated: [Monster Name]]`,
-    example: `Kaelen Drives blade through the Goblin's chest Defeated: Goblin`,
-    rules: [
-      `EVERY line MUST follow: [Player Name] [Attack Beat] [Defeated: [Monster Name]]`,
-      `The Result MUST announce the monster FALLING and being DEFEATED (slain, falls, defeated, collapses)`,
-      `The Attack Beat MUST be in present tense and telegraphic`,
-      `The output needs to be a prosed pharagraph`,
-    ],
+  magic: {
+    label: "Magic",
+    priority: 80,
+    gate: { actions: ["magic", "skill"] },
+    focus:
+      "Describe the ability being used and its visible effect, matching the named spell or skill.",
+    rules: ["Only use spells and skills named in the intentions"],
   },
-  exploration: {
-    header: `# EXPLORATION OUTPUT FORMAT\n The response MUST follow this environmental structure:`,
-    lineTemplate: `1. (Location/Entity) (Sensory Detail/Discovery) (Immediate Effect/Context) (Scope) (Importance)`,
-    example: `1. (Old Ruins) (A faint blue glow emanates from the altar) (Triggers a low hum in the air) (local) (moderate)`,
-    rules: [
-      `EVERY line MUST follow: (Target) (Observation) (Result) (Scope) (Importance)`,
-      `Focus on sensory details: sight, sound, smell`,
-      `Avoid narrative filler; describe the discovery directly`,
-      `Output only the numbered list`,
-    ],
+  stealth: {
+    label: "Stealth",
+    priority: 75,
+    gate: { actions: ["stealth"] },
+    focus:
+      "Track who could notice the player; build the tension of staying unseen and show any slip.",
+    rules: [],
   },
   interaction: {
-    header: `# INTERACTION OUTPUT FORMAT\n The response MUST follow this dialogue structure:`,
-    lineTemplate: `1. ([Name]) ([Dialogue/Reaction]) ([Emotional Subtext/Body Language]) (Scope) (Importance)`,
-    example: `1. (Guard) ("Halt! Who goes there?") (Hand rests on sword hilt, suspicious) (local) (moderate)`,
-    rules: [
-      `EVERY line MUST follow: ([Name]) ([Speech]) ([Action/Tone]) (Scope) (Importance)`,
-      `Keep dialogue punchy and in-character`,
-      `Describe body language in parentheses`,
-      `Output only the numbered list`,
-    ],
+    label: "Dialogue",
+    priority: 70,
+    gate: { actions: ["interaction", "emote"] },
+    focus:
+      "NPCs reply in character with short, distinct voices and react through body language.",
+    rules: ["Quote the player's words exactly; never add lines for them"],
+  },
+  item: {
+    label: "Items",
+    priority: 65,
+    gate: { actions: ["inventory", "support"] },
+    focus: "Show the item or aid being used and its effect taking hold.",
+    rules: ["Only use items the player actually named"],
+  },
+  exploration: {
+    label: "Surroundings",
+    priority: 60,
+    gate: {
+      actions: ["exploration", "movement", "gather", "object"],
+      triggers: ["around", "listen", "smell", "where am i"],
+    },
+    focus:
+      "Ground the action in the location: what the player sees, hears and smells, and anything they find.",
+    rules: ["Only reveal exits, items or creatures that fit the Scene"],
+  },
+  crafting: {
+    label: "Crafting",
+    priority: 55,
+    gate: { actions: ["crafting"] },
+    focus:
+      "Describe the work step by step and how the finished piece looks and feels.",
+    rules: [],
+  },
+  rest: {
+    label: "Rest",
+    priority: 50,
+    gate: { actions: ["rest"] },
+    focus:
+      "Slow the pace: show time passing and the player recovering; interrupt only for a threat in the Scene.",
+    rules: [],
+  },
+  story: {
+    label: "Story",
+    priority: 40,
+    gate: { actions: ["story"] },
+    focus: "Advance the scene naturally from where it left off.",
+    rules: [],
   },
 };
 
-function getOutputFormat(type = "default") {
-  if (!state.outputFormats) {
-    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
+// Overrides only; reset when the table's shape changes so a save from the old
+// strict-list formats can't resurrect them.
+function outputFormatOverrides() {
+  if (
+    !state.outputFormats ||
+    state.outputFormatsVersion !== OUTPUT_FORMATS_VERSION
+  ) {
+    state.outputFormats = {};
+    state.outputFormatsVersion = OUTPUT_FORMATS_VERSION;
   }
-  return state.outputFormats[type] || state.outputFormats["default"];
+  return state.outputFormats;
 }
 
+function getOutputFormat(type = "default") {
+  const base = OUTPUT_FORMATS[type];
+  const over = outputFormatOverrides()[type];
+  if (!base && !over) return Object.assign({}, OUTPUT_FORMATS.default);
+  return Object.assign({}, base, over);
+}
+
+// Merges `updates` into a module; an unknown `type` creates a new module, so a
+// scenario can add its own gated guidance.
 function updateOutputFormat(type, updates) {
-  const current = getOutputFormat(type);
-  state.outputFormats[type] = { ...current, ...updates };
-  console.log(state.outputFormats);
+  const over = outputFormatOverrides();
+  over[type] = Object.assign({}, over[type], updates);
 }
 
 function resetOutputFormat(type = "default") {
-  if (!state.outputFormats) {
-    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
-  } else {
-    state.outputFormats[type] = JSON.parse(
-      JSON.stringify(OUTPUT_FORMATS[type] || OUTPUT_FORMATS.default),
-    );
-  }
+  delete outputFormatOverrides()[type];
 }
 
-// Renders a single combat line in the strict OUTPUT_FORMATS structure.
-// When `isDead` is false the `combat_alive` format is used (attack describes
-// the monster surviving the blow); when `isDead` is true the `combat_dead`
-// format is used (attack describes the monster being defeated).
+// ---------------------------------------------------------------------------
+//  Scene Composer — builds the per-turn "[Scene Brief ...]" block the Context
+//  hook appends. Three parts, each gated so only what the turn needs is read:
+//    Intent -> the parsed player actions (state.PlayerActionPrompt)
+//    Scene  -> up to SCENE_BRIEF_CAP facts from engine state (SCENE_FACTS)
+//    Guide  -> the open OUTPUT_FORMATS modules (up to SCENE_BRIEF_CAP)
+// ---------------------------------------------------------------------------
+
+// Combat events from this turn's Input hook (kills recorded by
+// renderCombatOutput), read by the Context hook. Cleared at the top of each
+// Input so a kill from a previous turn never re-opens the Kill module.
+function resetSceneTurnEvents() {
+  state.SceneTurnEvents = { defeated: [] };
+}
+
+function sceneTurnEvents() {
+  const ev = state.SceneTurnEvents;
+  return ev && Array.isArray(ev.defeated) ? ev : { defeated: [] };
+}
+
+function recordSceneDefeat(name) {
+  const ev = sceneTurnEvents();
+  if (name && ev.defeated.indexOf(name) === -1) ev.defeated.push(name);
+  state.SceneTurnEvents = ev;
+}
+
+function sceneLiveMonsters() {
+  const MS = state.MS || {};
+  return Array.isArray(MS.activeMonsters)
+    ? MS.activeMonsters.filter((m) => m && !m.isDead && m.name)
+    : [];
+}
+
+function sceneHealthRatio() {
+  const PS = state.PS || {};
+  return PS.maxHealth > 0 ? PS.health / PS.maxHealth : 1;
+}
+
+// Reads the player's location record without generating one (the
+// PlayerWorldBridge getters create missing locations as a side effect).
+function sceneLocationRecord() {
+  const PS = state.PS || {};
+  const key = String(PS.playerloc || PS.location || "")
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  const locations = state.world && state.world.map && state.world.map.locations;
+  return { key, loc: key && locations ? locations[key] || null : null };
+}
+
+const sceneTidyId = (s) => String(s || "").replace(/_/g, " ").trim();
+
+const SCENE_STATE_GATES = {
+  monstersAlive: () => sceneLiveMonsters().length > 0,
+  monsterDefeated: () => sceneTurnEvents().defeated.length > 0,
+  playerHurt: () => sceneHealthRatio() <= 0.6,
+  playerLow: () => sceneHealthRatio() <= 0.3,
+  worldEvent: () => !!sceneFactWorldEvent(),
+};
+
+function sceneFactFoes() {
+  const foes = sceneLiveMonsters();
+  if (!foes.length) return null;
+  const list = foes.slice(0, 3).map((m) => {
+    const count = m.count > 1 ? ` x${m.count}` : "";
+    let hp = "";
+    if (typeof m.health === "number") {
+      hp = m.maxHealth > 0 ? ` (${m.health}/${m.maxHealth} HP)` : ` (${m.health} HP)`;
+    }
+    return `${m.name}${count}${hp}`;
+  });
+  const more = foes.length > 3 ? ` and ${foes.length - 3} more` : "";
+  return `Fighting ${list.join(", ")}${more}`;
+}
+
+function sceneFactLocation() {
+  const PS = state.PS || {};
+  const { loc } = sceneLocationRecord();
+  const name =
+    (loc && (loc.name || loc.displayName)) ||
+    sceneTidyId(PS.playerloc || PS.location);
+  if (!name) return null;
+  const biome = loc && (loc.biome || loc.zoneType);
+  return `At ${name}${biome ? ` (${biome})` : ""}`;
+}
+
+function sceneFactCondition() {
+  const PS = state.PS || {};
+  if (!(PS.maxHealth > 0)) return null;
+  const r = sceneHealthRatio();
+  const label = r <= 0.3 ? "badly wounded" : r <= 0.6 ? "hurt" : "healthy";
+  return `${PS.Name} is ${label} (${PS.health}/${PS.maxHealth} HP)`;
+}
+
+function sceneFactTalkTarget() {
+  const talk = (state.PlayerActions || []).find(
+    (a) => a && a.name === "Talk" && a.target,
+  );
+  return talk ? `Speaking with ${talk.target}` : null;
+}
+
+function sceneFactAllies() {
+  if (typeof getLivingCompanions !== "function") return null;
+  const allies = getLivingCompanions();
+  if (!allies.length) return null;
+  return `Allies: ${allies
+    .slice(0, 3)
+    .map((c) => c.name)
+    .join(", ")}`;
+}
+
+function sceneFactWorldEvent() {
+  const events = state.world && state.world.activeWorldEvents;
+  if (!Array.isArray(events) || !events.length) return null;
+  const { key } = sceneLocationRecord();
+  const ev = events.find((e) => e && e.locationId === key);
+  return ev && ev.message ? `Event: ${ev.message}` : null;
+}
+
+function sceneFactTime() {
+  const t = state.world && state.world.time;
+  if (!t || !t.cyclePhase) return null;
+  return `Time: ${t.cyclePhase}${t.season ? `, ${t.season}` : ""}`;
+}
+
+function sceneFactNearby() {
+  const { loc } = sceneLocationRecord();
+  if (!loc || !Array.isArray(loc.interactions) || !loc.interactions.length)
+    return null;
+  const registry =
+    (state.world && state.world.interactionRegistry) || {};
+  const names = loc.interactions.slice(0, 3).map((id) => {
+    const rec = typeof id === "string" ? registry[id] : id;
+    return (rec && rec.name) || sceneTidyId(typeof id === "string" ? id : "");
+  });
+  return `Nearby: ${names.filter(Boolean).join(", ")}`;
+}
+
+// Fact providers, highest priority first. get() only runs when the gate opens
+// and may return null (no fact; doesn't use up the cap).
+const SCENE_FACTS = [
+  { id: "foes", priority: 100, gate: { when: "monstersAlive" }, get: sceneFactFoes },
+  {
+    id: "defeated",
+    priority: 95,
+    gate: { when: "monsterDefeated" },
+    get: () => `Defeated this turn: ${sceneTurnEvents().defeated.join(", ")}`,
+  },
+  { id: "location", priority: 90, gate: { always: true }, get: sceneFactLocation },
+  {
+    id: "condition",
+    priority: 85,
+    gate: {
+      when: "playerHurt",
+      actions: ["rest", "support"],
+      triggers: ["hurt", "wound", "heal", "health", "bleed"],
+    },
+    get: sceneFactCondition,
+  },
+  { id: "talk", priority: 80, gate: { actions: ["interaction"] }, get: sceneFactTalkTarget },
+  {
+    id: "allies",
+    priority: 70,
+    gate: {
+      actions: ["combat"],
+      when: "monstersAlive",
+      triggers: ["ally", "allies", "companion", "party", "summon"],
+    },
+    get: sceneFactAllies,
+  },
+  { id: "event", priority: 65, gate: { when: "worldEvent" }, get: sceneFactWorldEvent },
+  {
+    id: "time",
+    priority: 50,
+    gate: {
+      actions: ["exploration", "movement", "rest", "stealth"],
+      triggers: ["night", "day", "dark", "sky", "sun", "moon", "time"],
+    },
+    get: sceneFactTime,
+  },
+  {
+    id: "nearby",
+    priority: 40,
+    gate: { actions: ["exploration", "gather", "object"] },
+    get: sceneFactNearby,
+  },
+];
+
+// Word-boundary match for word triggers ("look" must not hit "outlook");
+// plain substring match for symbol triggers.
+function sceneTextHas(text, word) {
+  const w = String(word || "").toLowerCase();
+  if (!w) return false;
+  if (!/^\w/.test(w)) return text.includes(w);
+  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${esc}\\b`).test(text);
+}
+
+function sceneGateOpen(gate, scan) {
+  if (!gate || gate.always) return true;
+  if (gate.actions && gate.actions.some((t) => scan.types.has(t))) return true;
+  if (gate.triggers && gate.triggers.some((w) => sceneTextHas(scan.text, w)))
+    return true;
+  if (gate.when) {
+    const check = SCENE_STATE_GATES[gate.when];
+    try {
+      if (check && check()) return true;
+    } catch (e) {
+      console.error(`Scene gate "${gate.when}" failed: ${e && e.message}`);
+    }
+  }
+  return false;
+}
+
+const byScenePriority = (a, b) => (b.priority || 0) - (a.priority || 0);
+
+function buildSceneBrief() {
+  if (!state.PS || !state.PS.Name || state.tempCharacter) return "";
+  const actions = Array.isArray(state.PlayerActions) ? state.PlayerActions : [];
+  const scan = {
+    types: new Set(actions.map((a) => a && a.type)),
+    text: String(state.PlayerInputRaw || "").toLowerCase(),
+  };
+
+  const facts = [];
+  for (const f of SCENE_FACTS.slice().sort(byScenePriority)) {
+    if (facts.length >= SCENE_BRIEF_CAP) break;
+    if (!sceneGateOpen(f.gate, scan)) continue;
+    try {
+      const line = f.get();
+      if (line) facts.push(line);
+    } catch (e) {
+      console.error(`Scene fact "${f.id}" failed: ${e && e.message}`);
+    }
+  }
+
+  const ids = Object.keys(OUTPUT_FORMATS).concat(
+    Object.keys(outputFormatOverrides()).filter((id) => !OUTPUT_FORMATS[id]),
+  );
+  const modules = ids.map((id) => getOutputFormat(id));
+  const isBase = (m) => !m.gate || m.gate.always;
+  const open = modules
+    .filter(isBase)
+    .sort(byScenePriority)
+    .concat(
+      modules
+        .filter((m) => !isBase(m) && sceneGateOpen(m.gate, scan))
+        .sort(byScenePriority)
+        .slice(0, SCENE_BRIEF_CAP),
+    );
+
+  const lines = [];
+  if (state.PlayerActionPrompt) lines.push(state.PlayerActionPrompt);
+  if (facts.length) lines.push(`Scene: ${facts.join("; ")}.`);
+  for (const m of open) {
+    if (m.focus) lines.push(`${m.label || "Guide"}: ${m.focus}`);
+  }
+  const rules = [];
+  for (const m of open) {
+    for (const r of m.rules || []) if (rules.indexOf(r) === -1) rules.push(r);
+  }
+  if (rules.length) lines.push(`Rules: ${rules.join(". ")}.`);
+  return lines.length ? `[Scene Brief\n${lines.join("\n")}]` : "";
+}
+
+// Context hook entry point: appends the brief at the end of the context (the
+// spot with the most pull on the next generation). Per the AID docs, editing
+// `text` here is the only way to affect the current turn — state.memory edits
+// land a turn late. If the brief would overflow info.maxChars, the oldest
+// Recent Story text is trimmed (never the instructions or plot essentials).
+function injectSceneBrief(text) {
+  const brief = buildSceneBrief();
+  state.SceneBrief = brief; // visible in the debug panel
+  let body = String(text || "");
+  if (!brief) return body;
+  const addition = `\n\n${brief}`;
+  const max = typeof info !== "undefined" && info ? info.maxChars : 0;
+  const over = max ? body.length + addition.length - max : 0;
+  if (over > 0) {
+    const head = "Recent Story:\n";
+    const rs = body.indexOf(head);
+    if (rs !== -1) {
+      const start = rs + head.length;
+      let cut = start + over + 3;
+      const ws = body.slice(cut).search(/\s/);
+      if (ws !== -1) cut += ws;
+      if (cut < body.length) body = `${body.slice(0, start)}...${body.slice(cut)}`;
+    }
+  }
+  return body + addition;
+}
+
+// Renders a single combat log line. A kill (`isDead`) is also recorded for
+// this turn so the Scene Brief opens the `combat_dead` module and tells the AI
+// the foe fell, instead of letting it narrate the fight as still going.
 //
 // @param {string} playerName   - Name of the attacking player.
 // @param {string} targetName   - Name of the monster being attacked.
@@ -470,7 +828,7 @@ function renderCombatOutput(
   actionBeat,
   remaining,
 ) {
-  getOutputFormat(isDead ? "combat_dead" : "combat_alive");
+  if (isDead) recordSceneDefeat(targetName);
 
   let result;
   let beat = actionBeat || (isDead ? "Delivers the killing blow" : "Strikes");
@@ -2623,121 +2981,236 @@ function playerAction(text, PlayerAction) {
 }
 
 // ===========================================================================
-//  PLAYER ACTION PARSING  (live replacement for the commented block above)
-//  Reads the player's free text, extracts one-or-more intended actions, and
-//  stores parsed info on state so the Context hook can tune the AI prompt.
+//  PLAYER ACTION PARSING
+//  Reads the player's free text, extracts up to SCENE_BRIEF_CAP intended
+//  actions, and stores them on state for the Scene Brief (buildSceneBrief).
 //    state.PlayerActions      -> array of parsed action objects (this turn)
 //    state.PlayerAction       -> the primary (first) action, or "None"
-//    state.PlayerActionPrompt -> a sentence describing the intent(s), fed to Context
+//    state.PlayerActionPrompt -> "Intent: ..." line describing the action(s)
+//    state.PlayerInputRaw     -> cleaned input, scanned by text-trigger gates
+//
+//  Action shape: { name, type, target, item, magictype, skilltype, weapon,
+//                  tool, manner, quote, detail, raw }
 // ===========================================================================
 
-// Ordered matchers: the FIRST that matches a clause wins for that clause.
-// `capture` (optional) pulls a target/item/spell name into `field`.
-// Verb alternations are defined once and reused for both `test` and `capture`
-// so the two can never drift apart. Widened well past the obvious synonyms so
-// ordinary phrasings ("I smash the door", "sneak down the hall", "quaff a
-// potion") get classified instead of falling through to the generic fallback.
+// Verb alternations, defined once and reused for both `test` and `capture` so
+// the two can never drift apart. Multi-word phrases sit before their single
+// word prefix ("pick up" before "pick") so the longer one wins.
 const AV = {
   skill: "skill|technique|maneuver|ability|feat",
   spell: "cast|spell|incant|invoke|channel|conjure|summon",
-  item: "use|drink|eat|quaff|consume|apply|equip|wear|wield|activate|read|swallow|don",
+  equip: "equip|unequip|wear|wield|don|draw|sheathe|holster|ready",
+  item: "use|drink|eat|quaff|consume|apply|activate|read|swallow|sip|chug|uncork",
   attack:
-    "attack|strike|stab|slash|hit|pummel|slam|maul|charge|unleash|shoot|fire a bolt|blast|swing|cleave|punch|kick|throw|cut|bash|smash|smack|lunge|jab|thrust|impale|whack|bite|claw|gut|behead|kill|slay|destroy|assault|ambush|smite|crush|batter|pierce",
+    "attack|strike|stab|slash|hit|pummel|slam|maul|charge|unleash|shoot|fire a bolt|fire at|blast|swing|cleave|punch|kick|throw|cut|bash|smash|smack|lunge|jab|thrust|impale|whack|bite|claw|gut|behead|kill|slay|destroy|assault|ambush|smite|crush|batter|pierce|fight|duel|grapple|tackle|shove|headbutt|decapitate|skewer",
   defend:
-    "defend|guard|block|parry|brace|shield|dodge|evade|deflect|cover|duck",
-  flee: "flee|run away|escape|retreat|run|bolt|dash|withdraw|disengage|back away|get away",
-  explore:
-    "explore|search|look around|look at|look|scout|scan|hunt|seek|investigate|examine|inspect|wander|roam|peek|venture|travel|walk|move|head|enter|climb|descend|sneak|creep|approach|go",
-  rest: "rest|sleep|take a break|nap|camp|recover|wait|sit|lie down|meditate",
+    "defend|guard|block|parry|brace|shield|dodge|evade|deflect|take cover|duck|sidestep|protect",
+  flee: "flee|run away|escape|retreat|withdraw|disengage|back away|get away|bolt|scramble away",
+  stealth:
+    "sneak|creep|hide|tiptoe|skulk|lurk|stalk|slip past|slip by|stay hidden|stay low|crouch|steal|pickpocket|eavesdrop",
+  support: "heal|bandage|tend|aid|help|revive|patch up|treat|cure|bless",
+  talk: "talk|speak|say|says|converse|chat|greet|ask|tell|shout|yell|call out|call|whisper|negotiate|persuade|bargain|question|demand|command|plead|beg|taunt|reply|respond|threaten|intimidate|lie to|apologize|thank|introduce",
+  trade: "trade|barter|sell|buy|purchase|haggle|exchange|pay",
   craft:
-    "craft|forge|smith|build|construct|make|brew|cook|assemble|repair|mend|enchant|fashion",
-  talk: "talk|speak|converse|chat|greet|ask|tell|shout|yell|call|whisper|negotiate|persuade|bargain|question|demand|command|plead|beg|taunt|reply|respond",
-  trade: "trade|barter|sell|buy|purchase|haggle|exchange",
+    "craft|forge|smith|build|construct|make|brew|cook|assemble|repair|mend|enchant|fashion|carve|sew|whittle",
+  rest: "rest|sleep|take a break|nap|camp|recover|wait|sit|lie down|meditate|relax|catch my breath",
+  gather:
+    "pick up|pick|grab|take|loot|gather|collect|harvest|forage|mine|chop|pluck|scavenge|pocket|skin|salvage|fish",
+  object:
+    "open|close|unlock|lock|push|pull|lift|light|ignite|extinguish|touch|press|pry|break open|kick open|knock on|knock|pour|drop|place|put|set down|tie",
+  explore:
+    "explore|search|look around|look at|look|scout|scan|investigate|examine|inspect|study|observe|survey|peek|peer|listen|smell|sniff|check|watch|track",
+  move: "walk|move|head|travel|enter|climb|descend|ascend|go|leave|exit|cross|follow|approach|return|swim|jump|run|wander|roam|venture|step|ride|march|hike|journey",
+  emote:
+    "smile|nod|laugh|grin|frown|sigh|wave|bow|shrug|cry|scowl|glare|wink|groan|chuckle|gasp|blush|salute",
 };
 const av = (alt, tail) => new RegExp(`\\b(?:${alt})\\b${tail || ""}`, "i");
 
+// How a clause picks its action: the verb that appears EARLIEST wins ("drink
+// the potion of fire" is Use Item, not Attack), ties go to list order, with
+// two exceptions:
+//   override -> wins whenever present ("use my Power Strike skill" is a skill)
+//   weak     -> only counts when nothing else matched ("go to sleep" is Rest,
+//               "head in to search the cave" is Explore)
+// `field` names where the captured noun phrase goes; `capture` defaults to
+// "<verb> <rest of clause>".
 const PLAYER_ACTION_MATCHERS = [
-  {
-    name: "Cast Skill",
-    type: "skill",
-    field: "skilltype",
-    test: av(AV.skill),
-    capture: av("cast\\s+skill|" + AV.skill, "\\s+(.+)"),
-  },
+  { name: "Cast Skill", type: "skill", field: "skilltype", verbs: AV.skill, override: true },
   {
     name: "Cast Spell",
     type: "magic",
     field: "magictype",
-    test: av(AV.spell),
-    capture: av("cast(?:\\s+the)?|spell", "\\s+(.+)"),
+    verbs: AV.spell,
+    override: true,
+    capture: av("cast(?:\\s+the)?|spell|incant|invoke|channel|conjure|summon", "\\s+(.+)"),
   },
-  {
-    name: "Use Item",
-    type: "inventory",
-    field: "item",
-    test: av(AV.item),
-    capture: av(AV.item, "\\s+(.+)"),
-  },
-  {
-    name: "Attack",
-    type: "combat",
-    field: "target",
-    test: av(AV.attack),
-    capture: av(AV.attack, "\\s+(?:at\\s+)?(?:the|a|an)?\\s*(.+)"),
-  },
-  { name: "Defend", type: "combat", test: av(AV.defend) },
-  { name: "Flee", type: "combat", test: av(AV.flee) },
-  { name: "Explore", type: "exploration", test: av(AV.explore) },
-  { name: "Rest", type: "rest", test: av(AV.rest) },
-  { name: "Craft", type: "crafting", test: av(AV.craft) },
-  {
-    name: "Talk",
-    type: "interaction",
-    field: "target",
-    test: av(AV.talk),
-    capture: av(AV.talk, "\\s+(?:to|with)?\\s*(.+)"),
-  },
-  { name: "Trade", type: "interaction", test: av(AV.trade) },
-];
+  { name: "Equip", type: "inventory", field: "item", verbs: AV.equip },
+  { name: "Use Item", type: "inventory", field: "item", verbs: AV.item },
+  { name: "Attack", type: "combat", field: "target", verbs: AV.attack },
+  { name: "Defend", type: "combat", verbs: AV.defend },
+  { name: "Flee", type: "combat", verbs: AV.flee },
+  { name: "Sneak", type: "stealth", field: "target", verbs: AV.stealth },
+  { name: "Aid", type: "support", field: "target", verbs: AV.support },
+  { name: "Talk", type: "interaction", field: "target", verbs: AV.talk },
+  { name: "Trade", type: "interaction", field: "target", verbs: AV.trade },
+  { name: "Craft", type: "crafting", field: "target", verbs: AV.craft },
+  { name: "Rest", type: "rest", verbs: AV.rest },
+  { name: "Gather", type: "gather", field: "target", verbs: AV.gather },
+  { name: "Interact", type: "object", field: "target", verbs: AV.object },
+  { name: "Explore", type: "exploration", field: "target", verbs: AV.explore },
+  { name: "Move", type: "movement", field: "target", verbs: AV.move, weak: true },
+  { name: "Emote", type: "emote", verbs: AV.emote, weak: true },
+].map((m) =>
+  Object.assign(
+    {
+      test: av(m.verbs),
+      capture: m.field ? av(m.verbs, "\\s+(.+)") : null,
+    },
+    m,
+  ),
+);
+
+// Adverbs lifted out of a clause into `manner` so they colour the intent
+// without polluting the captured target.
+const ACTION_MANNER =
+  /\b(carefully|cautiously|quietly|silently|slowly|quickly|swiftly|gently|boldly|fiercely|furiously|desperately|calmly|nervously|stealthily|loudly|softly|warily|recklessly|politely|angrily|confidently|frantically)\b/i;
+
+// Leading words that carry no intent: "> You", "I try to", "then I decide to".
+const ACTION_FILLER =
+  /^(?:>\s*)?(?:(?:i|you|we)\s+)?(?:(?:try|tries|attempt|attempts|decide|decides|want|wants|begin|begins|start|starts|continue|continues|proceed|proceeds|manage|manages)\s+(?:to\s+)?)*/i;
+
+// Unmatched clauses that start like this qualify the previous action
+// ("attack the goblin, aiming for its eyes") instead of becoming their own.
+const ACTION_DETAIL_START =
+  /^(?:with|using|at|to|toward|towards|for|while|so|into|from|behind|in|on|hoping|trying|\w+ing)\b/i;
+
+// An unmatched short clause that looks like a noun phrase extends the previous
+// action's target instead ("attack the goblin and the orc").
+const ACTION_NOUNISH =
+  /^(?:the|a|an|my|some|his|her|its|their|two|three|another|[A-Z])/;
+
+const QUOTE_MARK = /⟪(\d+)⟫/g;
 
 function cleanActionValue(s) {
   if (s === undefined || s === null) return null;
-  const v = String(s)
+  let v = String(s)
+    .replace(QUOTE_MARK, " ")
     .trim()
     .replace(/^[\s"'`]+/, "")
     .replace(/[.!?,;:]+$/g, "")
-    .replace(/^(?:at|to|with|the|a|an)\s+/i, "")
+    // Cut trailing clauses that aren't part of the noun: "ask the guard about the keep"
+    .replace(/\s+(?:about|that|if|whether|so that|in order to)\s+.*$/i, "")
     .trim();
-  return v || null;
+  const lead =
+    /^(?:at|to|with|the|a|an|for|into|in|on|onto|toward|towards|through|across|over|under|behind|inside|up|down|around|some|my|your|his|her|their|its|our)\s+/i;
+  while (lead.test(v)) v = v.replace(lead, "");
+  v = v.trim();
+  if (/^(?:myself|me)$/i.test(v)) return "themself";
+  if (
+    !v ||
+    /^(?:around|about|here|there|it|them|him|her|away|back|up|down|over|again|off|out)$/i.test(v)
+  )
+    return null;
+  // Keep targets short; a long tail is almost always a second idea.
+  return v.split(/\s+/).slice(0, 6).join(" ");
+}
+
+// "goblin with my rusty sword" -> { value: "goblin", tool: "rusty sword" }
+function splitToolPhrase(value) {
+  const m = String(value || "").match(/^(.*?)\s+(?:with|using)\s+(.+)$/i);
+  if (!m) return { value, tool: null };
+  return { value: m[1], tool: cleanActionValue(m[2]) };
+}
+
+function restoreQuotes(text, quotes) {
+  return String(text || "")
+    .replace(QUOTE_MARK, (_, i) => `"${quotes[Number(i)] || ""}"`)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchActionClause(lc) {
+  const hits = [];
+  PLAYER_ACTION_MATCHERS.forEach((m, order) => {
+    const hit = m.test.exec(lc);
+    if (hit) hits.push({ m, idx: hit.index, order });
+  });
+  if (!hits.length) return null;
+  const override = hits.find((h) => h.m.override);
+  if (override) return override.m;
+  const strong = hits.filter((h) => !h.m.weak);
+  const pool = strong.length ? strong : hits;
+  pool.sort((a, b) => a.idx - b.idx || a.order - b.order);
+  return pool[0].m;
+}
+
+function newPlayerAction(name, type, raw) {
+  return {
+    name,
+    type,
+    target: null,
+    item: null,
+    magictype: null,
+    skilltype: null,
+    weapon: null,
+    tool: null,
+    manner: null,
+    quote: null,
+    detail: null,
+    raw,
+  };
 }
 
 const PLAYER_ACTION_CONFIG = {
   Attack: (a) =>
-    `launches a targeted attack against ${a.target || "the foe"}${a.weapon ? ` using ${a.weapon}` : ""}`,
+    `attacks ${a.target || "the foe"}${a.weapon ? ` with ${a.weapon}` : ""}`,
   "Cast Spell": (a) => `casts the spell ${a.magictype || "they intended"}`,
   "Cast Skill": (a) => `uses the skill ${a.skilltype || "they intended"}`,
-  "Use Item": (a) => `consumes ${a.item || "an item"} to gain its effects`,
-  Talk: (a) => `talks ${a.target ? `to ${a.target}` : "to someone"}`,
+  "Use Item": (a) => `uses ${a.item || "an item"}`,
+  Equip: (a) => `equips ${a.item || "their gear"}`,
   Defend: (a) =>
     `takes a defensive stance${a.weapon ? ` with their ${a.weapon}` : ""}`,
-  Flee: () => `attempts to flee from the situation`,
-  Explore: () => `explores the surroundings`,
+  Flee: () => `attempts to flee`,
+  Sneak: (a) => `moves stealthily${a.target ? ` toward ${a.target}` : ""}`,
+  Aid: (a) => `tends to ${a.target || "someone"}`,
+  Talk: (a) =>
+    a.quote
+      ? `says${a.target ? ` to ${a.target}` : ""}: "${a.quote}"`
+      : `talks to ${a.target || "someone"}`,
+  Speak: (a) => {
+    const q = a.quote || phraseFromRaw(a.raw);
+    return q ? `says: "${q}"` : "speaks";
+  },
+  Trade: (a) => `tries to ${phraseFromRaw(a.raw) || "trade"}`,
+  Craft: (a) => `crafts ${a.target || "something"}`,
   Rest: () => `rests to recover`,
-  Craft: () => `crafts something`,
-  Trade: () => `trades with others`,
-  Speak: (a) =>
-    `speaks${phraseFromRaw(a.raw) ? `: "${phraseFromRaw(a.raw)}"` : ""}`,
+  Gather: (a) => `takes ${a.target || "what they can find"}`,
+  Interact: (a) => `tries to ${phraseFromRaw(a.raw) || "interact with something"}`,
+  Explore: (a) =>
+    a.target ? `tries to ${phraseFromRaw(a.raw)}` : `looks around`,
+  Move: (a) => {
+    if (!a.target) return `moves on`;
+    return /^(?:north|south|east|west|up|down|upstairs|downstairs|inside|outside|forward|ahead|left|right)$/i.test(
+      a.target,
+    )
+      ? `heads ${a.target}`
+      : `heads toward ${a.target}`;
+  },
+  Emote: (a) => `tries to ${phraseFromRaw(a.raw) || "react"}`,
   Narrate: (a) =>
     `continues the scene${phraseFromRaw(a.raw) ? ` — ${phraseFromRaw(a.raw)}` : ""}`,
-  Act: (a) => `performs a general action: ${phraseFromRaw(a.raw) || "act"}`,
+  Act: (a) => `tries to ${phraseFromRaw(a.raw) || "act"}`,
   default: (a) => a.raw || "acts",
 };
 
-// Turn parsed actions into a short natural-language phrase for the prompt.
+// Turn a parsed action into a short natural-language phrase for the prompt.
 function playerActionPhrase(a) {
   const template =
     PLAYER_ACTION_CONFIG[a.name] || PLAYER_ACTION_CONFIG["default"];
-  return template(a);
+  let phrase = template(a);
+  if (a.manner) phrase = `${a.manner} ${phrase}`;
+  if (a.detail) phrase += ` (${a.detail})`;
+  return phrase;
 }
 
 // Tidy a raw clause for use inside a prompt phrase: drop a leading pronoun and
@@ -2748,6 +3221,9 @@ function phraseFromRaw(raw) {
     .replace(/^\s*(?:i|you|we|they)\s+/i, "")
     .replace(/^[\s"“”']+|[\s"“”']+$/g, "") // strip wrapping quotes/space
     .replace(/[.!?,;:]+$/g, "")
+    // Third person, since the phrase follows the character's name.
+    .replace(/\b(?:myself|yourself)\b/gi, "themself")
+    .replace(/\b(?:my|your)\b/gi, "their")
     .trim();
 }
 
@@ -2786,10 +3262,19 @@ function resolvePlayerActionFields(action) {
     return null;
   };
 
+  // Any action aimed at a live monster ("sneak behind the goblin") uses its
+  // canonical name, so the prompt and the Scene's foe list agree.
+  if (action.target && action.name !== "Attack") {
+    const foe = parseMonsterNameFromText(String(action.target), monsters);
+    if (foe) action.target = foe;
+  }
+
   switch (action.type) {
     case "combat": {
-      // Resolve the target against live monsters (brackets stripped),
-      // falling back to the last target, then the first active monster.
+      // Resolve the target against live monsters (brackets stripped). With
+      // no named target ("attack!", "hit it") fall back to the last target,
+      // then the first active monster; a named non-monster ("cut the rope")
+      // is kept as written.
       if (action.name === "Attack") {
         const captured = action.target
           ? String(action.target)
@@ -2799,21 +3284,26 @@ function resolvePlayerActionFields(action) {
         let name = captured
           ? parseMonsterNameFromText(captured, monsters)
           : null;
-        if (
-          !name &&
-          MS.lastTarget &&
-          monsters.some(
-            (m) => m.name.toLowerCase() === String(MS.lastTarget).toLowerCase(),
-          )
-        ) {
-          name = MS.lastTarget;
+        if (!name && !captured) {
+          if (
+            MS.lastTarget &&
+            monsters.some(
+              (m) => m.name.toLowerCase() === String(MS.lastTarget).toLowerCase(),
+            )
+          ) {
+            name = MS.lastTarget;
+          } else if (monsters.length) {
+            name = monsters[0].name;
+          }
         }
-        if (!name && monsters.length) name = monsters[0].name;
         if (name) action.target = name;
       }
-      // Equipped weapon backs any combat action.
-      if (equipped.mainhand && equipped.mainhand.name)
-        action.weapon = equipped.mainhand.name;
+      // A weapon the player named ("with my dagger") beats the equipped one,
+      // but "with my sword" while wielding an Iron Sword resolves to it.
+      const mainhand = equipped.mainhand && equipped.mainhand.name;
+      if (action.tool)
+        action.weapon = matchName(action.tool, mainhand ? [mainhand] : []) || action.tool;
+      else if (mainhand) action.weapon = mainhand;
       break;
     }
     case "magic": {
@@ -2837,7 +3327,20 @@ function resolvePlayerActionFields(action) {
         action.item,
         inventory.map((i) => i && i.name).filter(Boolean),
       );
-      if (resolved) action.item = resolved;
+      if (resolved) {
+        action.item = resolved;
+        break;
+      }
+      // "use Power Strike" names an ability, not an item: reclassify.
+      if (action.name === "Use Item" && action.item) {
+        const skill = matchName(action.item, knownByKinds(["skill", "feat"]));
+        const spell =
+          !skill && matchName(action.item, knownByKinds(["spell", "spellstone"]));
+        if (skill)
+          Object.assign(action, { name: "Cast Skill", type: "skill", skilltype: skill, item: null });
+        else if (spell)
+          Object.assign(action, { name: "Cast Spell", type: "magic", magictype: spell, item: null });
+      }
       break;
     }
   }
@@ -2868,14 +3371,6 @@ function detectCurrentActionType() {
 
 function buildFallbackAction(raw, actionType) {
   if (!raw) return null;
-  const base = {
-    target: null,
-    item: null,
-    magictype: null,
-    skilltype: null,
-    weapon: null,
-    raw,
-  };
 
   // Dialogue: an explicit "say" turn, or quoted / speech-verb text on an
   // unknown type -> interaction, so NPCs actually respond.
@@ -2885,17 +3380,17 @@ function buildFallbackAction(raw, actionType) {
       raw,
     );
   if (actionType === "say" || (actionType === undefined && looksLikeSpeech)) {
-    return Object.assign({ name: "Speak", type: "interaction" }, base);
+    return newPlayerAction("Speak", "interaction", raw);
   }
 
   // Story / continue -> advance the narrative without inventing player choices.
   if (actionType === "story" || actionType === "continue") {
-    return Object.assign({ name: "Narrate", type: "story" }, base);
+    return newPlayerAction("Narrate", "story", raw);
   }
 
   // Default (a "do" action that matched no verb): a generic freeform act,
   // described verbatim so the AI still knows what the player attempted.
-  return Object.assign({ name: "Act", type: "other" }, base);
+  return newPlayerAction("Act", "other", raw);
 }
 
 function buildPlayerActionPrompt(actions) {
@@ -2904,7 +3399,34 @@ function buildPlayerActionPrompt(actions) {
   const list = actions
     .map((a, i) => `${i + 1}) ${name} ${playerActionPhrase(a)}`)
     .join("; ");
-  return `Current Intentions: ${list}.`;
+  return `Intent: ${list}${/[.!?]["”]?$/.test(list) ? "" : "."}`;
+}
+
+// Parse one clause (quotes already swapped for ⟪n⟫ markers) into an action,
+// or null when no verb matched.
+function parseActionClause(clause, quotes) {
+  let text = clause.replace(ACTION_FILLER, "");
+  const mannerHit = text.match(ACTION_MANNER);
+  const manner = mannerHit ? mannerHit[1].toLowerCase() : null;
+  if (manner) text = text.replace(ACTION_MANNER, " ").replace(/\s+/g, " ").trim();
+  // A manner word may have hidden filler behind it: "carefully, I try to..."
+  text = text.replace(ACTION_FILLER, "");
+
+  const matcher = matchActionClause(text.toLowerCase());
+  if (!matcher) return { action: null, text, manner };
+
+  const action = newPlayerAction(matcher.name, matcher.type, restoreQuotes(text, quotes));
+  action.manner = manner;
+  if (matcher.capture && matcher.field) {
+    const m = text.match(matcher.capture);
+    if (m) {
+      const split = splitToolPhrase(m[1]);
+      const val = cleanActionValue(split.value);
+      if (val) action[matcher.field] = val;
+      if (split.tool) action.tool = split.tool;
+    }
+  }
+  return { action, text, manner };
 }
 
 // Parse the player's input into one or more actions and stash them on state.
@@ -2913,6 +3435,7 @@ function parsePlayerActions(rawText) {
   state.PlayerActions = [];
   state.PlayerAction = "None";
   state.PlayerActionPrompt = "";
+  state.PlayerInputRaw = "";
   state.logMessages = state.logMessages || {};
   state.logMessages["Output"] = state.logMessages["Output"] || [];
 
@@ -2920,56 +3443,119 @@ function parsePlayerActions(rawText) {
   if (!state.PS || !state.PS.Name || state.tempCharacter)
     return state.PlayerActions;
 
-  const raw = String(rawText ?? "").trim();
+  const raw = String(rawText ?? "")
+    .replace(/^\s*>\s*/, "")
+    .trim();
   if (!raw) return state.PlayerActions;
+  state.PlayerInputRaw = raw;
+
+  // Lift quoted speech out first so commas / "and" inside a line of dialogue
+  // can't split it into fake clauses.
+  const quotes = [];
+  const work = raw.replace(/["“]([^"“”]+)["”]/g, (_, q) => {
+    quotes.push(q.trim());
+    return ` ⟪${quotes.length - 1}⟫ `;
+  });
 
   // Split into clauses so several actions in one input each get parsed:
-  //   "I attack the goblin and then drink a potion" -> [Attack, Use Item].
-  const clauses = raw
-    .split(/\b(?:and then|then|and|after that|before)\b|[,.;]+/i)
+  //   "I sneak behind the goblin, then stab it and grab its pouch"
+  //     -> [Sneak, Attack, Gather].
+  const clauses = work
+    .split(/\b(?:and then|then|and|after that|afterwards|before|while|but)\b|[,;!?]+|\.(?!\d)/i)
     .map((c) => c.trim())
     .filter(Boolean);
 
   const actions = [];
+  const leading = []; // qualifiers seen before the first action
+  let pendingManner = null; // a lone adverb clause colours the next action
+  const addDetail = (action, text) => {
+    action.detail = action.detail ? `${action.detail}, ${text}` : text;
+  };
+  const pushAction = (action, manner) => {
+    action.manner = action.manner || manner || pendingManner;
+    pendingManner = null;
+    actions.push(action);
+  };
+  const pushSpeak = (quoteText) => {
+    const speak = newPlayerAction("Speak", "interaction", `"${quoteText}"`);
+    speak.quote = quoteText;
+    pushAction(speak);
+  };
+
   for (const clause of clauses) {
-    const lc = clause.toLowerCase();
-    for (const matcher of PLAYER_ACTION_MATCHERS) {
-      if (matcher.test.test(lc)) {
-        const action = {
-          name: matcher.name,
-          type: matcher.type,
-          target: null,
-          item: null,
-          magictype: null,
-          skilltype: null,
-          weapon: null,
-          raw: clause,
-        };
-        if (matcher.capture && matcher.field) {
-          const m = clause.match(matcher.capture);
-          const val = cleanActionValue(m && m[1]);
-          if (val) action[matcher.field] = val;
-        }
-        resolvePlayerActionFields(action);
-        actions.push(action);
-        break; // one action per clause
-      }
+    const quoteIds = [];
+    clause.replace(QUOTE_MARK, (_, i) => quoteIds.push(Number(i)));
+    const quoteText = quoteIds.map((i) => quotes[i]).join(" ");
+    const bare = clause.replace(QUOTE_MARK, " ").replace(/\s+/g, " ").trim();
+    const prev = actions[actions.length - 1];
+
+    // Pure dialogue: attach to a preceding "I tell the guard" or speak alone.
+    if (!bare.replace(ACTION_FILLER, "")) {
+      if (!quoteText) continue;
+      if (prev && prev.name === "Talk" && !prev.quote) prev.quote = quoteText;
+      else pushSpeak(quoteText);
+      continue;
+    }
+
+    const parsed = parseActionClause(clause, quotes);
+    if (parsed.action) {
+      const action = parsed.action;
+      if (quoteText && action.name === "Talk") action.quote = quoteText;
+      pushAction(action);
+      if (quoteText && action.name !== "Talk") pushSpeak(quoteText);
+      continue;
+    }
+
+    // No verb: decide whether this clause qualifies the previous action, extends
+    // its noun ("attack the goblin and the orc"), or is its own freeform act.
+    const rest = restoreQuotes(parsed.text, quotes);
+    if (!rest) {
+      if (parsed.manner) pendingManner = parsed.manner; // "Carefully, I ..."
+      continue;
+    }
+    const words = rest.split(/\s+/).length;
+    const prevField =
+      prev && (PLAYER_ACTION_MATCHERS.find((m) => m.name === prev.name) || {}).field;
+    if (ACTION_DETAIL_START.test(rest)) {
+      if (prev) addDetail(prev, rest);
+      else leading.push(rest);
+    } else if (prevField && prev[prevField] && words <= 3 && ACTION_NOUNISH.test(rest)) {
+      prev[prevField] = `${prev[prevField]} and ${cleanActionValue(rest) || rest}`;
+    } else if (words === 1) {
+      if (prev) addDetail(prev, rest);
+      else leading.push(rest);
+    } else {
+      pushAction(newPlayerAction("Act", "other", rest), parsed.manner);
     }
   }
 
+  if (leading.length && actions.length) addDetail(actions[0], leading.join(", "));
+
+  // Resolve first so "attack, attack the goblin" compares Goblin to Goblin,
+  // then collapse back-to-back repeats and cap.
+  actions.forEach(resolvePlayerActionFields);
+  const kept = actions
+    .filter((a, i) => {
+      const p = actions[i - 1];
+      return !(
+        p &&
+        p.name === a.name &&
+        p.name !== "Act" &&
+        (p.target || p.item || p.quote) === (a.target || a.item || a.quote)
+      );
+    })
+    .slice(0, SCENE_BRIEF_CAP);
+
   // No explicit action matched, but the player still typed something real:
   // synthesize a fallback so intent always reaches the Context prompt.
-  if (!actions.length) {
+  if (!kept.length) {
     const fallback = buildFallbackAction(raw, detectCurrentActionType());
-    if (fallback) actions.push(fallback);
+    if (fallback) kept.push(fallback);
   }
 
-  state.PlayerActions = actions;
-  state.PlayerAction = actions[0] || "None";
-  state.PlayerActionPrompt = buildPlayerActionPrompt(actions);
-  /*if (actions.length) {
-        state.logMessages['Output'].push(`🎯 Parsed ${actions.length} action(s): ${actions.map(a => a.name).join(", ")}`);
-    }*/
+  state.PlayerActions = kept;
+  state.PlayerAction = kept[0] || "None";
+  state.PlayerActionPrompt = buildPlayerActionPrompt(kept);
   return state.PlayerActions;
 }
 
@@ -3865,7 +4451,7 @@ function Gametrack() {
     return;
   }
 
-  advanceTime();
+  advanceWorldTurn(10);
 
   const livingMonsters = state.MS.activeMonsters
     .filter((m) => m && typeof m === "object" && m.health > 0)
@@ -8631,7 +9217,7 @@ function ensureWorldState() {
           currentFloor: 1, maxFloors: 100, generatedFloors: {}, playerPosition: { row: 1, col: "A" }, lastGenerated: 0
         }
       },
-      currentDungeon: "labyrinth", exploredLocations: new Set(), activeWorldEvents: [], completedWorldEvents: []
+      currentDungeon: "labyrinth", exploredLocations: [], activeWorldEvents: [], completedWorldEvents: []
     };
     
     initializeWorldRegistries();
@@ -8687,10 +9273,9 @@ function ensureWorldState() {
   if (!state.world.weather) state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild", precipitation: 0 };
   if (!state.world.dungeons) state.world.dungeons = {};
   if (!state.world.currentDungeon) state.world.currentDungeon = "labyrinth";
-  if (!state.world.exploredLocations) state.world.exploredLocations = new Set();
-  if (!state.world.activeWorldEvents) state.world.activeWorldEvents = [];
-  if (!state.world.completedWorldEvents) state.world.completedWorldEvents = [];
-  
+  // exploredLocations / activeWorldEvents / completedWorldEvents are
+  // guaranteed by normalizeWorldStateSchema() at the end of this function.
+
   if (!state.world.dungeons["labyrinth"]) {
     state.world.dungeons["labyrinth"] = {
       name: "The Grand Labyrinth",
@@ -8713,20 +9298,153 @@ function ensureWorldState() {
   if (!state.world.interactionRegistry) state.world.interactionRegistry = state.world.registries.interactions;
   if (!state.world.buildingRegistry) state.world.buildingRegistry = state.world.registries.buildings;
   if (!state.world.monsterRegistry) state.world.monsterRegistry = state.world.registries.monsters;
-  if (!state.world.worldRegistry) state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: state.world.activeWorldEvents };
+  if (!state.world.worldRegistry) state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: [] };
+
+  deduplicateConnections();
+  normalizeWorldStateSchema();
+}
+
+/**
+ * Repairs the parts of state.world that AI Dungeon's JSON serializer breaks
+ * between turns: Sets come back as {}, and object aliases come back as
+ * independent copies. Runs at the end of every ensureWorldState().
+ */
+function normalizeWorldStateSchema() {
+  const w = state.world;
+  if (!Array.isArray(w.exploredLocations)) w.exploredLocations = [];
+  if (!Array.isArray(w.activeWorldEvents)) w.activeWorldEvents = [];
+  if (!Array.isArray(w.completedWorldEvents)) w.completedWorldEvents = [];
+  if (w.completedWorldEvents.length > 20) { // keep the last 20
+    w.completedWorldEvents = w.completedWorldEvents.slice(-20);
+  }
+
+  // Drop location.dynamicEvents entries with no matching active event. Older
+  // saves could leave these behind forever, which blocked the location from
+  // ever getting another event.
+  for (const location of Object.values(w.map.locations)) {
+    if (!location) continue;
+    if (!Array.isArray(location.dynamicEvents)) { location.dynamicEvents = []; continue; }
+    location.dynamicEvents = location.dynamicEvents.filter(de =>
+      w.activeWorldEvents.some(ev => ev.locationId === location.id && ev.eventId === de.eventId)
+    );
+  }
+
+  if (!w.worldRegistry || typeof w.worldRegistry !== "object") w.worldRegistry = { modifiedLocations: {} };
+  if (!w.worldRegistry.modifiedLocations) w.worldRegistry.modifiedLocations = {};
+  // Re-link every turn: serialization turns this alias into a stale copy.
+  w.worldRegistry.activeWorldEvents = w.activeWorldEvents;
+}
+
+function markLocationExplored(locId) {
+  ensureWorldState();
+  if (!locId) return;
+  if (!state.world.exploredLocations.includes(locId)) state.world.exploredLocations.push(locId);
+}
+/** Resolves an event's locationId to an overworld location or a generated dungeon floor. */
+function findWorldEventLocation(locationId) {
+  const locs = state.world.map.locations;
+  if (locs[locationId]) return locs[locationId];
+  for (const dungeon of Object.values(state.world.dungeons || {})) {
+    if (dungeon && dungeon.generatedFloors && dungeon.generatedFloors[locationId]) return dungeon.generatedFloors[locationId];
+  }
+  return null;
+}
+
+function hasActiveWorldEventAt(locationId) {
+  return state.world.activeWorldEvents.some(ev => ev.locationId === locationId);
+}
+/** Tells both the player (Output) and the narrator (Input) when an event touches the player's location. */
+function notifyWorldEventAtPlayer(locationId, message) {
+  if (!message || locationId !== getCurrentLocationKey()) return;
+  state.logMessages = state.logMessages || {};
+  state.logMessages["Output"] = state.logMessages["Output"] || [];
+  state.logMessages["Input"] = state.logMessages["Input"] || [];
+  state.logMessages["Output"].push(`[World Event] ${message}`);
+  state.logMessages["Input"].push(`[World Event] ${message}`);
+}
+/**
+ * Picks a random WORLD_EVENTS entry for a location and rolls its triggerChance.
+ * Returns the event definition, or null if nothing should start there.
+ */
+function rollWorldEventForLocation(location) {
+  if (!location || !location.id) return null;
+  if (state.world.activeWorldEvents.length >= 3) return null; // max 3 concurrent world events
+  if (hasActiveWorldEventAt(location.id)) return null;
+  if (Array.isArray(location.dynamicEvents) && location.dynamicEvents.length > 0) return null;
+  const eventKeys = Object.keys(WORLD_EVENTS);
+  if (eventKeys.length === 0) return null;
+  const eventDef = WORLD_EVENTS[eventKeys[Math.floor(Math.random() * eventKeys.length)]];
+  return Math.random() < (Number(eventDef.triggerChance) || 0) ? eventDef : null;
+}
+/**
+ * Starts an event at a location: runs its effect and records it in both
+ * state.world.activeWorldEvents and location.dynamicEvents.
+ * Returns the active event object, or null if it couldn't start.
+ */
+function applyWorldEventToLocation(location, eventDef) {
+  if (!location || !location.id || !eventDef) return null;
+  location.flags = location.flags || {};
+  location.monsters = Array.isArray(location.monsters) ? location.monsters : [];
+  location.interactions = Array.isArray(location.interactions) ? location.interactions : [];
+  if (!Array.isArray(location.dynamicEvents)) location.dynamicEvents = [];
+
+  let message;
+  try {
+    message = eventDef.effect(location);
+  } catch (err) {
+    console.error(`World event "${eventDef.id}" failed to start at ${location.id}:`, err);
+    return null;
+  }
+
+  const activeEvent = { locationId: location.id, eventId: eventDef.id, name: eventDef.name, message, turnsRemaining: eventDef.duration };
+  // Separate copies: after serialization they are separate anyway, and sharing
+  // one object here would make tickWorldEvents decrement it twice this turn.
+  state.world.activeWorldEvents.push(activeEvent);
+  location.dynamicEvents.push({ ...activeEvent });
+  notifyWorldEventAtPlayer(location.id, message);
+  return activeEvent;
+}
+/**
+ * Ends an event: runs onComplete(location), removes it from location.dynamicEvents,
+ * and records it in completedWorldEvents. The caller removes it from activeWorldEvents.
+ */
+function completeWorldEventAtLocation(activeEvent) {
+  const eventDef = WORLD_EVENTS[activeEvent.eventId];
+  const location = findWorldEventLocation(activeEvent.locationId);
+  let message = `${activeEvent.name || activeEvent.eventId} has ended.`;
+
+  if (location) {
+    location.monsters = Array.isArray(location.monsters) ? location.monsters : [];
+    location.interactions = Array.isArray(location.interactions) ? location.interactions : [];
+    location.flags = location.flags || {};
+    if (eventDef && typeof eventDef.onComplete === "function") {
+      try {
+        message = eventDef.onComplete(location) || message;
+      } catch (err) {
+        console.error(`World event "${activeEvent.eventId}" failed to complete at ${activeEvent.locationId}:`, err);
+      }
+    }
+    if (Array.isArray(location.dynamicEvents)) {
+      location.dynamicEvents = location.dynamicEvents.filter(de => de.eventId !== activeEvent.eventId);
+    }
+  }
+
+  state.world.completedWorldEvents.push({ locationId: activeEvent.locationId, eventId: activeEvent.eventId, message, turn: state.world.time.turn });
+  if (state.world.completedWorldEvents.length > 20) {
+    state.world.completedWorldEvents = state.world.completedWorldEvents.slice(-20);
+  }
+  notifyWorldEventAtPlayer(activeEvent.locationId, message);
+  return message;
 }
 
 function generateWorldEvents() {
   const events = [];
   for (const location of Object.values(state.world.map.locations)) {
-    if (location.dynamicEvents && location.dynamicEvents.length > 0) continue;
-    if (Math.random() < 0.1) {
-      const eventKeys = Object.keys(WORLD_EVENTS);
-      const randomEvent = WORLD_EVENTS[eventKeys[Math.floor(Math.random() * eventKeys.length)]];
-      const eventMessage = randomEvent.effect(location);
-      events.push({ locationId: location.id, eventId: randomEvent.id, message: eventMessage, turnsRemaining: randomEvent.duration });
-      state.world.activeWorldEvents.push({ locationId: location.id, eventId: randomEvent.id, turnsRemaining: randomEvent.duration });
-    }
+    if (state.world.activeWorldEvents.length >= 3) break;
+    const eventDef = rollWorldEventForLocation(location);
+    if (!eventDef) continue;
+    const started = applyWorldEventToLocation(location, eventDef);
+    if (started) events.push(started);
   }
   return events;
 }
@@ -8734,12 +9452,17 @@ function generateWorldEvents() {
 function tickWorldEvents() {
   const activeEvents = state.world.activeWorldEvents;
   for (let i = activeEvents.length - 1; i >= 0; i--) {
-    activeEvents[i].turnsRemaining--;
-    if (activeEvents[i].turnsRemaining <= 0) {
-      const event = WORLD_EVENTS[activeEvents[i].eventId];
-      const location = state.world.map.locations[activeEvents[i].locationId];
-      const completionMessage = event.onComplete(location);
-      state.world.completedWorldEvents.push({ locationId: activeEvents[i].locationId, eventId: activeEvents[i].eventId, message: completionMessage, turn: state.world.time.turn });
+    const ev = activeEvents[i];
+    ev.turnsRemaining = (Number(ev.turnsRemaining) || 0) - 1;
+
+    const location = findWorldEventLocation(ev.locationId);
+    const locEntry = location && Array.isArray(location.dynamicEvents)
+      ? location.dynamicEvents.find(de => de.eventId === ev.eventId)
+      : null;
+    if (locEntry) locEntry.turnsRemaining = ev.turnsRemaining;
+
+    if (ev.turnsRemaining <= 0) {
+      completeWorldEventAtLocation(ev);
       activeEvents.splice(i, 1);
     }
   }
@@ -9020,10 +9743,10 @@ function shopPurchase(itemName) {
 
 /**
  * Advance world time by hours (legacy function, kept for compatibility).
- * @deprecated Use PlayerWorldBridge.advanceWorldTimeMinutes(minutes) instead.
+ * @deprecated Use advanceWorldTurn(minutes) instead.
  */
 function advanceWorldTime(hours = 1) {
-  PlayerWorldBridge.advanceWorldTimeMinutes(hours * 60);
+  advanceWorldTurn(hours * 60);
 }
 
 function consumeLocationBiomass(amount) {
@@ -9433,8 +10156,8 @@ const PlayerWorldBridge = {
     state.PS.location = destLoc.type === "dungeon_entrance" ? "labyrinth" : "overworld";
     
     // Advance time
-    this.advanceWorldTimeMinutes(15); // 15 minutes
-    
+    advanceWorldTurn(15); // 15 minutes
+
     // Sync
     this.syncPlayerPosition();
     
@@ -9450,38 +10173,10 @@ const PlayerWorldBridge = {
   },
 
   /**
-   * Advance world time by minutes.
+   * @deprecated Use advanceWorldTurn(minutes) instead.
    */
   advanceWorldTimeMinutes(minutes = 15) {
-    if (!state.world?.time) return;
-    const t = state.world.time;
-    t.minute += minutes;
-    while (t.minute >= 60) {
-      t.minute -= 60;
-      t.hour = (t.hour + 1) % 24;
-      if (t.hour === 0) t.day++;
-      // Season change
-      if (t.day % 30 === 0) {
-        const seasons = ["spring", "summer", "fall", "winter"];
-        t.season = seasons[(seasons.indexOf(t.season || "spring") + 1) % 4];
-      }
-    }
-    // Update cycle phase
-    if (t.hour >= 5 && t.hour < 9) t.cyclePhase = "dawn";
-    else if (t.hour >= 9 && t.hour < 17) t.cyclePhase = "day";
-    else if (t.hour >= 17 && t.hour < 21) t.cyclePhase = "dusk";
-    else t.cyclePhase = "night";
-    
-    // Update light level
-    const phaseBase = { "dawn": 0.6, "day": 1.0, "dusk": 0.45, "night": 0.1 }[t.cyclePhase] || 0.1;
-    const intensity = Math.max(0, Math.min(1, Number(state.world.weather?.intensity) || 0));
-    t.lightLevel = Math.max(0, Math.min(1, phaseBase - intensity * 0.3));
-    
-    t.turn++;
-    tickWorldEvents();
-    generateWorldEvents();
-    naturalRegen();
-    this._invalidateCache();
+    advanceWorldTurn(minutes);
   },
 
   /**
@@ -9490,9 +10185,10 @@ const PlayerWorldBridge = {
   checkLocationEvents(location) {
     const events = [];
     if (!location) return events;
-    
+    ensureWorldState();
+
     // Check active world events
-    const activeEvent = state.world.activeWorldEvents?.find(e => e.locationId === location.id);
+    const activeEvent = state.world.activeWorldEvents.find(e => e.locationId === location.id);
     if (activeEvent) {
       events.push({
         type: "world_event",
@@ -9500,21 +10196,16 @@ const PlayerWorldBridge = {
         message: activeEvent.message,
         turnsRemaining: activeEvent.turnsRemaining
       });
+      return events;
     }
-    
-    // Random event generation (10% chance)
-    if (Math.random() < 0.1 && (!location.dynamicEvents || location.dynamicEvents.length === 0)) {
-      const eventKeys = Object.keys(WORLD_EVENTS);
-      if (eventKeys.length > 0) {
-        const randomEvent = WORLD_EVENTS[eventKeys[Math.floor(Math.random() * eventKeys.length)]];
-        const message = randomEvent.effect(location);
-        location.dynamicEvents = location.dynamicEvents || [];
-        location.dynamicEvents.push({ eventId: randomEvent.id, message, turnsRemaining: randomEvent.duration });
-        state.world.activeWorldEvents.push({ locationId: location.id, eventId: randomEvent.id, turnsRemaining: randomEvent.duration });
-        events.push({ type: "new_event", eventId: randomEvent.id, message, turnsRemaining: randomEvent.duration });
-      }
+
+    // Chance of a new event on arrival (same roll/cap rules as generateWorldEvents)
+    const eventDef = rollWorldEventForLocation(location);
+    const started = eventDef ? applyWorldEventToLocation(location, eventDef) : null;
+    if (started) {
+      events.push({ type: "new_event", eventId: started.eventId, message: started.message, turnsRemaining: started.turnsRemaining });
     }
-    
+
     return events;
   },
 
@@ -9738,19 +10429,30 @@ function movePlayer(direction) {
 
 const CYCLE_PHASE_BASELINES = { dawn: 0.6, day: 1.0, dusk: 0.45, night: 0.1 };
 
-function advanceTime() {
+const SEASONS = ["spring", "summer", "fall", "winter"];
+
+/**
+ * The single authoritative world tick: advances the clock, updates cyclePhase
+ * and lightLevel, then ticks/generates world events and invalidates the
+ * PlayerWorldBridge cache. Gametrack() calls this once per turn.
+ */
+function advanceWorldTurn(minutes = 10) {
   ensureWorldState();
   const t = state.world.time;
   const w = state.world.weather;
   t.turn = (Number(t.turn) || 0) + 1;
-  t.minute = (Number(t.minute) || 0) + 10;
+  t.minute = (Number(t.minute) || 0) + (Number(minutes) || 0);
+  t.hour = Number(t.hour) || 0;
   while (t.minute >= 60) {
     t.minute -= 60;
-    t.hour = (Number(t.hour) || 0) + 1;
+    t.hour += 1;
   }
   while (t.hour >= 24) {
     t.hour -= 24;
     t.day = (Number(t.day) || 1) + 1;
+    if (t.day % 30 === 0) {
+      t.season = SEASONS[(SEASONS.indexOf(t.season || "spring") + 1) % SEASONS.length];
+    }
   }
   const h = Number(t.hour) || 0;
   let phase;
@@ -9767,6 +10469,10 @@ function advanceTime() {
   const intensity = Math.max(0, Math.min(1, Number(w && w.intensity) || 0));
   const raw = baseline - intensity * 0.3;
   t.lightLevel = Math.max(0, Math.min(1, raw));
+
+  tickWorldEvents();
+  generateWorldEvents();
+  PlayerWorldBridge._invalidateCache();
 }
 
 function summariseWorldRegistry(maxChars) {
@@ -9789,14 +10495,15 @@ function summariseWorldRegistry(maxChars) {
       ? mods[locId].lootedInteractions.length
       : 0;
   }
+  const safeId = (v) => String(v || "").replace(/[^a-zA-Z0-9_]/g, "").slice(0, 30);
   const events = (reg.activeWorldEvents || [])
     .slice(0, 5)
-    .map((e) =>
-      String(e || "")
-        .replace(/[^a-zA-Z0-9\s]/g, "")
-        .trim()
-        .slice(0, 30),
-    )
+    .map((e) => {
+      if (!e) return "";
+      if (typeof e !== "object") return safeId(e);
+      const turns = Math.max(0, Math.floor(Number(e.turnsRemaining) || 0));
+      return `${safeId(e.eventId)} at ${safeId(e.locationId)} (${turns}t)`;
+    })
     .filter(Boolean);
   let summary = `- Locations modified: ${locCount}\n- Doors unlocked: ${doorCount}\n- Interactions looted: ${lootedCount}`;
   if (events.length > 0) {
