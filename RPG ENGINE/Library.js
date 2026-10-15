@@ -352,106 +352,464 @@ function rpgCreationGate() {
 }
 
 
-// Prompting Engine
+// =========================================================================
+// Prompting Engine v2 — gate-based modular prompt composer
+// =========================================================================
+// Each module carries:
+//   label    -> section name shown in the brief
+//   priority -> higher wins when more than SCENE_BRIEF_CAP modules open
+//   gate     -> when the module opens (see sceneGateOpen):
+//                 locations: array of playerloc/location strings
+//                 actions:   parsed player action types (PLAYER_ACTION_MATCHERS)
+//                 triggers:  words searched for in the player's input
+//                 when:      a SCENE_STATE_GATES key checked against engine state
+//               No gate (or always: true) = open every turn, outside the cap.
+//   text     -> the guidance string injected into the context when the gate opens
+//   focus    -> one-line AI instruction (what this part of the response covers)
+//   rules    -> short extra rules; duplicates across open modules are dropped
+//
+// Runtime tweaks: updateOutputFormat(id, {…}) merges overrides into state,
+// resetOutputFormat(id) drops the override, registerModule(id, def) adds new ones.
+
+//To add your own module, you'd do something like:
+/*
+registerModule("boss_fight", {
+  label: "Boss",
+  priority: 96,
+  gate: { when: "monstersAlive", locations: ["boss_room"] },
+  text: "This is the floor boss. Describe an epic showdown.",
+  focus: "The boss fights with devastating power and unique mechanics.",
+  rules: ["The boss uses its signature ability at least once"],
+});
+
+*/
+// =========================================================================
+const OUTPUT_FORMATS_VERSION = 3;
+const SCENE_BRIEF_CAP = 5;
+
 const OUTPUT_FORMATS = {
   default: {
-    header: `# STRICT OUTPUT FORMAT\n The response MUST follow this exact structure:`,
-    lineTemplate: `("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major)`,
-    example: `([name]) ([name] strikes [name] with their mighty blade, drawing blood) ([Name] attacked [Name] with their blade, hurting them)`,
+    label: "Style",
+    priority: 100,
+    gate: { always: true },
+    text: "",
+    focus: "Continue the story by resolving the player's intentions in the order given.",
     rules: [
-      `EVERY line MUST contain: ("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major|plot defining)`,
-      `Avoid paragraphs`,
-      `Avoid adding any text outside this structure`,
-      `Output only a numbered list`,
-      `Include the player's intended action(s) first, in order`,
-      `Avoid making up decisions, actions, or dialogue for the player`,
+      "Never invent actions, choices or dialogue for the player",
+      "Show the outcome of each intention before introducing anything new",
+      "Stay consistent with every Scene fact",
+      "Write story prose only: no lists, headings or notes",
     ],
   },
   combat: {
-    header: `# COMBAT OUTPUT FORMAT\n The response MUST follow this exact combat structure:`,
-    lineTemplate: `[Name] [Action Beat] [Result/Damage]`,
-    example: `Kaelen Swings broadsword at Goblin Hits for 12 dmg, Goblin reels`,
+    label: "Combat",
+    priority: 90,
+    gate: { actions: ["combat"], when: "monstersAlive", triggers: ["fight", "battle", "enemy", "ambush"] },
+    text: "",
+    focus: "Show each blow landing or missing and its effect; foes still standing stay a threat and react.",
     rules: [
-      `EVERY line MUST follow: [Name] [Action] [Result]. In a flowery explination format.`,
-      `Prioritize mechanical results (damage, status effects, and misses if needed only.)`,
-      `Keep beats extremely concise and telegraphic`,
-      `Allow flowery prose during combat exchanges without deviation from the results`,
-      `Output as a prosed pharagraph`,
+      "Only the listed foes are present; add no new enemies mid-fight",
+      "Foes only die when the Scene says they are defeated",
     ],
   },
-  // Extension: used while a monster is active and still alive after being hit.
-  // The player's attack is described as landing on a live target.
   combat_alive: {
-    header: `# COMBAT — MONSTER ACTIVE\n The response MUST follow this structure when a monster is still alive after being attacked:`,
-    lineTemplate: `[Player Name] [Attack Beat — how the player attacked] [Result — monster still alive, damage dealt]`,
-    example: `[Kaelen] [Swings broadsword at the Goblin] [Hits for 12 dmg, Goblin is hurt but stays standing]`,
-    rules: [
-      `EVERY line MUST follow: [Player Name] [Attack Beat] [Result]`,
-      `The Result MUST describe the monster STILL BEING ALIVE (wounded, snarling, defiant, standing)`,
-      `Include the damage dealt and the monster's remaining health`,
-      `The Attack Beat MUST be in present tense and telegraphic`
-    ],
+    label: "Monster Active",
+    priority: 91,
+    gate: { when: "monstersAlive", actions: ["combat"] },
+    text: "",
+    focus: "The monster survives the hit: describe the attack landing and the monster still standing.",
+    rules: ["Include damage dealt and remaining health", "The monster reacts but does not fall"],
   },
-  // Extension: used when a monster is actually dead / defeated by the player's attack.
   combat_dead: {
-    header: `# COMBAT — MONSTER DEFEATED\n The response MUST follow this structure when a monster falls to the player's attack:`,
-    lineTemplate: `[Player Name] [Finishing Attack Beat] [Defeated: [Monster Name]]`,
-    example: `Kaelen Drives blade through the Goblin's chest Defeated: Goblin`,
-    rules: [
-      `The Result MUST announce the monster FALLING and being DEFEATED (slain, falls, defeated, collapses)`,
-      `The Attack Beat MUST be in present tense and telegraphic`,
-      `The output needs to be a prosed pharagraph`
-    ],
+    label: "Kill",
+    priority: 95,
+    gate: { when: "monsterDefeated" },
+    text: "",
+    focus: "A foe fell this turn: describe the finishing blow and the body going still.",
+    rules: ["A defeated foe stays dead and takes no further action"],
   },
-  exploration: {
-    header: `# EXPLORATION OUTPUT FORMAT\n The response MUST follow this environmental structure:`,
-    lineTemplate: `(Location/Entity) (Sensory Detail/Discovery) (Immediate Effect/Context) (Scope) (Importance)`,
-    example: `[Old Ruins] 
-    A faint blue glow emanates from the altar. Triggers a low hum in the air`,
-    rules: [
-      `EVERY line MUST follow: (Target) (Observation) (Result) (Scope) (Importance)`,
-      `Focus on sensory details: sight, sound, smell`,
-      `Avoid narrative filler; describe the discovery directly`,
-      `All () is for interpolation only`
-    ],
+  danger: {
+    label: "Danger",
+    priority: 85,
+    gate: { when: "playerLow" },
+    text: "",
+    focus: "The player is badly hurt: let the wounds slow them and raise the stakes.",
+    rules: [],
+  },
+  magic: {
+    label: "Magic",
+    priority: 80,
+    gate: { actions: ["magic", "skill"] },
+    text: "",
+    focus: "Describe the ability being used and its visible effect, matching the named spell or skill.",
+    rules: ["Only use spells and skills named in the intentions"],
+  },
+  stealth: {
+    label: "Stealth",
+    priority: 75,
+    gate: { actions: ["stealth"] },
+    text: "",
+    focus: "Track who could notice the player; build the tension of staying unseen and show any slip.",
+    rules: [],
   },
   interaction: {
-    header: `# INTERACTION OUTPUT FORMAT\n The response MUST follow this dialogue structure:`,
-    lineTemplate: `1. ([Name]) ([Dialogue/Reaction]) ([Emotional Subtext/Body Language]) (Scope) (Importance)`,
-    example: `1. (Guard) ("Halt! Who goes there?") (Hand rests on sword hilt, suspicious) (local) (moderate)`,
-    rules: [
-      `EVERY line MUST follow: ([Name]) ([Speech]) ([Action/Tone]) (Scope) (Importance)`,
-      `Keep dialogue punchy and in-character`,
-      `Describe body language in parentheses`,
-      `Output only the numbered list`,
-    ],
+    label: "Dialogue",
+    priority: 70,
+    gate: { actions: ["interaction", "emote"], triggers: ["talk", "speak", "say", "ask", "tell"] },
+    text: "",
+    focus: "NPCs reply in character with short, distinct voices and react through body language.",
+    rules: ["Quote the player's words exactly; never add lines for them"],
+  },
+  exploration: {
+    label: "Surroundings",
+    priority: 60,
+    gate: {
+      actions: ["exploration", "movement", "gather", "object"],
+      triggers: ["look", "around", "listen", "smell", "where am i", "search"],
+      locations: ["dungeon", "labyrinth", "dungeon entrance", "ascii world"],
+    },
+    text: "",
+    focus: "Ground the action in the location: what the player sees, hears and smells, and anything they find.",
+    rules: ["Only reveal exits, items or creatures that fit the Scene"],
+  },
+  dungeon: {
+    label: "Dungeon",
+    priority: 65,
+    gate: { locations: ["dungeon", "dungeon entrance", "labyrinth"] },
+    text: "",
+    focus: "The player is underground: describe corridors, chambers, dim light, echoes, and the weight of stone overhead.",
+    rules: ["Maintain dungeon atmosphere — dark, enclosed, layered depths"],
+  },
+  rest: {
+    label: "Rest",
+    priority: 50,
+    gate: { actions: ["rest"], triggers: ["rest", "sleep", "camp", "sit"] },
+    text: "",
+    focus: "Slow the pace: show time passing and the player recovering; interrupt only for a threat in the Scene.",
+    rules: [],
+  },
+  crafting: {
+    label: "Crafting",
+    priority: 55,
+    gate: { actions: ["crafting"], triggers: ["craft", "forge", "brew", "build"] },
+    text: "",
+    focus: "Describe the work step by step and how the finished piece looks and feels.",
+    rules: [],
+  },
+  trade: {
+    label: "Trade",
+    priority: 60,
+    gate: { actions: ["trade"], triggers: ["buy", "sell", "trade", "shop", "merchant"] },
+    text: "",
+    focus: "Show the transaction: what is offered, what is exchanged, and how the merchant reacts.",
+    rules: [],
+  },
+  victory: {
+    label: "Victory",
+    priority: 92,
+    gate: { when: "monsterDefeated" },
+    text: "",
+    focus: "Celebrate the win: loot, XP, or a moment of relief after the fight.",
+    rules: [],
+  },
+  level_up: {
+    label: "Level Up",
+    priority: 93,
+    gate: { when: "playerLeveledUp" },
+    text: "",
+    focus: "The player has grown stronger. Announce the level and any new abilities.",
+    rules: [],
+  },
+  story: {
+    label: "Story",
+    priority: 40,
+    gate: { actions: ["story"] },
+    text: "",
+    focus: "Advance the scene naturally from where it left off.",
+    rules: [],
   },
 };
 
-function getOutputFormat(type = "default") {
-  if (!state.outputFormats) {
-    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
+
+// ---------------------------------------------------------------------------
+//  Module runtime: overrides, registration, and access
+// ---------------------------------------------------------------------------
+
+function outputFormatOverrides() {
+  if (!state.outputFormats || state.outputFormatsVersion !== OUTPUT_FORMATS_VERSION) {
+    state.outputFormats = {};
+    state.outputFormatsVersion = OUTPUT_FORMATS_VERSION;
   }
-  return state.outputFormats[type] || state.outputFormats["default"];
+  return state.outputFormats;
+}
+
+function getOutputFormat(type) {
+  if (!type) type = "default";
+  const base = OUTPUT_FORMATS[type];
+  const over = outputFormatOverrides()[type];
+  if (!base && !over) return Object.assign({}, OUTPUT_FORMATS.default);
+  return Object.assign({}, base, over);
 }
 
 function updateOutputFormat(type, updates) {
-  const current = getOutputFormat(type);
-  state.outputFormats[type] = { ...current, ...updates };
-  console.log(state.outputFormats);
+  const over = outputFormatOverrides();
+  over[type] = Object.assign({}, over[type], updates);
 }
 
-function resetOutputFormat(type = "default") {
-  if (!state.outputFormats) {
-    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
-  } else {
-    state.outputFormats[type] = JSON.parse(
-      JSON.stringify(OUTPUT_FORMATS[type] || OUTPUT_FORMATS.default),
-    );
+function resetOutputFormat(type) {
+  if (!type) type = "default";
+  delete outputFormatOverrides()[type];
+}
+
+function registerModule(id, def) {
+  OUTPUT_FORMATS[id] = def;
+}
+
+// ---------------------------------------------------------------------------
+//  Gate engine — decides which modules open each turn
+// ---------------------------------------------------------------------------
+
+function sceneLiveMonsters() {
+  const MS = state.MS || {};
+  return Array.isArray(MS.activeMonsters) ? MS.activeMonsters.filter(m => m && !m.isDead && m.name) : [];
+}
+
+function sceneHealthRatio() {
+  const PS = state.PS || {};
+  return PS.maxHealth > 0 ? PS.health / PS.maxHealth : 1;
+}
+
+function sceneLocationRecord() {
+  const PS = state.PS || {};
+  const key = String(PS.playerloc || PS.location || "").toLowerCase().replace(/\s+/g, "_");
+  const locations = state.world && state.world.map && state.world.map.locations;
+  return { key, loc: key && locations ? locations[key] || null : null };
+}
+
+function resetSceneTurnEvents() {
+  state.SceneTurnEvents = { defeated: [] };
+}
+
+function sceneTurnEvents() {
+  const ev = state.SceneTurnEvents;
+  return ev && Array.isArray(ev.defeated) ? ev : { defeated: [] };
+}
+
+function recordSceneDefeat(name) {
+  const ev = sceneTurnEvents();
+  if (name && ev.defeated.indexOf(name) === -1) ev.defeated.push(name);
+  state.SceneTurnEvents = ev;
+}
+
+const SCENE_STATE_GATES = {
+  monstersAlive:    () => sceneLiveMonsters().length > 0,
+  monsterDefeated:  () => sceneTurnEvents().defeated.length > 0,
+  playerHurt:       () => sceneHealthRatio() <= 0.6,
+  playerLow:        () => sceneHealthRatio() <= 0.3,
+  playerLeveledUp:  () => !!state._leveledUpThisTurn,
+  worldEvent:       () => {
+    const events = state.world && state.world.activeWorldEvents;
+    if (!Array.isArray(events) || !events.length) return false;
+    const { key } = sceneLocationRecord();
+    return events.some(e => e && e.locationId === key);
+  },
+};
+
+function sceneTextHas(text, word) {
+  const w = String(word || "").toLowerCase();
+  if (!w) return false;
+  if (!/^\w/.test(w)) return text.includes(w);
+  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp("\\b" + esc + "\\b").test(text);
+}
+
+function sceneGateOpen(gate, scan) {
+  if (!gate || gate.always) return true;
+  if (gate.actions && gate.actions.some(t => scan.types.has(t))) return true;
+  if (gate.triggers && gate.triggers.some(w => sceneTextHas(scan.text, w))) return true;
+  if (gate.locations) {
+    const loc = scan.location;
+    if (loc && gate.locations.some(l => loc.includes(l.toLowerCase()))) return true;
   }
+  if (gate.when) {
+    const check = SCENE_STATE_GATES[gate.when];
+    try { if (check && check()) return true; } catch (e) {
+      console.error('Scene gate "' + gate.when + '" failed: ' + (e && e.message));
+    }
+  }
+  return false;
 }
 
-// Renders a single combat line in the strict OUTPUT_FORMATS structure.
+
+// ---------------------------------------------------------------------------
+//  Scene Facts — dynamic situational data injected into the brief
+// ---------------------------------------------------------------------------
+const sceneTidyId = (s) => String(s || "").replace(/_/g, " ").trim();
+
+function sceneFactFoes() {
+  const foes = sceneLiveMonsters();
+  if (!foes.length) return null;
+  const list = foes.slice(0, 3).map(m => {
+    const count = m.count > 1 ? " x" + m.count : "";
+    let hp = "";
+    if (typeof m.health === "number") {
+      hp = m.maxHealth > 0 ? " (" + m.health + "/" + m.maxHealth + " HP)" : " (" + m.health + " HP)";
+    }
+    return m.name + count + hp;
+  });
+  const more = foes.length > 3 ? " and " + (foes.length - 3) + " more" : "";
+  return "Fighting " + list.join(", ") + more;
+}
+
+function sceneFactLocation() {
+  const PS = state.PS || {};
+  const { loc } = sceneLocationRecord();
+  const name = (loc && (loc.name || loc.displayName)) || sceneTidyId(PS.playerloc || PS.location);
+  if (!name) return null;
+  const biome = loc && (loc.biome || loc.zoneType);
+  return "At " + name + (biome ? " (" + biome + ")" : "");
+}
+
+function sceneFactCondition() {
+  const PS = state.PS || {};
+  if (!(PS.maxHealth > 0)) return null;
+  const r = sceneHealthRatio();
+  const label = r <= 0.3 ? "badly wounded" : r <= 0.6 ? "hurt" : "healthy";
+  return PS.Name + " is " + label + " (" + PS.health + "/" + PS.maxHealth + " HP)";
+}
+
+function sceneFactTalkTarget() {
+  const talk = (state.PlayerActions || []).find(a => a && a.name === "Talk" && a.target);
+  return talk ? "Speaking with " + talk.target : null;
+}
+
+function sceneFactAllies() {
+  if (typeof getLivingCompanions !== "function") return null;
+  const allies = getLivingCompanions();
+  if (!allies.length) return null;
+  return "Allies: " + allies.slice(0, 3).map(c => c.name).join(", ");
+}
+
+function sceneFactWorldEvent() {
+  const events = state.world && state.world.activeWorldEvents;
+  if (!Array.isArray(events) || !events.length) return null;
+  const { key } = sceneLocationRecord();
+  const ev = events.find(e => e && e.locationId === key);
+  return ev && ev.message ? "Event: " + ev.message : null;
+}
+
+function sceneFactTime() {
+  const t = state.world && state.world.time;
+  if (!t || !t.cyclePhase) return null;
+  return "Time: " + t.cyclePhase + (t.season ? ", " + t.season : "");
+}
+
+function sceneFactNearby() {
+  const { loc } = sceneLocationRecord();
+  if (!loc || !Array.isArray(loc.interactions) || !loc.interactions.length) return null;
+  const registry = (state.world && state.world.interactionRegistry) || {};
+  const names = loc.interactions.slice(0, 3).map(id => {
+    const rec = typeof id === "string" ? registry[id] : id;
+    return (rec && rec.name) || sceneTidyId(typeof id === "string" ? id : "");
+  });
+  return "Nearby: " + names.filter(Boolean).join(", ");
+}
+
+const SCENE_FACTS = [
+  { id: "foes",      priority: 100, gate: { when: "monstersAlive" },  get: sceneFactFoes },
+  { id: "defeated",  priority: 95,  gate: { when: "monsterDefeated" }, get: function() { return "Defeated this turn: " + sceneTurnEvents().defeated.join(", "); } },
+  { id: "location",  priority: 90,  gate: { always: true },           get: sceneFactLocation },
+  { id: "condition", priority: 85,  gate: { when: "playerHurt", actions: ["rest", "support"], triggers: ["hurt", "wound", "heal", "health", "bleed"] }, get: sceneFactCondition },
+  { id: "talk",      priority: 80,  gate: { actions: ["interaction"] }, get: sceneFactTalkTarget },
+  { id: "allies",    priority: 70,  gate: { actions: ["combat"], when: "monstersAlive", triggers: ["ally", "allies", "companion", "party", "summon"] }, get: sceneFactAllies },
+  { id: "event",     priority: 65,  gate: { when: "worldEvent" },      get: sceneFactWorldEvent },
+  { id: "time",      priority: 50,  gate: { actions: ["exploration", "movement", "rest", "stealth"], triggers: ["night", "day", "dark", "sky", "sun", "moon", "time"] }, get: sceneFactTime },
+  { id: "nearby",    priority: 40,  gate: { actions: ["exploration", "gather", "object"] }, get: sceneFactNearby },
+];
+
+
+// ---------------------------------------------------------------------------
+//  Scene Composer — builds the per-turn "[Scene Brief ...]" block
+// ---------------------------------------------------------------------------
+const byScenePriority = (a, b) => (b.priority || 0) - (a.priority || 0);
+
+function buildSceneBrief() {
+  if (!state.PS || !state.PS.Name || state.tempCharacter) return "";
+  const actions = Array.isArray(state.PlayerActions) ? state.PlayerActions : [];
+  const PS = state.PS || {};
+  const scan = {
+    types: new Set(actions.map(a => a && a.type)),
+    text: String(state.PlayerInputRaw || "").toLowerCase(),
+    location: String(PS.playerloc || PS.location || "").toLowerCase(),
+  };
+
+  const facts = [];
+  for (const f of SCENE_FACTS.slice().sort(byScenePriority)) {
+    if (facts.length >= SCENE_BRIEF_CAP) break;
+    if (!sceneGateOpen(f.gate, scan)) continue;
+    try {
+      const line = f.get();
+      if (line) facts.push(line);
+    } catch (e) {
+      console.error('Scene fact "' + f.id + '" failed: ' + (e && e.message));
+    }
+  }
+
+  const ids = Object.keys(OUTPUT_FORMATS).concat(
+    Object.keys(outputFormatOverrides()).filter(id => !OUTPUT_FORMATS[id]),
+  );
+  const modules = ids.map(id => getOutputFormat(id));
+  const isBase = (m) => !m.gate || m.gate.always;
+  const open = modules.filter(isBase).sort(byScenePriority).concat(
+    modules.filter(m => !isBase(m) && sceneGateOpen(m.gate, scan)).sort(byScenePriority).slice(0, SCENE_BRIEF_CAP),
+  );
+
+  const lines = [];
+  if (state.PlayerActionPrompt) lines.push(state.PlayerActionPrompt);
+  if (facts.length) lines.push("Scene: " + facts.join("; ") + ".");
+  for (const m of open) {
+    if (m.text) lines.push(m.text);
+    if (m.focus) lines.push((m.label || "Guide") + ": " + m.focus);
+  }
+  const rules = [];
+  for (const m of open) {
+    for (const r of m.rules || []) if (rules.indexOf(r) === -1) rules.push(r);
+  }
+  if (rules.length) lines.push("Rules: " + rules.join(". ") + ".");
+
+  state.SceneBriefDebug = {
+    openModules: open.map(m => m.label),
+    facts: facts,
+    location: scan.location,
+  };
+
+  return lines.length ? "[Scene Brief\n" + lines.join("\n") + "]" : "";
+}
+
+function injectSceneBrief(text) {
+  const brief = buildSceneBrief();
+  state.SceneBrief = brief;
+  let body = String(text || "");
+  if (!brief) return body;
+  const addition = "\n\n" + brief;
+  const max = typeof info !== "undefined" && info ? info.maxChars : 0;
+  const over = max ? body.length + addition.length - max : 0;
+  if (over > 0) {
+    const head = "Recent Story:\n";
+    const rs = body.indexOf(head);
+    if (rs !== -1) {
+      const start = rs + head.length;
+      let cut = start + over + 3;
+      const ws = body.slice(cut).search(/\s/);
+      if (ws !== -1) cut += ws;
+      if (cut < body.length) body = body.slice(0, start) + "..." + body.slice(cut);
+    }
+  }
+  return body + addition;
+}
+
+
+// Renders a single combat line in the OUTPUT_FORMATS structure.
 // When `isDead` is false the `combat_alive` format is used (attack describes
 // the monster surviving the blow); when `isDead` is true the `combat_dead`
 // format is used (attack describes the monster being defeated).
@@ -470,7 +828,7 @@ function renderCombatOutput(
   actionBeat,
   remaining,
 ) {
-  getOutputFormat(isDead ? "combat_dead" : "combat_alive");
+  if (isDead) recordSceneDefeat(targetName);
 
   let result;
   let beat = actionBeat || (isDead ? "Delivers the killing blow" : "Strikes");
@@ -2913,6 +3271,7 @@ function parsePlayerActions(rawText) {
   state.PlayerActions = [];
   state.PlayerAction = "None";
   state.PlayerActionPrompt = "";
+  state.PlayerInputRaw = "";
   state.logMessages = state.logMessages || {};
   state.logMessages["Output"] = state.logMessages["Output"] || [];
 
@@ -2921,6 +3280,7 @@ function parsePlayerActions(rawText) {
     return state.PlayerActions;
 
   const raw = String(rawText ?? "").trim();
+  state.PlayerInputRaw = raw;
   if (!raw) return state.PlayerActions;
 
   // Split into clauses so several actions in one input each get parsed:
