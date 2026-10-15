@@ -59,8 +59,7 @@ const RPG_CONFIG_DEFAULTS = {
 // newlines, trailing prose would otherwise glue onto the last setting's value.
 const RPG_CONFIG_HEADER =
   "RPG world configuration. Edit the values below to tune the world.\n" +
-  "Game Mode: open-world | rogue-like\n" +
-  "Difficulty: easy | medium | hard\n" +
+  "Game Mode: open-world | rogue-like   Difficulty: easy | medium | hard\n" +
   "World Layout: Open | Ascii Dungeon\n";
 
 // Render the canonical entry (header + one setting per line) from a values map.
@@ -352,467 +351,110 @@ function rpgCreationGate() {
   };
 }
 
-// Prompting Engine
-// ===========================================================================
-// OUTPUT_FORMATS are small, composable guidance modules. Each turn the Scene
-// Composer (buildSceneBrief) opens only the modules whose gate passes, so one
-// prompt can carry several situations at once — fighting a goblin in a forest
-// opens Combat + Surroundings together — while guidance the turn doesn't need
-// (dialogue, crafting, rest...) never reaches the AI.
-//
-//   label    -> section name shown in the brief
-//   priority -> higher wins when more than SCENE_BRIEF_CAP modules open
-//   gate     -> when the module opens; ANY one passing opens it:
-//                 actions:  parsed player action types (PLAYER_ACTION_MATCHERS)
-//                 triggers: words searched for in the player's input
-//                 when:     a SCENE_STATE_GATES check against engine state
-//               No gate (or `always: true`) = open every turn, outside the cap.
-//   focus    -> one line telling the AI what this part of the response covers
-//   rules    -> short extra rules; duplicates across open modules are dropped
-//
-// Runtime tweaks go through updateOutputFormat / resetOutputFormat, which keep
-// only the overrides in state (never a full copy of this table).
-// ===========================================================================
-const OUTPUT_FORMATS_VERSION = 2;
-const SCENE_BRIEF_CAP = 5; // max situational modules, scene facts and actions per turn
 
+// Prompting Engine
 const OUTPUT_FORMATS = {
   default: {
-    label: "Style",
-    priority: 100,
-    gate: { always: true },
-    focus:
-      "Continue the story by resolving the player's intentions in the order given.",
+    header: `# STRICT OUTPUT FORMAT\n The response MUST follow this exact structure:`,
+    lineTemplate: `("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major)`,
+    example: `([name]) ([name] strikes [name] with their mighty blade, drawing blood) ([Name] attacked [Name] with their blade, hurting them)`,
     rules: [
-      "Never invent actions, choices or dialogue for the player",
-      "Show the outcome of each intention before introducing anything new",
-      "Stay consistent with every Scene fact",
-      "Write story prose only: no lists, headings or notes",
+      `EVERY line MUST contain: ("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major|plot defining)`,
+      `Avoid paragraphs`,
+      `Avoid adding any text outside this structure`,
+      `Output only a numbered list`,
+      `Include the player's intended action(s) first, in order`,
+      `Avoid making up decisions, actions, or dialogue for the player`,
     ],
-  },
-  combat_dead: {
-    label: "Kill",
-    priority: 95,
-    gate: { when: "monsterDefeated" },
-    focus:
-      "A foe fell this turn: describe the finishing blow and the body going still.",
-    rules: ["A defeated foe stays dead and takes no further action"],
   },
   combat: {
-    label: "Combat",
-    priority: 90,
-    gate: {
-      actions: ["combat"],
-      when: "monstersAlive",
-      triggers: ["fight", "battle", "enemy", "ambush"],
-    },
-    focus:
-      "Show each blow landing or missing and its effect; foes still standing stay a threat and react.",
+    header: `# COMBAT OUTPUT FORMAT\n The response MUST follow this exact combat structure:`,
+    lineTemplate: `[Name] [Action Beat] [Result/Damage]`,
+    example: `Kaelen Swings broadsword at Goblin Hits for 12 dmg, Goblin reels`,
     rules: [
-      "Only the listed foes are present; add no new enemies mid-fight",
-      "Foes only die when the Scene says they are defeated",
+      `EVERY line MUST follow: [Name] [Action] [Result]. In a flowery explination format.`,
+      `Prioritize mechanical results (damage, status effects, and misses if needed only.)`,
+      `Keep beats extremely concise and telegraphic`,
+      `Allow flowery prose during combat exchanges without deviation from the results`,
+      `Output as a prosed pharagraph`,
     ],
   },
-  danger: {
-    label: "Danger",
-    priority: 85,
-    gate: { when: "playerLow" },
-    focus:
-      "The player is badly hurt: let the wounds slow them and raise the stakes.",
-    rules: [],
+  // Extension: used while a monster is active and still alive after being hit.
+  // The player's attack is described as landing on a live target.
+  combat_alive: {
+    header: `# COMBAT — MONSTER ACTIVE\n The response MUST follow this structure when a monster is still alive after being attacked:`,
+    lineTemplate: `[Player Name] [Attack Beat — how the player attacked] [Result — monster still alive, damage dealt]`,
+    example: `[Kaelen] [Swings broadsword at the Goblin] [Hits for 12 dmg, Goblin is hurt but stays standing]`,
+    rules: [
+      `EVERY line MUST follow: [Player Name] [Attack Beat] [Result]`,
+      `The Result MUST describe the monster STILL BEING ALIVE (wounded, snarling, defiant, standing)`,
+      `Include the damage dealt and the monster's remaining health`,
+      `The Attack Beat MUST be in present tense and telegraphic`
+    ],
   },
-  magic: {
-    label: "Magic",
-    priority: 80,
-    gate: { actions: ["magic", "skill"] },
-    focus:
-      "Describe the ability being used and its visible effect, matching the named spell or skill.",
-    rules: ["Only use spells and skills named in the intentions"],
-  },
-  stealth: {
-    label: "Stealth",
-    priority: 75,
-    gate: { actions: ["stealth"] },
-    focus:
-      "Track who could notice the player; build the tension of staying unseen and show any slip.",
-    rules: [],
-  },
-  interaction: {
-    label: "Dialogue",
-    priority: 70,
-    gate: { actions: ["interaction", "emote"] },
-    focus:
-      "NPCs reply in character with short, distinct voices and react through body language.",
-    rules: ["Quote the player's words exactly; never add lines for them"],
-  },
-  item: {
-    label: "Items",
-    priority: 65,
-    gate: { actions: ["inventory", "support"] },
-    focus: "Show the item or aid being used and its effect taking hold.",
-    rules: ["Only use items the player actually named"],
+  // Extension: used when a monster is actually dead / defeated by the player's attack.
+  combat_dead: {
+    header: `# COMBAT — MONSTER DEFEATED\n The response MUST follow this structure when a monster falls to the player's attack:`,
+    lineTemplate: `[Player Name] [Finishing Attack Beat] [Defeated: [Monster Name]]`,
+    example: `Kaelen Drives blade through the Goblin's chest Defeated: Goblin`,
+    rules: [
+      `The Result MUST announce the monster FALLING and being DEFEATED (slain, falls, defeated, collapses)`,
+      `The Attack Beat MUST be in present tense and telegraphic`,
+      `The output needs to be a prosed pharagraph`
+    ],
   },
   exploration: {
-    label: "Surroundings",
-    priority: 60,
-    gate: {
-      actions: ["exploration", "movement", "gather", "object"],
-      triggers: ["around", "listen", "smell", "where am i"],
-    },
-    focus:
-      "Ground the action in the location: what the player sees, hears and smells, and anything they find.",
-    rules: ["Only reveal exits, items or creatures that fit the Scene"],
+    header: `# EXPLORATION OUTPUT FORMAT\n The response MUST follow this environmental structure:`,
+    lineTemplate: `(Location/Entity) (Sensory Detail/Discovery) (Immediate Effect/Context) (Scope) (Importance)`,
+    example: `[Old Ruins] 
+    A faint blue glow emanates from the altar. Triggers a low hum in the air`,
+    rules: [
+      `EVERY line MUST follow: (Target) (Observation) (Result) (Scope) (Importance)`,
+      `Focus on sensory details: sight, sound, smell`,
+      `Avoid narrative filler; describe the discovery directly`,
+      `All () is for interpolation only`
+    ],
   },
-  crafting: {
-    label: "Crafting",
-    priority: 55,
-    gate: { actions: ["crafting"] },
-    focus:
-      "Describe the work step by step and how the finished piece looks and feels.",
-    rules: [],
-  },
-  rest: {
-    label: "Rest",
-    priority: 50,
-    gate: { actions: ["rest"] },
-    focus:
-      "Slow the pace: show time passing and the player recovering; interrupt only for a threat in the Scene.",
-    rules: [],
-  },
-  story: {
-    label: "Story",
-    priority: 40,
-    gate: { actions: ["story"] },
-    focus: "Advance the scene naturally from where it left off.",
-    rules: [],
+  interaction: {
+    header: `# INTERACTION OUTPUT FORMAT\n The response MUST follow this dialogue structure:`,
+    lineTemplate: `1. ([Name]) ([Dialogue/Reaction]) ([Emotional Subtext/Body Language]) (Scope) (Importance)`,
+    example: `1. (Guard) ("Halt! Who goes there?") (Hand rests on sword hilt, suspicious) (local) (moderate)`,
+    rules: [
+      `EVERY line MUST follow: ([Name]) ([Speech]) ([Action/Tone]) (Scope) (Importance)`,
+      `Keep dialogue punchy and in-character`,
+      `Describe body language in parentheses`,
+      `Output only the numbered list`,
+    ],
   },
 };
 
-// Overrides only; reset when the table's shape changes so a save from the old
-// strict-list formats can't resurrect them.
-function outputFormatOverrides() {
-  if (
-    !state.outputFormats ||
-    state.outputFormatsVersion !== OUTPUT_FORMATS_VERSION
-  ) {
-    state.outputFormats = {};
-    state.outputFormatsVersion = OUTPUT_FORMATS_VERSION;
-  }
-  return state.outputFormats;
-}
-
 function getOutputFormat(type = "default") {
-  const base = OUTPUT_FORMATS[type];
-  const over = outputFormatOverrides()[type];
-  if (!base && !over) return Object.assign({}, OUTPUT_FORMATS.default);
-  return Object.assign({}, base, over);
+  if (!state.outputFormats) {
+    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
+  }
+  return state.outputFormats[type] || state.outputFormats["default"];
 }
 
-// Merges `updates` into a module; an unknown `type` creates a new module, so a
-// scenario can add its own gated guidance.
 function updateOutputFormat(type, updates) {
-  const over = outputFormatOverrides();
-  over[type] = Object.assign({}, over[type], updates);
+  const current = getOutputFormat(type);
+  state.outputFormats[type] = { ...current, ...updates };
+  console.log(state.outputFormats);
 }
 
 function resetOutputFormat(type = "default") {
-  delete outputFormatOverrides()[type];
-}
-
-// ---------------------------------------------------------------------------
-//  Scene Composer — builds the per-turn "[Scene Brief ...]" block the Context
-//  hook appends. Three parts, each gated so only what the turn needs is read:
-//    Intent -> the parsed player actions (state.PlayerActionPrompt)
-//    Scene  -> up to SCENE_BRIEF_CAP facts from engine state (SCENE_FACTS)
-//    Guide  -> the open OUTPUT_FORMATS modules (up to SCENE_BRIEF_CAP)
-// ---------------------------------------------------------------------------
-
-// Combat events from this turn's Input hook (kills recorded by
-// renderCombatOutput), read by the Context hook. Cleared at the top of each
-// Input so a kill from a previous turn never re-opens the Kill module.
-function resetSceneTurnEvents() {
-  state.SceneTurnEvents = { defeated: [] };
-}
-
-function sceneTurnEvents() {
-  const ev = state.SceneTurnEvents;
-  return ev && Array.isArray(ev.defeated) ? ev : { defeated: [] };
-}
-
-function recordSceneDefeat(name) {
-  const ev = sceneTurnEvents();
-  if (name && ev.defeated.indexOf(name) === -1) ev.defeated.push(name);
-  state.SceneTurnEvents = ev;
-}
-
-function sceneLiveMonsters() {
-  const MS = state.MS || {};
-  return Array.isArray(MS.activeMonsters)
-    ? MS.activeMonsters.filter((m) => m && !m.isDead && m.name)
-    : [];
-}
-
-function sceneHealthRatio() {
-  const PS = state.PS || {};
-  return PS.maxHealth > 0 ? PS.health / PS.maxHealth : 1;
-}
-
-// Reads the player's location record without generating one (the
-// PlayerWorldBridge getters create missing locations as a side effect).
-function sceneLocationRecord() {
-  const PS = state.PS || {};
-  const key = String(PS.playerloc || PS.location || "")
-    .toLowerCase()
-    .replace(/\s+/g, "_");
-  const locations = state.world && state.world.map && state.world.map.locations;
-  return { key, loc: key && locations ? locations[key] || null : null };
-}
-
-const sceneTidyId = (s) => String(s || "").replace(/_/g, " ").trim();
-
-const SCENE_STATE_GATES = {
-  monstersAlive: () => sceneLiveMonsters().length > 0,
-  monsterDefeated: () => sceneTurnEvents().defeated.length > 0,
-  playerHurt: () => sceneHealthRatio() <= 0.6,
-  playerLow: () => sceneHealthRatio() <= 0.3,
-  worldEvent: () => !!sceneFactWorldEvent(),
-};
-
-function sceneFactFoes() {
-  const foes = sceneLiveMonsters();
-  if (!foes.length) return null;
-  const list = foes.slice(0, 3).map((m) => {
-    const count = m.count > 1 ? ` x${m.count}` : "";
-    let hp = "";
-    if (typeof m.health === "number") {
-      hp = m.maxHealth > 0 ? ` (${m.health}/${m.maxHealth} HP)` : ` (${m.health} HP)`;
-    }
-    return `${m.name}${count}${hp}`;
-  });
-  const more = foes.length > 3 ? ` and ${foes.length - 3} more` : "";
-  return `Fighting ${list.join(", ")}${more}`;
-}
-
-function sceneFactLocation() {
-  const PS = state.PS || {};
-  const { loc } = sceneLocationRecord();
-  const name =
-    (loc && (loc.name || loc.displayName)) ||
-    sceneTidyId(PS.playerloc || PS.location);
-  if (!name) return null;
-  const biome = loc && (loc.biome || loc.zoneType);
-  return `At ${name}${biome ? ` (${biome})` : ""}`;
-}
-
-function sceneFactCondition() {
-  const PS = state.PS || {};
-  if (!(PS.maxHealth > 0)) return null;
-  const r = sceneHealthRatio();
-  const label = r <= 0.3 ? "badly wounded" : r <= 0.6 ? "hurt" : "healthy";
-  return `${PS.Name} is ${label} (${PS.health}/${PS.maxHealth} HP)`;
-}
-
-function sceneFactTalkTarget() {
-  const talk = (state.PlayerActions || []).find(
-    (a) => a && a.name === "Talk" && a.target,
-  );
-  return talk ? `Speaking with ${talk.target}` : null;
-}
-
-function sceneFactAllies() {
-  if (typeof getLivingCompanions !== "function") return null;
-  const allies = getLivingCompanions();
-  if (!allies.length) return null;
-  return `Allies: ${allies
-    .slice(0, 3)
-    .map((c) => c.name)
-    .join(", ")}`;
-}
-
-function sceneFactWorldEvent() {
-  const events = state.world && state.world.activeWorldEvents;
-  if (!Array.isArray(events) || !events.length) return null;
-  const { key } = sceneLocationRecord();
-  const ev = events.find((e) => e && e.locationId === key);
-  return ev && ev.message ? `Event: ${ev.message}` : null;
-}
-
-function sceneFactTime() {
-  const t = state.world && state.world.time;
-  if (!t || !t.cyclePhase) return null;
-  return `Time: ${t.cyclePhase}${t.season ? `, ${t.season}` : ""}`;
-}
-
-function sceneFactNearby() {
-  const { loc } = sceneLocationRecord();
-  if (!loc || !Array.isArray(loc.interactions) || !loc.interactions.length)
-    return null;
-  const registry =
-    (state.world && state.world.interactionRegistry) || {};
-  const names = loc.interactions.slice(0, 3).map((id) => {
-    const rec = typeof id === "string" ? registry[id] : id;
-    return (rec && rec.name) || sceneTidyId(typeof id === "string" ? id : "");
-  });
-  return `Nearby: ${names.filter(Boolean).join(", ")}`;
-}
-
-// Fact providers, highest priority first. get() only runs when the gate opens
-// and may return null (no fact; doesn't use up the cap).
-const SCENE_FACTS = [
-  { id: "foes", priority: 100, gate: { when: "monstersAlive" }, get: sceneFactFoes },
-  {
-    id: "defeated",
-    priority: 95,
-    gate: { when: "monsterDefeated" },
-    get: () => `Defeated this turn: ${sceneTurnEvents().defeated.join(", ")}`,
-  },
-  { id: "location", priority: 90, gate: { always: true }, get: sceneFactLocation },
-  {
-    id: "condition",
-    priority: 85,
-    gate: {
-      when: "playerHurt",
-      actions: ["rest", "support"],
-      triggers: ["hurt", "wound", "heal", "health", "bleed"],
-    },
-    get: sceneFactCondition,
-  },
-  { id: "talk", priority: 80, gate: { actions: ["interaction"] }, get: sceneFactTalkTarget },
-  {
-    id: "allies",
-    priority: 70,
-    gate: {
-      actions: ["combat"],
-      when: "monstersAlive",
-      triggers: ["ally", "allies", "companion", "party", "summon"],
-    },
-    get: sceneFactAllies,
-  },
-  { id: "event", priority: 65, gate: { when: "worldEvent" }, get: sceneFactWorldEvent },
-  {
-    id: "time",
-    priority: 50,
-    gate: {
-      actions: ["exploration", "movement", "rest", "stealth"],
-      triggers: ["night", "day", "dark", "sky", "sun", "moon", "time"],
-    },
-    get: sceneFactTime,
-  },
-  {
-    id: "nearby",
-    priority: 40,
-    gate: { actions: ["exploration", "gather", "object"] },
-    get: sceneFactNearby,
-  },
-];
-
-// Word-boundary match for word triggers ("look" must not hit "outlook");
-// plain substring match for symbol triggers.
-function sceneTextHas(text, word) {
-  const w = String(word || "").toLowerCase();
-  if (!w) return false;
-  if (!/^\w/.test(w)) return text.includes(w);
-  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b${esc}\\b`).test(text);
-}
-
-function sceneGateOpen(gate, scan) {
-  if (!gate || gate.always) return true;
-  if (gate.actions && gate.actions.some((t) => scan.types.has(t))) return true;
-  if (gate.triggers && gate.triggers.some((w) => sceneTextHas(scan.text, w)))
-    return true;
-  if (gate.when) {
-    const check = SCENE_STATE_GATES[gate.when];
-    try {
-      if (check && check()) return true;
-    } catch (e) {
-      console.error(`Scene gate "${gate.when}" failed: ${e && e.message}`);
-    }
-  }
-  return false;
-}
-
-const byScenePriority = (a, b) => (b.priority || 0) - (a.priority || 0);
-
-function buildSceneBrief() {
-  if (!state.PS || !state.PS.Name || state.tempCharacter) return "";
-  const actions = Array.isArray(state.PlayerActions) ? state.PlayerActions : [];
-  const scan = {
-    types: new Set(actions.map((a) => a && a.type)),
-    text: String(state.PlayerInputRaw || "").toLowerCase(),
-  };
-
-  const facts = [];
-  for (const f of SCENE_FACTS.slice().sort(byScenePriority)) {
-    if (facts.length >= SCENE_BRIEF_CAP) break;
-    if (!sceneGateOpen(f.gate, scan)) continue;
-    try {
-      const line = f.get();
-      if (line) facts.push(line);
-    } catch (e) {
-      console.error(`Scene fact "${f.id}" failed: ${e && e.message}`);
-    }
-  }
-
-  const ids = Object.keys(OUTPUT_FORMATS).concat(
-    Object.keys(outputFormatOverrides()).filter((id) => !OUTPUT_FORMATS[id]),
-  );
-  const modules = ids.map((id) => getOutputFormat(id));
-  const isBase = (m) => !m.gate || m.gate.always;
-  const open = modules
-    .filter(isBase)
-    .sort(byScenePriority)
-    .concat(
-      modules
-        .filter((m) => !isBase(m) && sceneGateOpen(m.gate, scan))
-        .sort(byScenePriority)
-        .slice(0, SCENE_BRIEF_CAP),
+  if (!state.outputFormats) {
+    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
+  } else {
+    state.outputFormats[type] = JSON.parse(
+      JSON.stringify(OUTPUT_FORMATS[type] || OUTPUT_FORMATS.default),
     );
-
-  const lines = [];
-  if (state.PlayerActionPrompt) lines.push(state.PlayerActionPrompt);
-  if (facts.length) lines.push(`Scene: ${facts.join("; ")}.`);
-  for (const m of open) {
-    if (m.focus) lines.push(`${m.label || "Guide"}: ${m.focus}`);
   }
-  const rules = [];
-  for (const m of open) {
-    for (const r of m.rules || []) if (rules.indexOf(r) === -1) rules.push(r);
-  }
-  if (rules.length) lines.push(`Rules: ${rules.join(". ")}.`);
-  return lines.length ? `[Scene Brief\n${lines.join("\n")}]` : "";
 }
 
-// Context hook entry point: appends the brief at the end of the context (the
-// spot with the most pull on the next generation). Per the AID docs, editing
-// `text` here is the only way to affect the current turn — state.memory edits
-// land a turn late. If the brief would overflow info.maxChars, the oldest
-// Recent Story text is trimmed (never the instructions or plot essentials).
-function injectSceneBrief(text) {
-  const brief = buildSceneBrief();
-  state.SceneBrief = brief; // visible in the debug panel
-  let body = String(text || "");
-  if (!brief) return body;
-  const addition = `\n\n${brief}`;
-  const max = typeof info !== "undefined" && info ? info.maxChars : 0;
-  const over = max ? body.length + addition.length - max : 0;
-  if (over > 0) {
-    const head = "Recent Story:\n";
-    const rs = body.indexOf(head);
-    if (rs !== -1) {
-      const start = rs + head.length;
-      let cut = start + over + 3;
-      const ws = body.slice(cut).search(/\s/);
-      if (ws !== -1) cut += ws;
-      if (cut < body.length) body = `${body.slice(0, start)}...${body.slice(cut)}`;
-    }
-  }
-  return body + addition;
-}
-
-// Renders a single combat log line. A kill (`isDead`) is also recorded for
-// this turn so the Scene Brief opens the `combat_dead` module and tells the AI
-// the foe fell, instead of letting it narrate the fight as still going.
+// Renders a single combat line in the strict OUTPUT_FORMATS structure.
+// When `isDead` is false the `combat_alive` format is used (attack describes
+// the monster surviving the blow); when `isDead` is true the `combat_dead`
+// format is used (attack describes the monster being defeated).
 //
 // @param {string} playerName   - Name of the attacking player.
 // @param {string} targetName   - Name of the monster being attacked.
@@ -828,7 +470,7 @@ function renderCombatOutput(
   actionBeat,
   remaining,
 ) {
-  if (isDead) recordSceneDefeat(targetName);
+  getOutputFormat(isDead ? "combat_dead" : "combat_alive");
 
   let result;
   let beat = actionBeat || (isDead ? "Delivers the killing blow" : "Strikes");
@@ -839,7 +481,7 @@ function renderCombatOutput(
     result = `${damage} dmg dealt, ${targetName} still alive (${remaining} HP remaining)`;
   }
 
-  return `1. (${playerName}) (${beat}) (${result}) (local) (major)`;
+  return `1. (${playerName}) (${beat}) (${result})`;
 }
 
 // Maps the first verb of a matched attack phrase to a present-tense beat.
@@ -2981,236 +2623,121 @@ function playerAction(text, PlayerAction) {
 }
 
 // ===========================================================================
-//  PLAYER ACTION PARSING
-//  Reads the player's free text, extracts up to SCENE_BRIEF_CAP intended
-//  actions, and stores them on state for the Scene Brief (buildSceneBrief).
+//  PLAYER ACTION PARSING  (live replacement for the commented block above)
+//  Reads the player's free text, extracts one-or-more intended actions, and
+//  stores parsed info on state so the Context hook can tune the AI prompt.
 //    state.PlayerActions      -> array of parsed action objects (this turn)
 //    state.PlayerAction       -> the primary (first) action, or "None"
-//    state.PlayerActionPrompt -> "Intent: ..." line describing the action(s)
-//    state.PlayerInputRaw     -> cleaned input, scanned by text-trigger gates
-//
-//  Action shape: { name, type, target, item, magictype, skilltype, weapon,
-//                  tool, manner, quote, detail, raw }
+//    state.PlayerActionPrompt -> a sentence describing the intent(s), fed to Context
 // ===========================================================================
 
-// Verb alternations, defined once and reused for both `test` and `capture` so
-// the two can never drift apart. Multi-word phrases sit before their single
-// word prefix ("pick up" before "pick") so the longer one wins.
+// Ordered matchers: the FIRST that matches a clause wins for that clause.
+// `capture` (optional) pulls a target/item/spell name into `field`.
+// Verb alternations are defined once and reused for both `test` and `capture`
+// so the two can never drift apart. Widened well past the obvious synonyms so
+// ordinary phrasings ("I smash the door", "sneak down the hall", "quaff a
+// potion") get classified instead of falling through to the generic fallback.
 const AV = {
   skill: "skill|technique|maneuver|ability|feat",
   spell: "cast|spell|incant|invoke|channel|conjure|summon",
-  equip: "equip|unequip|wear|wield|don|draw|sheathe|holster|ready",
-  item: "use|drink|eat|quaff|consume|apply|activate|read|swallow|sip|chug|uncork",
+  item: "use|drink|eat|quaff|consume|apply|equip|wear|wield|activate|read|swallow|don",
   attack:
-    "attack|strike|stab|slash|hit|pummel|slam|maul|charge|unleash|shoot|fire a bolt|fire at|blast|swing|cleave|punch|kick|throw|cut|bash|smash|smack|lunge|jab|thrust|impale|whack|bite|claw|gut|behead|kill|slay|destroy|assault|ambush|smite|crush|batter|pierce|fight|duel|grapple|tackle|shove|headbutt|decapitate|skewer",
+    "attack|strike|stab|slash|hit|pummel|slam|maul|charge|unleash|shoot|fire a bolt|blast|swing|cleave|punch|kick|throw|cut|bash|smash|smack|lunge|jab|thrust|impale|whack|bite|claw|gut|behead|kill|slay|destroy|assault|ambush|smite|crush|batter|pierce",
   defend:
-    "defend|guard|block|parry|brace|shield|dodge|evade|deflect|take cover|duck|sidestep|protect",
-  flee: "flee|run away|escape|retreat|withdraw|disengage|back away|get away|bolt|scramble away",
-  stealth:
-    "sneak|creep|hide|tiptoe|skulk|lurk|stalk|slip past|slip by|stay hidden|stay low|crouch|steal|pickpocket|eavesdrop",
-  support: "heal|bandage|tend|aid|help|revive|patch up|treat|cure|bless",
-  talk: "talk|speak|say|says|converse|chat|greet|ask|tell|shout|yell|call out|call|whisper|negotiate|persuade|bargain|question|demand|command|plead|beg|taunt|reply|respond|threaten|intimidate|lie to|apologize|thank|introduce",
-  trade: "trade|barter|sell|buy|purchase|haggle|exchange|pay",
-  craft:
-    "craft|forge|smith|build|construct|make|brew|cook|assemble|repair|mend|enchant|fashion|carve|sew|whittle",
-  rest: "rest|sleep|take a break|nap|camp|recover|wait|sit|lie down|meditate|relax|catch my breath",
-  gather:
-    "pick up|pick|grab|take|loot|gather|collect|harvest|forage|mine|chop|pluck|scavenge|pocket|skin|salvage|fish",
-  object:
-    "open|close|unlock|lock|push|pull|lift|light|ignite|extinguish|touch|press|pry|break open|kick open|knock on|knock|pour|drop|place|put|set down|tie",
+    "defend|guard|block|parry|brace|shield|dodge|evade|deflect|cover|duck",
+  flee: "flee|run away|escape|retreat|run|bolt|dash|withdraw|disengage|back away|get away",
   explore:
-    "explore|search|look around|look at|look|scout|scan|investigate|examine|inspect|study|observe|survey|peek|peer|listen|smell|sniff|check|watch|track",
-  move: "walk|move|head|travel|enter|climb|descend|ascend|go|leave|exit|cross|follow|approach|return|swim|jump|run|wander|roam|venture|step|ride|march|hike|journey",
-  emote:
-    "smile|nod|laugh|grin|frown|sigh|wave|bow|shrug|cry|scowl|glare|wink|groan|chuckle|gasp|blush|salute",
+    "explore|search|look around|look at|look|scout|scan|hunt|seek|investigate|examine|inspect|wander|roam|peek|venture|travel|walk|move|head|enter|climb|descend|sneak|creep|approach|go",
+  rest: "rest|sleep|take a break|nap|camp|recover|wait|sit|lie down|meditate",
+  craft:
+    "craft|forge|smith|build|construct|make|brew|cook|assemble|repair|mend|enchant|fashion",
+  talk: "talk|speak|converse|chat|greet|ask|tell|shout|yell|call|whisper|negotiate|persuade|bargain|question|demand|command|plead|beg|taunt|reply|respond",
+  trade: "trade|barter|sell|buy|purchase|haggle|exchange",
 };
 const av = (alt, tail) => new RegExp(`\\b(?:${alt})\\b${tail || ""}`, "i");
 
-// How a clause picks its action: the verb that appears EARLIEST wins ("drink
-// the potion of fire" is Use Item, not Attack), ties go to list order, with
-// two exceptions:
-//   override -> wins whenever present ("use my Power Strike skill" is a skill)
-//   weak     -> only counts when nothing else matched ("go to sleep" is Rest,
-//               "head in to search the cave" is Explore)
-// `field` names where the captured noun phrase goes; `capture` defaults to
-// "<verb> <rest of clause>".
 const PLAYER_ACTION_MATCHERS = [
-  { name: "Cast Skill", type: "skill", field: "skilltype", verbs: AV.skill, override: true },
+  {
+    name: "Cast Skill",
+    type: "skill",
+    field: "skilltype",
+    test: av(AV.skill),
+    capture: av("cast\\s+skill|" + AV.skill, "\\s+(.+)"),
+  },
   {
     name: "Cast Spell",
     type: "magic",
     field: "magictype",
-    verbs: AV.spell,
-    override: true,
-    capture: av("cast(?:\\s+the)?|spell|incant|invoke|channel|conjure|summon", "\\s+(.+)"),
+    test: av(AV.spell),
+    capture: av("cast(?:\\s+the)?|spell", "\\s+(.+)"),
   },
-  { name: "Equip", type: "inventory", field: "item", verbs: AV.equip },
-  { name: "Use Item", type: "inventory", field: "item", verbs: AV.item },
-  { name: "Attack", type: "combat", field: "target", verbs: AV.attack },
-  { name: "Defend", type: "combat", verbs: AV.defend },
-  { name: "Flee", type: "combat", verbs: AV.flee },
-  { name: "Sneak", type: "stealth", field: "target", verbs: AV.stealth },
-  { name: "Aid", type: "support", field: "target", verbs: AV.support },
-  { name: "Talk", type: "interaction", field: "target", verbs: AV.talk },
-  { name: "Trade", type: "interaction", field: "target", verbs: AV.trade },
-  { name: "Craft", type: "crafting", field: "target", verbs: AV.craft },
-  { name: "Rest", type: "rest", verbs: AV.rest },
-  { name: "Gather", type: "gather", field: "target", verbs: AV.gather },
-  { name: "Interact", type: "object", field: "target", verbs: AV.object },
-  { name: "Explore", type: "exploration", field: "target", verbs: AV.explore },
-  { name: "Move", type: "movement", field: "target", verbs: AV.move, weak: true },
-  { name: "Emote", type: "emote", verbs: AV.emote, weak: true },
-].map((m) =>
-  Object.assign(
-    {
-      test: av(m.verbs),
-      capture: m.field ? av(m.verbs, "\\s+(.+)") : null,
-    },
-    m,
-  ),
-);
-
-// Adverbs lifted out of a clause into `manner` so they colour the intent
-// without polluting the captured target.
-const ACTION_MANNER =
-  /\b(carefully|cautiously|quietly|silently|slowly|quickly|swiftly|gently|boldly|fiercely|furiously|desperately|calmly|nervously|stealthily|loudly|softly|warily|recklessly|politely|angrily|confidently|frantically)\b/i;
-
-// Leading words that carry no intent: "> You", "I try to", "then I decide to".
-const ACTION_FILLER =
-  /^(?:>\s*)?(?:(?:i|you|we)\s+)?(?:(?:try|tries|attempt|attempts|decide|decides|want|wants|begin|begins|start|starts|continue|continues|proceed|proceeds|manage|manages)\s+(?:to\s+)?)*/i;
-
-// Unmatched clauses that start like this qualify the previous action
-// ("attack the goblin, aiming for its eyes") instead of becoming their own.
-const ACTION_DETAIL_START =
-  /^(?:with|using|at|to|toward|towards|for|while|so|into|from|behind|in|on|hoping|trying|\w+ing)\b/i;
-
-// An unmatched short clause that looks like a noun phrase extends the previous
-// action's target instead ("attack the goblin and the orc").
-const ACTION_NOUNISH =
-  /^(?:the|a|an|my|some|his|her|its|their|two|three|another|[A-Z])/;
-
-const QUOTE_MARK = /⟪(\d+)⟫/g;
+  {
+    name: "Use Item",
+    type: "inventory",
+    field: "item",
+    test: av(AV.item),
+    capture: av(AV.item, "\\s+(.+)"),
+  },
+  {
+    name: "Attack",
+    type: "combat",
+    field: "target",
+    test: av(AV.attack),
+    capture: av(AV.attack, "\\s+(?:at\\s+)?(?:the|a|an)?\\s*(.+)"),
+  },
+  { name: "Defend", type: "combat", test: av(AV.defend) },
+  { name: "Flee", type: "combat", test: av(AV.flee) },
+  { name: "Explore", type: "exploration", test: av(AV.explore) },
+  { name: "Rest", type: "rest", test: av(AV.rest) },
+  { name: "Craft", type: "crafting", test: av(AV.craft) },
+  {
+    name: "Talk",
+    type: "interaction",
+    field: "target",
+    test: av(AV.talk),
+    capture: av(AV.talk, "\\s+(?:to|with)?\\s*(.+)"),
+  },
+  { name: "Trade", type: "interaction", test: av(AV.trade) },
+];
 
 function cleanActionValue(s) {
   if (s === undefined || s === null) return null;
-  let v = String(s)
-    .replace(QUOTE_MARK, " ")
+  const v = String(s)
     .trim()
     .replace(/^[\s"'`]+/, "")
     .replace(/[.!?,;:]+$/g, "")
-    // Cut trailing clauses that aren't part of the noun: "ask the guard about the keep"
-    .replace(/\s+(?:about|that|if|whether|so that|in order to)\s+.*$/i, "")
+    .replace(/^(?:at|to|with|the|a|an)\s+/i, "")
     .trim();
-  const lead =
-    /^(?:at|to|with|the|a|an|for|into|in|on|onto|toward|towards|through|across|over|under|behind|inside|up|down|around|some|my|your|his|her|their|its|our)\s+/i;
-  while (lead.test(v)) v = v.replace(lead, "");
-  v = v.trim();
-  if (/^(?:myself|me)$/i.test(v)) return "themself";
-  if (
-    !v ||
-    /^(?:around|about|here|there|it|them|him|her|away|back|up|down|over|again|off|out)$/i.test(v)
-  )
-    return null;
-  // Keep targets short; a long tail is almost always a second idea.
-  return v.split(/\s+/).slice(0, 6).join(" ");
-}
-
-// "goblin with my rusty sword" -> { value: "goblin", tool: "rusty sword" }
-function splitToolPhrase(value) {
-  const m = String(value || "").match(/^(.*?)\s+(?:with|using)\s+(.+)$/i);
-  if (!m) return { value, tool: null };
-  return { value: m[1], tool: cleanActionValue(m[2]) };
-}
-
-function restoreQuotes(text, quotes) {
-  return String(text || "")
-    .replace(QUOTE_MARK, (_, i) => `"${quotes[Number(i)] || ""}"`)
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function matchActionClause(lc) {
-  const hits = [];
-  PLAYER_ACTION_MATCHERS.forEach((m, order) => {
-    const hit = m.test.exec(lc);
-    if (hit) hits.push({ m, idx: hit.index, order });
-  });
-  if (!hits.length) return null;
-  const override = hits.find((h) => h.m.override);
-  if (override) return override.m;
-  const strong = hits.filter((h) => !h.m.weak);
-  const pool = strong.length ? strong : hits;
-  pool.sort((a, b) => a.idx - b.idx || a.order - b.order);
-  return pool[0].m;
-}
-
-function newPlayerAction(name, type, raw) {
-  return {
-    name,
-    type,
-    target: null,
-    item: null,
-    magictype: null,
-    skilltype: null,
-    weapon: null,
-    tool: null,
-    manner: null,
-    quote: null,
-    detail: null,
-    raw,
-  };
+  return v || null;
 }
 
 const PLAYER_ACTION_CONFIG = {
   Attack: (a) =>
-    `attacks ${a.target || "the foe"}${a.weapon ? ` with ${a.weapon}` : ""}`,
+    `launches a targeted attack against ${a.target || "the foe"}${a.weapon ? ` using ${a.weapon}` : ""}`,
   "Cast Spell": (a) => `casts the spell ${a.magictype || "they intended"}`,
   "Cast Skill": (a) => `uses the skill ${a.skilltype || "they intended"}`,
-  "Use Item": (a) => `uses ${a.item || "an item"}`,
-  Equip: (a) => `equips ${a.item || "their gear"}`,
+  "Use Item": (a) => `consumes ${a.item || "an item"} to gain its effects`,
+  Talk: (a) => `talks ${a.target ? `to ${a.target}` : "to someone"}`,
   Defend: (a) =>
     `takes a defensive stance${a.weapon ? ` with their ${a.weapon}` : ""}`,
-  Flee: () => `attempts to flee`,
-  Sneak: (a) => `moves stealthily${a.target ? ` toward ${a.target}` : ""}`,
-  Aid: (a) => `tends to ${a.target || "someone"}`,
-  Talk: (a) =>
-    a.quote
-      ? `says${a.target ? ` to ${a.target}` : ""}: "${a.quote}"`
-      : `talks to ${a.target || "someone"}`,
-  Speak: (a) => {
-    const q = a.quote || phraseFromRaw(a.raw);
-    return q ? `says: "${q}"` : "speaks";
-  },
-  Trade: (a) => `tries to ${phraseFromRaw(a.raw) || "trade"}`,
-  Craft: (a) => `crafts ${a.target || "something"}`,
+  Flee: () => `attempts to flee from the situation`,
+  Explore: () => `explores the surroundings`,
   Rest: () => `rests to recover`,
-  Gather: (a) => `takes ${a.target || "what they can find"}`,
-  Interact: (a) => `tries to ${phraseFromRaw(a.raw) || "interact with something"}`,
-  Explore: (a) =>
-    a.target ? `tries to ${phraseFromRaw(a.raw)}` : `looks around`,
-  Move: (a) => {
-    if (!a.target) return `moves on`;
-    return /^(?:north|south|east|west|up|down|upstairs|downstairs|inside|outside|forward|ahead|left|right)$/i.test(
-      a.target,
-    )
-      ? `heads ${a.target}`
-      : `heads toward ${a.target}`;
-  },
-  Emote: (a) => `tries to ${phraseFromRaw(a.raw) || "react"}`,
+  Craft: () => `crafts something`,
+  Trade: () => `trades with others`,
+  Speak: (a) =>
+    `speaks${phraseFromRaw(a.raw) ? `: "${phraseFromRaw(a.raw)}"` : ""}`,
   Narrate: (a) =>
     `continues the scene${phraseFromRaw(a.raw) ? ` — ${phraseFromRaw(a.raw)}` : ""}`,
-  Act: (a) => `tries to ${phraseFromRaw(a.raw) || "act"}`,
+  Act: (a) => `performs a general action: ${phraseFromRaw(a.raw) || "act"}`,
   default: (a) => a.raw || "acts",
 };
 
-// Turn a parsed action into a short natural-language phrase for the prompt.
+// Turn parsed actions into a short natural-language phrase for the prompt.
 function playerActionPhrase(a) {
   const template =
     PLAYER_ACTION_CONFIG[a.name] || PLAYER_ACTION_CONFIG["default"];
-  let phrase = template(a);
-  if (a.manner) phrase = `${a.manner} ${phrase}`;
-  if (a.detail) phrase += ` (${a.detail})`;
-  return phrase;
+  return template(a);
 }
 
 // Tidy a raw clause for use inside a prompt phrase: drop a leading pronoun and
@@ -3221,9 +2748,6 @@ function phraseFromRaw(raw) {
     .replace(/^\s*(?:i|you|we|they)\s+/i, "")
     .replace(/^[\s"“”']+|[\s"“”']+$/g, "") // strip wrapping quotes/space
     .replace(/[.!?,;:]+$/g, "")
-    // Third person, since the phrase follows the character's name.
-    .replace(/\b(?:myself|yourself)\b/gi, "themself")
-    .replace(/\b(?:my|your)\b/gi, "their")
     .trim();
 }
 
@@ -3262,19 +2786,10 @@ function resolvePlayerActionFields(action) {
     return null;
   };
 
-  // Any action aimed at a live monster ("sneak behind the goblin") uses its
-  // canonical name, so the prompt and the Scene's foe list agree.
-  if (action.target && action.name !== "Attack") {
-    const foe = parseMonsterNameFromText(String(action.target), monsters);
-    if (foe) action.target = foe;
-  }
-
   switch (action.type) {
     case "combat": {
-      // Resolve the target against live monsters (brackets stripped). With
-      // no named target ("attack!", "hit it") fall back to the last target,
-      // then the first active monster; a named non-monster ("cut the rope")
-      // is kept as written.
+      // Resolve the target against live monsters (brackets stripped),
+      // falling back to the last target, then the first active monster.
       if (action.name === "Attack") {
         const captured = action.target
           ? String(action.target)
@@ -3284,26 +2799,21 @@ function resolvePlayerActionFields(action) {
         let name = captured
           ? parseMonsterNameFromText(captured, monsters)
           : null;
-        if (!name && !captured) {
-          if (
-            MS.lastTarget &&
-            monsters.some(
-              (m) => m.name.toLowerCase() === String(MS.lastTarget).toLowerCase(),
-            )
-          ) {
-            name = MS.lastTarget;
-          } else if (monsters.length) {
-            name = monsters[0].name;
-          }
+        if (
+          !name &&
+          MS.lastTarget &&
+          monsters.some(
+            (m) => m.name.toLowerCase() === String(MS.lastTarget).toLowerCase(),
+          )
+        ) {
+          name = MS.lastTarget;
         }
+        if (!name && monsters.length) name = monsters[0].name;
         if (name) action.target = name;
       }
-      // A weapon the player named ("with my dagger") beats the equipped one,
-      // but "with my sword" while wielding an Iron Sword resolves to it.
-      const mainhand = equipped.mainhand && equipped.mainhand.name;
-      if (action.tool)
-        action.weapon = matchName(action.tool, mainhand ? [mainhand] : []) || action.tool;
-      else if (mainhand) action.weapon = mainhand;
+      // Equipped weapon backs any combat action.
+      if (equipped.mainhand && equipped.mainhand.name)
+        action.weapon = equipped.mainhand.name;
       break;
     }
     case "magic": {
@@ -3327,20 +2837,7 @@ function resolvePlayerActionFields(action) {
         action.item,
         inventory.map((i) => i && i.name).filter(Boolean),
       );
-      if (resolved) {
-        action.item = resolved;
-        break;
-      }
-      // "use Power Strike" names an ability, not an item: reclassify.
-      if (action.name === "Use Item" && action.item) {
-        const skill = matchName(action.item, knownByKinds(["skill", "feat"]));
-        const spell =
-          !skill && matchName(action.item, knownByKinds(["spell", "spellstone"]));
-        if (skill)
-          Object.assign(action, { name: "Cast Skill", type: "skill", skilltype: skill, item: null });
-        else if (spell)
-          Object.assign(action, { name: "Cast Spell", type: "magic", magictype: spell, item: null });
-      }
+      if (resolved) action.item = resolved;
       break;
     }
   }
@@ -3371,6 +2868,14 @@ function detectCurrentActionType() {
 
 function buildFallbackAction(raw, actionType) {
   if (!raw) return null;
+  const base = {
+    target: null,
+    item: null,
+    magictype: null,
+    skilltype: null,
+    weapon: null,
+    raw,
+  };
 
   // Dialogue: an explicit "say" turn, or quoted / speech-verb text on an
   // unknown type -> interaction, so NPCs actually respond.
@@ -3380,17 +2885,17 @@ function buildFallbackAction(raw, actionType) {
       raw,
     );
   if (actionType === "say" || (actionType === undefined && looksLikeSpeech)) {
-    return newPlayerAction("Speak", "interaction", raw);
+    return Object.assign({ name: "Speak", type: "interaction" }, base);
   }
 
   // Story / continue -> advance the narrative without inventing player choices.
   if (actionType === "story" || actionType === "continue") {
-    return newPlayerAction("Narrate", "story", raw);
+    return Object.assign({ name: "Narrate", type: "story" }, base);
   }
 
   // Default (a "do" action that matched no verb): a generic freeform act,
   // described verbatim so the AI still knows what the player attempted.
-  return newPlayerAction("Act", "other", raw);
+  return Object.assign({ name: "Act", type: "other" }, base);
 }
 
 function buildPlayerActionPrompt(actions) {
@@ -3399,34 +2904,7 @@ function buildPlayerActionPrompt(actions) {
   const list = actions
     .map((a, i) => `${i + 1}) ${name} ${playerActionPhrase(a)}`)
     .join("; ");
-  return `Intent: ${list}${/[.!?]["”]?$/.test(list) ? "" : "."}`;
-}
-
-// Parse one clause (quotes already swapped for ⟪n⟫ markers) into an action,
-// or null when no verb matched.
-function parseActionClause(clause, quotes) {
-  let text = clause.replace(ACTION_FILLER, "");
-  const mannerHit = text.match(ACTION_MANNER);
-  const manner = mannerHit ? mannerHit[1].toLowerCase() : null;
-  if (manner) text = text.replace(ACTION_MANNER, " ").replace(/\s+/g, " ").trim();
-  // A manner word may have hidden filler behind it: "carefully, I try to..."
-  text = text.replace(ACTION_FILLER, "");
-
-  const matcher = matchActionClause(text.toLowerCase());
-  if (!matcher) return { action: null, text, manner };
-
-  const action = newPlayerAction(matcher.name, matcher.type, restoreQuotes(text, quotes));
-  action.manner = manner;
-  if (matcher.capture && matcher.field) {
-    const m = text.match(matcher.capture);
-    if (m) {
-      const split = splitToolPhrase(m[1]);
-      const val = cleanActionValue(split.value);
-      if (val) action[matcher.field] = val;
-      if (split.tool) action.tool = split.tool;
-    }
-  }
-  return { action, text, manner };
+  return `Current Intentions: ${list}.`;
 }
 
 // Parse the player's input into one or more actions and stash them on state.
@@ -3435,7 +2913,6 @@ function parsePlayerActions(rawText) {
   state.PlayerActions = [];
   state.PlayerAction = "None";
   state.PlayerActionPrompt = "";
-  state.PlayerInputRaw = "";
   state.logMessages = state.logMessages || {};
   state.logMessages["Output"] = state.logMessages["Output"] || [];
 
@@ -3443,119 +2920,56 @@ function parsePlayerActions(rawText) {
   if (!state.PS || !state.PS.Name || state.tempCharacter)
     return state.PlayerActions;
 
-  const raw = String(rawText ?? "")
-    .replace(/^\s*>\s*/, "")
-    .trim();
+  const raw = String(rawText ?? "").trim();
   if (!raw) return state.PlayerActions;
-  state.PlayerInputRaw = raw;
-
-  // Lift quoted speech out first so commas / "and" inside a line of dialogue
-  // can't split it into fake clauses.
-  const quotes = [];
-  const work = raw.replace(/["“]([^"“”]+)["”]/g, (_, q) => {
-    quotes.push(q.trim());
-    return ` ⟪${quotes.length - 1}⟫ `;
-  });
 
   // Split into clauses so several actions in one input each get parsed:
-  //   "I sneak behind the goblin, then stab it and grab its pouch"
-  //     -> [Sneak, Attack, Gather].
-  const clauses = work
-    .split(/\b(?:and then|then|and|after that|afterwards|before|while|but)\b|[,;!?]+|\.(?!\d)/i)
+  //   "I attack the goblin and then drink a potion" -> [Attack, Use Item].
+  const clauses = raw
+    .split(/\b(?:and then|then|and|after that|before)\b|[,.;]+/i)
     .map((c) => c.trim())
     .filter(Boolean);
 
   const actions = [];
-  const leading = []; // qualifiers seen before the first action
-  let pendingManner = null; // a lone adverb clause colours the next action
-  const addDetail = (action, text) => {
-    action.detail = action.detail ? `${action.detail}, ${text}` : text;
-  };
-  const pushAction = (action, manner) => {
-    action.manner = action.manner || manner || pendingManner;
-    pendingManner = null;
-    actions.push(action);
-  };
-  const pushSpeak = (quoteText) => {
-    const speak = newPlayerAction("Speak", "interaction", `"${quoteText}"`);
-    speak.quote = quoteText;
-    pushAction(speak);
-  };
-
   for (const clause of clauses) {
-    const quoteIds = [];
-    clause.replace(QUOTE_MARK, (_, i) => quoteIds.push(Number(i)));
-    const quoteText = quoteIds.map((i) => quotes[i]).join(" ");
-    const bare = clause.replace(QUOTE_MARK, " ").replace(/\s+/g, " ").trim();
-    const prev = actions[actions.length - 1];
-
-    // Pure dialogue: attach to a preceding "I tell the guard" or speak alone.
-    if (!bare.replace(ACTION_FILLER, "")) {
-      if (!quoteText) continue;
-      if (prev && prev.name === "Talk" && !prev.quote) prev.quote = quoteText;
-      else pushSpeak(quoteText);
-      continue;
-    }
-
-    const parsed = parseActionClause(clause, quotes);
-    if (parsed.action) {
-      const action = parsed.action;
-      if (quoteText && action.name === "Talk") action.quote = quoteText;
-      pushAction(action);
-      if (quoteText && action.name !== "Talk") pushSpeak(quoteText);
-      continue;
-    }
-
-    // No verb: decide whether this clause qualifies the previous action, extends
-    // its noun ("attack the goblin and the orc"), or is its own freeform act.
-    const rest = restoreQuotes(parsed.text, quotes);
-    if (!rest) {
-      if (parsed.manner) pendingManner = parsed.manner; // "Carefully, I ..."
-      continue;
-    }
-    const words = rest.split(/\s+/).length;
-    const prevField =
-      prev && (PLAYER_ACTION_MATCHERS.find((m) => m.name === prev.name) || {}).field;
-    if (ACTION_DETAIL_START.test(rest)) {
-      if (prev) addDetail(prev, rest);
-      else leading.push(rest);
-    } else if (prevField && prev[prevField] && words <= 3 && ACTION_NOUNISH.test(rest)) {
-      prev[prevField] = `${prev[prevField]} and ${cleanActionValue(rest) || rest}`;
-    } else if (words === 1) {
-      if (prev) addDetail(prev, rest);
-      else leading.push(rest);
-    } else {
-      pushAction(newPlayerAction("Act", "other", rest), parsed.manner);
+    const lc = clause.toLowerCase();
+    for (const matcher of PLAYER_ACTION_MATCHERS) {
+      if (matcher.test.test(lc)) {
+        const action = {
+          name: matcher.name,
+          type: matcher.type,
+          target: null,
+          item: null,
+          magictype: null,
+          skilltype: null,
+          weapon: null,
+          raw: clause,
+        };
+        if (matcher.capture && matcher.field) {
+          const m = clause.match(matcher.capture);
+          const val = cleanActionValue(m && m[1]);
+          if (val) action[matcher.field] = val;
+        }
+        resolvePlayerActionFields(action);
+        actions.push(action);
+        break; // one action per clause
+      }
     }
   }
-
-  if (leading.length && actions.length) addDetail(actions[0], leading.join(", "));
-
-  // Resolve first so "attack, attack the goblin" compares Goblin to Goblin,
-  // then collapse back-to-back repeats and cap.
-  actions.forEach(resolvePlayerActionFields);
-  const kept = actions
-    .filter((a, i) => {
-      const p = actions[i - 1];
-      return !(
-        p &&
-        p.name === a.name &&
-        p.name !== "Act" &&
-        (p.target || p.item || p.quote) === (a.target || a.item || a.quote)
-      );
-    })
-    .slice(0, SCENE_BRIEF_CAP);
 
   // No explicit action matched, but the player still typed something real:
   // synthesize a fallback so intent always reaches the Context prompt.
-  if (!kept.length) {
+  if (!actions.length) {
     const fallback = buildFallbackAction(raw, detectCurrentActionType());
-    if (fallback) kept.push(fallback);
+    if (fallback) actions.push(fallback);
   }
 
-  state.PlayerActions = kept;
-  state.PlayerAction = kept[0] || "None";
-  state.PlayerActionPrompt = buildPlayerActionPrompt(kept);
+  state.PlayerActions = actions;
+  state.PlayerAction = actions[0] || "None";
+  state.PlayerActionPrompt = buildPlayerActionPrompt(actions);
+  /*if (actions.length) {
+        state.logMessages['Output'].push(`🎯 Parsed ${actions.length} action(s): ${actions.map(a => a.name).join(", ")}`);
+    }*/
   return state.PlayerActions;
 }
 
@@ -4451,7 +3865,7 @@ function Gametrack() {
     return;
   }
 
-  advanceWorldTurn(10);
+  advanceTime();
 
   const livingMonsters = state.MS.activeMonsters
     .filter((m) => m && typeof m === "object" && m.health > 0)
@@ -8037,7 +7451,7 @@ if (!state.MS) {
   };
 }
 
-if (!state.world || !state.world.map || !state.world.map.locations) {
+if (!state.world || !state.world.LocalLocation) {
   ensureWorldState();
 }
 
@@ -9063,1701 +8477,140 @@ const CARRYING_CAPACITY_CONFIG = {
 // OPEN WORLD MAP & STATE MANAGEMENT SYSTEM
 // ===========================================================================
 
-
-// LABYRINTH PROCEDURAL GENERATION CONFIGURATION
-
-const LABYRINTH_LEVEL_CONFIG = {
-  top_level: {
-    name: "Top Level",
-    floors: 50,
-    biome: "ancient stone",
-    difficulty: 1,
-    interactions: ["abandoned campfire", "glowing fungi", "ominous chest", "runic shrine", "patrolling guard"]
-  },
-  middle_level: {
-    name: "Middle Level",
-    floors: 25,
-    biome: "damp cavern",
-    difficulty: 3,
-    interactions: ["dripping stalactites", "mossy altar", "slumbering beast", "collapsed tunnel", "forgotten shrine"]
-  },
-  low_level: {
-    name: "Low Level",
-    floors: 25,
-    biome: "obsidian depths",
-    difficulty: 5,
-    interactions: ["lava fissure", "bone pile", "cursed anvil", "shadowy ambush", "echoing void"]
-  },
-  sub_level: {
-    name: "Sub Level",
-    floors: 100,
-    biome: "void-touched",
-    difficulty: 8,
-    interactions: ["void altar", "crystallized mana", "reality tear", "corrupted guardian", "silent abyss"]
-  }
-};
-
-
 /**
  * Ensures the world state is properly initialized with all necessary tracking structures.
  * Safe to call multiple times; it will not overwrite existing valid data.
  */
-// ============================================================================
-// ENHANCED WORLD SYSTEM - Supports multiple dungeons, dynamic events, and rich interactions
-// ============================================================================
-
-const WORLD_EVENTS = {
-  "goblin_raid": {
-    id: "goblin_raid", name: "Goblin Raid", description: "Goblins have been spotted near the town walls!", triggerChance: 0.3, duration: 5,
-    effect: (location) => {
-      location.monsters = location.monsters || [];
-      location.monsters.push("Goblin", "Goblin Warrior", "Goblin Shaman");
-      location.flags.raid = true;
-      return `Goblins are raiding ${location.name}!`;
-    },
-    onComplete: (location) => {
-      location.flags.raid = false;
-      location.monsters = location.monsters.filter(m => m !== "Goblin" && m !== "Goblin Warrior" && m !== "Goblin Shaman");
-      return `Goblin raid repelled from ${location.name}!`;
-    }
-  },
-  "merchant_caravan": {
-    id: "merchant_caravan", name: "Traveling Merchant", description: "A merchant caravan has set up camp nearby.", triggerChance: 0.2, duration: 3,
-    effect: (location) => {
-      location.interactions = location.interactions || [];
-      if (!location.interactions.includes("merchant_caravan")) location.interactions.push("merchant_caravan");
-      return `Merchant caravan arrived at ${location.name}!`;
-    },
-    onComplete: (location) => {
-      location.interactions = location.interactions.filter(i => i !== "merchant_caravan");
-      return `Merchant caravan left ${location.name}.`;
-    }
-  }
-};
-
-function initializeWorldRegistries() {
-  const registries = state.world.registries;
-  registries.interactions = {
-    "town_notice_board": { id: "town_notice_board", name: "Town Notice Board", type: "interaction", description: "A wooden board with various notices.", state: "active", options: [{ text: "Read notices", action: "read_notices" }, { text: "Post notice", action: "post_notice", requiresItem: "paper_and_ink" }] },
-    "blacksmith": { id: "blacksmith", name: "Blacksmith", type: "shop", description: "A sturdy forge with the sound of hammering.", state: "active", inventory: generateBlacksmithInventory(), buyPriceMultiplier: 1.2, sellPriceMultiplier: 0.8 },
-    "merchant": { id: "merchant", name: "General Merchant", type: "shop", description: "A traveling merchant with exotic goods.", state: "active", inventory: generateMerchantInventory(), buyPriceMultiplier: 1.5, sellPriceMultiplier: 0.6 },
-    "legion_identification_stone": { id: "legion_identification_stone", name: "Legion Identification Stone", type: "object", description: "A magical stone that marks you as a Legion member.", state: "active", effect: { type: "grant_access", areas: ["legion_base", "legion_quests"] } }
-  };
-  registries.buildings = {
-    "town_hall": { id: "town_hall", name: "Town Hall", type: "building", description: "The administrative center of the town.", services: ["rest", "storage", "quests"], requirements: { wood: 50, stone: 30, gold: 100 } },
-    "inn": { id: "inn", name: "Inn", type: "building", description: "A place to rest and recover.", services: ["rest", "heal"], requirements: { wood: 20, stone: 10 } }
-  };
-  registries.monsters = {
-    "Maze Rat": { name: "Maze Rat", health: 15, damage: 3, experience: 10, loot: ["minor_health_potion", "gold_coin"], habitat: ["ancient_stone", "damp_cavern"], spawnChance: 0.8 },
-    "Chitterling": { name: "Chitterling", health: 20, damage: 4, experience: 12, loot: ["minor_mana_potion", "rope"], habitat: ["ancient_stone"], spawnChance: 0.6 }
-  };
-  registries.items = {
-    "minor_health_potion": { name: "Minor Health Potion", type: "consumable", effect: { health: 20 }, value: 15 },
-    "gold_coin": { name: "Gold Coin", type: "currency", value: 1 }
-  };
-}
-
-function generateBlacksmithInventory() {
-  return [{ name: "Iron Sword", type: "weapon", value: 50, modifiers: { strength: 2, damage: 8 } }, { name: "Iron Shield", type: "armor", value: 40, modifiers: { maxHealth: 20 } }, { name: "Health Potion", type: "consumable", value: 15, effect: { health: 30 } }, { name: "Antidote", type: "consumable", value: 10, effect: { curePoison: true } }].map(item => ({ ...item, price: Math.floor(item.value * 1.2) }));
-}
-
-function generateMerchantInventory() {
-  return [{ name: "Rope", type: "misc", value: 10 }, { name: "Torch", type: "misc", value: 5 }, { name: "Bread Loaf", type: "consumable", value: 8, effect: { hunger: 30 } }, { name: "Magic Potion", type: "consumable", value: 20, effect: { mana: 20 } }, { name: "Lockpicks", type: "tool", value: 25 }].map(item => ({ ...item, price: Math.floor(item.value * 1.5) }));
-}
-
-function handleReadNotices() {
-  const notices = ["Adventurers needed! The Labyrinth grows more dangerous every day.", "Beware of increased goblin activity near the Eastern Plains.", "The blacksmith is offering discounted weapon repairs this week.", "Lost: One golden amulet. Reward offered. Inquire at the tavern.", "WARNING: Do not drink from the fountain on Floor 3 of the Labyrinth."];
-  return { success: true, message: `Notice Board:\n${notices[Math.floor(Math.random() * notices.length)]}` };
-}
-
-function handlePostNotice() {
-  if (!state.PS.inventory.some(i => i.name === "paper_and_ink")) return { success: false, message: "You need paper and ink to post a notice." };
-  const itemIndex = state.PS.inventory.findIndex(i => i.name === "paper_and_ink");
-  if (itemIndex !== -1) state.PS.inventory.splice(itemIndex, 1);
-  return { success: true, message: "You post a notice on the board. It reads: 'Looking for adventure!'" };
-}
-
-/**
- * Ensures the world state is properly initialized with all necessary tracking structures and default world data.
- * Safe to call multiple times; it will not overwrite existing valid data.
- */
 function ensureWorldState() {
   const layout = (state.rpgConfig && state.rpgConfig.worldLayout) || "Open";
-  
+  log(state.word)
   if (!state.world) {
     state.world = {
       map: {
-        continent: ["The Realm"], region: ["The Starting Lands"], territory: ["Safe Haven Territory", "Labyrinth Depths"],
-        terrain: ["grassland", "stone", "cave", "void"], biome: ["temperate", "ancient stone", "damp cavern", "obsidian depths", "void-touched"],
-        locations: {
-          "safe_haven": { id: "safe_haven", name: "Safe Haven", type: "town", biome: "temperate", description: "A fortified settlement with shops and services.", exits: { north: "safe_haven_market", south: "labyrinth_entrance", east: "eastern_plains", north2: "northern_mountains" }, interactions: ["town_notice_board", "blacksmith", "merchant", "tavern"], buildings: ["town_hall", "inn", "guild_hall"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
-          "safe_haven_market": { id: "safe_haven_market", name: "Safe Haven Market", type: "town_sub", biome: "temperate", description: "A bustling courtyard.", exits: { south: "safe_haven" }, interactions: ["merchant_supplies"], buildings: ["general_store"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
-          "labyrinth_entrance": { id: "labyrinth_entrance", name: "Labyrinth Entrance", type: "dungeon_entrance", biome: "ancient_stone", description: "A massive, ominous stairway descends into darkness.", exits: { north: "safe_haven", down: "labyrinth_top_level_floor_1" }, interactions: ["legion_identification_stone"], buildings: [], monsters: ["Maze Rat", "Chitterling", "Stone Mites"], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
-          "eastern_plains": { id: "eastern_plains", name: "Eastern Plains", type: "wilderness", biome: "grassland", description: "Vast open plains with tall grass and scattered trees.", exits: { west: "safe_haven", north: "ancient_ruins" }, interactions: ["berry_bush", "ancient_statue"], buildings: [], monsters: ["Giant Spider", "Wolf", "Bandit"], flags: { discovered: false, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] },
-          "northern_mountains": { id: "northern_mountains", name: "Northern Mountains", type: "wilderness", biome: "mountain", description: "Rugged mountain paths and rocky cliffs.", exits: { south: "safe_haven", north: "mountain_pass" }, interactions: ["mountain_spring", "cave_entrance"], buildings: [], monsters: ["Mountain Lion", "Eagle", "Ice Golem"], flags: { discovered: false, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [] }
-        },
-        connections: [
-          { from: "safe_haven", to: "labyrinth_entrance", type: "path", distance: 10 },
-          { from: "safe_haven", to: "eastern_plains", type: "road", distance: 15 },
-          { from: "safe_haven", to: "northern_mountains", type: "trail", distance: 20 }
-        ]
+        continent: [],
+        region: [],
+        territory: [],
+        terrain: [],
+        biome: [],
+        LocalLocation: {}, // Key: locationId, Value: Location Object
       },
-      registries: { interactions: {}, buildings: {}, monsters: {}, items: {}, events: {} },
-      time: { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0, season: "spring" },
-      weather: { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild", precipitation: 0 },
-      dungeons: {
-        "labyrinth": {
-          name: "The Grand Labyrinth",
-          levels: {
-            "top_level": { name: "Top Level", floors: 50, biome: "ancient_stone", difficulty: 1, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap"], monsterPool: ["Maze Rat", "Chitterling", "Stone Mites", "Gloom Spider"], maxBiomass: 100, currentBiomass: 0 },
-            "middle_level": { name: "Middle Level", floors: 25, biome: "damp_cavern", difficulty: 3, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "merchant"], monsterPool: ["Labyrinth Stalker", "Warden Construct", "Gloom Revenant"], maxBiomass: 150, currentBiomass: 0 },
-            "low_level": { name: "Low Level", floors: 25, biome: "obsidian_depths", difficulty: 5, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Bloodcap Brute", "Gravemaw Ghoul", "Fleshbound Horror"], maxBiomass: 200, currentBiomass: 0 },
-            "sub_level": { name: "Sub Level", floors: 100, biome: "void_touched", difficulty: 8, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Soul Leech", "Ironbound Carcass", "Shadowbound Serpent"], maxBiomass: 300, currentBiomass: 0 }
-          },
-          currentFloor: 1, maxFloors: 100, generatedFloors: {}, playerPosition: { row: 1, col: "A" }, lastGenerated: 0
-        }
+      interactionRegistry: {}, // Key: interactionId, Value: Interaction Object
+      buildingRegistry: {},    // Key: buildingId, Value: Building Object
+      monsterRegistry: {},     // Key: monsterTypeId, Value: Monster Template
+      time: {
+        turn: 0,
+        day: 1,
+        hour: 6,
+        minute: 0,
+        cyclePhase: "dawn",
+        lightLevel: 1.0,
       },
-      currentDungeon: "labyrinth", exploredLocations: [], activeWorldEvents: [], completedWorldEvents: []
-    };
-    
-    initializeWorldRegistries();
-  }
-
-  // =========================================================================
-  // 1. OPEN WORLD LABYRINTH (Macro-state for procedural floors)
-  // =========================================================================
-  // Only initialize legacy labyrinth for ASCII Dungeon layout.
-  // Open World uses state.world.dungeons.labyrinth (Enhanced World System).
-  if (!state.world.labyrinth && layout === "Ascii Dungeon") {
-    state.world.labyrinth = {
-      levels: {},
-      currentLevel: null,
-      currentLevelName: null,
-      floor: 1,
-      dugfloor: 1,
-      buildingRegistry: {},
-      worldRegistry: {},
-      biomeRegistry: {},
-      negativeEventRegistry: {},
-      positiveEventRegistry: {},
-      monsterRegistry: {},
-      interactionRegistry: {},
-      generatedAt: 0,
-    };
-  }
-
-  // =========================================================================
-  // 2. ASCII DUNGEON (Grid-state for ASCII map)
-  // =========================================================================
-  if (!state.world.asciiDungeon && layout === "Ascii Dungeon") {
-    state.world.asciiDungeon = {
-      name: "Underground Labyrinth",
-      grid: null,
-      floor: 1,
-      dugfloor: 1,
-      rows: 8,
-      cols: 5,
-      playerPosition: { row: 1, col: "A" },
-      activeMap: null,
-      levels: {},
-      generatedAt: 0,
-    };
-  }
-
-  // Ensure nested objects exist
-  if (!state.world.map) state.world.map = { locations: {}, connections: [] };
-  if (!state.world.map.locations) state.world.map.locations = {};
-  if (!state.world.map.connections) state.world.map.connections = [];
-  if (!state.world.registries) initializeWorldRegistries();
-  if (!state.world.time) state.world.time = { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0, season: "spring" };
-  if (!state.world.weather) state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild", precipitation: 0 };
-  if (!state.world.dungeons) state.world.dungeons = {};
-  if (!state.world.currentDungeon) state.world.currentDungeon = "labyrinth";
-  // exploredLocations / activeWorldEvents / completedWorldEvents are
-  // guaranteed by normalizeWorldStateSchema() at the end of this function.
-
-  if (!state.world.dungeons["labyrinth"]) {
-    state.world.dungeons["labyrinth"] = {
-      name: "The Grand Labyrinth",
-      levels: {
-        "top_level": { name: "Top Level", floors: 50, biome: "ancient_stone", difficulty: 1, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap"], monsterPool: ["Maze Rat", "Chitterling", "Stone Mites", "Gloom Spider"], maxBiomass: 100, currentBiomass: 0 },
-        "middle_level": { name: "Middle Level", floors: 25, biome: "damp_cavern", difficulty: 3, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "merchant"], monsterPool: ["Labyrinth Stalker", "Warden Construct", "Gloom Revenant"], maxBiomass: 150, currentBiomass: 0 },
-        "low_level": { name: "Low Level", floors: 25, biome: "obsidian_depths", difficulty: 5, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Bloodcap Brute", "Gravemaw Ghoul", "Fleshbound Horror"], maxBiomass: 200, currentBiomass: 0 },
-        "sub_level": { name: "Sub Level", floors: 100, biome: "void_touched", difficulty: 8, prefabRooms: ["combat", "treasure", "rest", "puzzle", "trap", "boss"], monsterPool: ["Soul Leech", "Ironbound Carcass", "Shadowbound Serpent"], maxBiomass: 300, currentBiomass: 0 }
+      weather: {
+        current: "clear",
+        intensity: 0,
+        visibilityModifier: 1.0,
+        temperature: "mild",
       },
-      currentFloor: 1, maxFloors: 100, generatedFloors: {}, playerPosition: { row: 1, col: "A" }, lastGenerated: 0
+      worldRegistry: { 
+        modifiedLocations: {}, 
+        activeWorldEvents: [] 
+      },
     };
-  }
-  
-  // Legacy support - map LocalLocation to locations for backward compatibility
-  if (state.world.map.LocalLocation && Object.keys(state.world.map.locations).length === 0) {
-    state.world.map.locations = { ...state.world.map.locations, ...state.world.map.LocalLocation };
-  }
-  
-  // Legacy registries
-  if (!state.world.interactionRegistry) state.world.interactionRegistry = state.world.registries.interactions;
-  if (!state.world.buildingRegistry) state.world.buildingRegistry = state.world.registries.buildings;
-  if (!state.world.monsterRegistry) state.world.monsterRegistry = state.world.registries.monsters;
-  if (!state.world.worldRegistry) state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: [] };
 
-  deduplicateConnections();
-  normalizeWorldStateSchema();
-}
-
-/**
- * Repairs the parts of state.world that AI Dungeon's JSON serializer breaks
- * between turns: Sets come back as {}, and object aliases come back as
- * independent copies. Runs at the end of every ensureWorldState().
- */
-function normalizeWorldStateSchema() {
-  const w = state.world;
-  if (!Array.isArray(w.exploredLocations)) w.exploredLocations = [];
-  if (!Array.isArray(w.activeWorldEvents)) w.activeWorldEvents = [];
-  if (!Array.isArray(w.completedWorldEvents)) w.completedWorldEvents = [];
-  if (w.completedWorldEvents.length > 20) { // keep the last 20
-    w.completedWorldEvents = w.completedWorldEvents.slice(-20);
-  }
-
-  // Drop location.dynamicEvents entries with no matching active event. Older
-  // saves could leave these behind forever, which blocked the location from
-  // ever getting another event.
-  for (const location of Object.values(w.map.locations)) {
-    if (!location) continue;
-    if (!Array.isArray(location.dynamicEvents)) { location.dynamicEvents = []; continue; }
-    location.dynamicEvents = location.dynamicEvents.filter(de =>
-      w.activeWorldEvents.some(ev => ev.locationId === location.id && ev.eventId === de.eventId)
-    );
-  }
-
-  if (!w.worldRegistry || typeof w.worldRegistry !== "object") w.worldRegistry = { modifiedLocations: {} };
-  if (!w.worldRegistry.modifiedLocations) w.worldRegistry.modifiedLocations = {};
-  // Re-link every turn: serialization turns this alias into a stale copy.
-  w.worldRegistry.activeWorldEvents = w.activeWorldEvents;
-}
-
-function markLocationExplored(locId) {
-  ensureWorldState();
-  if (!locId) return;
-  if (!state.world.exploredLocations.includes(locId)) state.world.exploredLocations.push(locId);
-}
-/** Resolves an event's locationId to an overworld location or a generated dungeon floor. */
-function findWorldEventLocation(locationId) {
-  const locs = state.world.map.locations;
-  if (locs[locationId]) return locs[locationId];
-  for (const dungeon of Object.values(state.world.dungeons || {})) {
-    if (dungeon && dungeon.generatedFloors && dungeon.generatedFloors[locationId]) return dungeon.generatedFloors[locationId];
-  }
-  return null;
-}
-
-function hasActiveWorldEventAt(locationId) {
-  return state.world.activeWorldEvents.some(ev => ev.locationId === locationId);
-}
-/** Tells both the player (Output) and the narrator (Input) when an event touches the player's location. */
-function notifyWorldEventAtPlayer(locationId, message) {
-  if (!message || locationId !== getCurrentLocationKey()) return;
-  state.logMessages = state.logMessages || {};
-  state.logMessages["Output"] = state.logMessages["Output"] || [];
-  state.logMessages["Input"] = state.logMessages["Input"] || [];
-  state.logMessages["Output"].push(`[World Event] ${message}`);
-  state.logMessages["Input"].push(`[World Event] ${message}`);
-}
-/**
- * Picks a random WORLD_EVENTS entry for a location and rolls its triggerChance.
- * Returns the event definition, or null if nothing should start there.
- */
-function rollWorldEventForLocation(location) {
-  if (!location || !location.id) return null;
-  if (state.world.activeWorldEvents.length >= 3) return null; // max 3 concurrent world events
-  if (hasActiveWorldEventAt(location.id)) return null;
-  if (Array.isArray(location.dynamicEvents) && location.dynamicEvents.length > 0) return null;
-  const eventKeys = Object.keys(WORLD_EVENTS);
-  if (eventKeys.length === 0) return null;
-  const eventDef = WORLD_EVENTS[eventKeys[Math.floor(Math.random() * eventKeys.length)]];
-  return Math.random() < (Number(eventDef.triggerChance) || 0) ? eventDef : null;
-}
-/**
- * Starts an event at a location: runs its effect and records it in both
- * state.world.activeWorldEvents and location.dynamicEvents.
- * Returns the active event object, or null if it couldn't start.
- */
-function applyWorldEventToLocation(location, eventDef) {
-  if (!location || !location.id || !eventDef) return null;
-  location.flags = location.flags || {};
-  location.monsters = Array.isArray(location.monsters) ? location.monsters : [];
-  location.interactions = Array.isArray(location.interactions) ? location.interactions : [];
-  if (!Array.isArray(location.dynamicEvents)) location.dynamicEvents = [];
-
-  let message;
-  try {
-    message = eventDef.effect(location);
-  } catch (err) {
-    console.error(`World event "${eventDef.id}" failed to start at ${location.id}:`, err);
-    return null;
-  }
-
-  const activeEvent = { locationId: location.id, eventId: eventDef.id, name: eventDef.name, message, turnsRemaining: eventDef.duration };
-  // Separate copies: after serialization they are separate anyway, and sharing
-  // one object here would make tickWorldEvents decrement it twice this turn.
-  state.world.activeWorldEvents.push(activeEvent);
-  location.dynamicEvents.push({ ...activeEvent });
-  notifyWorldEventAtPlayer(location.id, message);
-  return activeEvent;
-}
-/**
- * Ends an event: runs onComplete(location), removes it from location.dynamicEvents,
- * and records it in completedWorldEvents. The caller removes it from activeWorldEvents.
- */
-function completeWorldEventAtLocation(activeEvent) {
-  const eventDef = WORLD_EVENTS[activeEvent.eventId];
-  const location = findWorldEventLocation(activeEvent.locationId);
-  let message = `${activeEvent.name || activeEvent.eventId} has ended.`;
-
-  if (location) {
-    location.monsters = Array.isArray(location.monsters) ? location.monsters : [];
-    location.interactions = Array.isArray(location.interactions) ? location.interactions : [];
-    location.flags = location.flags || {};
-    if (eventDef && typeof eventDef.onComplete === "function") {
-      try {
-        message = eventDef.onComplete(location) || message;
-      } catch (err) {
-        console.error(`World event "${activeEvent.eventId}" failed to complete at ${activeEvent.locationId}:`, err);
-      }
-    }
-    if (Array.isArray(location.dynamicEvents)) {
-      location.dynamicEvents = location.dynamicEvents.filter(de => de.eventId !== activeEvent.eventId);
+    if (layout === "Ascii Dungeon") {
+      state.world.asciiWorld = {
+        grid: null,
+        floor: 1,
+        dugfloor: 1,
+        rows: 50,
+        cols: 50,
+        playerPosition: { x: 25, y: 25 },
+        regions: {},
+        generatedAt: 0,
+      };
+      state.world.dungeon = null;
+    } else {
+      // OPEN WORLD — unified structure
+      state.world.dungeon = {
+        map: [],
+        levels: [],
+        currentLevel: null,
+        activeMap: null,
+        floor: 1,
+        playerPosition: {},
+        generatedAt: 0,
+        interactionRegistry: {},
+        buildingRegistry: {},
+        monsterRegistry: {},
+        currentLevelName: null,
+        dugfloor: 1,
+      };
     }
   }
 
-  state.world.completedWorldEvents.push({ locationId: activeEvent.locationId, eventId: activeEvent.eventId, message, turn: state.world.time.turn });
-  if (state.world.completedWorldEvents.length > 20) {
-    state.world.completedWorldEvents = state.world.completedWorldEvents.slice(-20);
-  }
-  notifyWorldEventAtPlayer(activeEvent.locationId, message);
-  return message;
-}
-
-function generateWorldEvents() {
-  const events = [];
-  for (const location of Object.values(state.world.map.locations)) {
-    if (state.world.activeWorldEvents.length >= 3) break;
-    const eventDef = rollWorldEventForLocation(location);
-    if (!eventDef) continue;
-    const started = applyWorldEventToLocation(location, eventDef);
-    if (started) events.push(started);
-  }
-  return events;
-}
-
-function tickWorldEvents() {
-  const activeEvents = state.world.activeWorldEvents;
-  for (let i = activeEvents.length - 1; i >= 0; i--) {
-    const ev = activeEvents[i];
-    ev.turnsRemaining = (Number(ev.turnsRemaining) || 0) - 1;
-
-    const location = findWorldEventLocation(ev.locationId);
-    const locEntry = location && Array.isArray(location.dynamicEvents)
-      ? location.dynamicEvents.find(de => de.eventId === ev.eventId)
-      : null;
-    if (locEntry) locEntry.turnsRemaining = ev.turnsRemaining;
-
-    if (ev.turnsRemaining <= 0) {
-      completeWorldEventAtLocation(ev);
-      activeEvents.splice(i, 1);
-    }
-  }
-}
-
-function getLocation(locationId) {
-  const cleanId = locationId.toLowerCase().replace(/\s+/g, "_");
-  const location = state.world.map.locations[cleanId];
-  return location || generateNewLocation(cleanId);
-}
-
-function generateNewLocation(locationId) {
-  const baseLocations = {
-    "eastern_plains": { name: "Eastern Plains", type: "wilderness", biome: "grassland", description: "Vast open plains with tall grass and scattered trees.", exits: { west: "safe_haven", north: "ancient_ruins" }, monsters: ["Giant Spider", "Wolf", "Bandit"], interactions: ["berry_bush", "ancient_statue"] },
-    "northern_mountains": { name: "Northern Mountains", type: "wilderness", biome: "mountain", description: "Rugged mountain paths and rocky cliffs.", exits: { south: "safe_haven", north: "mountain_pass" }, monsters: ["Mountain Lion", "Eagle", "Ice Golem"], interactions: ["mountain_spring", "cave_entrance"] }
-  };
-  if (baseLocations[locationId]) {
-    state.world.map.locations[locationId] = baseLocations[locationId];
-    return state.world.map.locations[locationId];
-  }
-  return {
-    id: locationId, name: locationId.replace(/_/g, " ").split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
-    type: "wilderness", biome: "temperate", description: `The ${locationId} area.`, exits: { west: "safe_haven" },
-    monsters: ["Giant Rat", "Wolf", "Bandit"], interactions: ["berry_bush", "old_tree"], flags: { discovered: false, locked: false, looted: false }
-  };
-}
-
-function getRichLocation() {
-  ensureWorldState();
-  const key = getCurrentLocationKey();
-  const entry = getLocationEntry(key);
-  if (!entry) return null;
-  const activeEvent = state.world.activeWorldEvents.find(e => e.locationId === key);
-  if (activeEvent) {
-    entry.activeEvent = { id: activeEvent.eventId, message: activeEvent.message, turnsRemaining: activeEvent.turnsRemaining };
-  }
-  return entry;
-}
-
-function getLocationEntry(key) {
-  ensureWorldState();
-  const cleanKey = key.toLowerCase().replace(/\s+/g, "_");
-  const dungeonFloorMatch = cleanKey.match(/^labyrinth_(top_level|middle_level|low_level|sub_level)_floor_(\d+)$/);
-  if (dungeonFloorMatch) {
-    return getDungeonFloor(dungeonFloorMatch[1], dungeonFloorMatch[1], parseInt(dungeonFloorMatch[2], 10));
-  }
-  return getLocation(cleanKey);
-}
-
-function getDungeonFloor(dungeonKey, levelKey, floorNum) {
-  const dungeon = state.world.dungeons[dungeonKey];
-  if (!dungeon || !dungeon.levels[levelKey]) return null;
-  const level = dungeon.levels[levelKey];
-  const floorKey = `${levelKey}_floor_${floorNum}`;
-  if (!dungeon.generatedFloors[floorKey]) generateDungeonFloor(dungeonKey, levelKey, floorNum);
-  return dungeon.generatedFloors[floorKey];
-}
-
-function getRelativeFloor(floorNum) {
-  if (floorNum <= 50) return { levelKey: "top_level", relativeFloor: floorNum };
-  if (floorNum <= 75) return { levelKey: "middle_level", relativeFloor: floorNum - 50 };
-  if (floorNum <= 100) return { levelKey: "low_level", relativeFloor: floorNum - 75 };
-  return { levelKey: "sub_level", relativeFloor: floorNum - 100 };
-}
-
-function generateDungeonFloor(dungeonKey, levelKey, floorNum) {
-  const dungeon = state.world.dungeons[dungeonKey];
-  const level = dungeon.levels[levelKey];
-  const config = LABYRINTH_LEVEL_CONFIG[levelKey];
+  // Ensure nested objects exist even if state.world was partially defined elsewhere
+  if (!state.world.map) state.world.map = { LocalLocation: {} };
+  if (!state.world.map.LocalLocation) state.world.map.LocalLocation = {};
+  if (!state.world.interactionRegistry) state.world.interactionRegistry = {};
+  if (!state.world.buildingRegistry) state.world.buildingRegistry = {};
+  if (!state.world.monsterRegistry) state.world.monsterRegistry = {};
   
-  const floorData = {
-    id: `${levelKey}_floor_${floorNum}`,
-    displayName: `Floor ${floorNum} of ${config.name}`,
-    zoneType: "dungeon",
-    subArea: config.name,
-    exits: {},
-    interactions: [],
-    entities: [],
-    flags: { discovered: false, danger: config.difficulty, locked: false, looted: false },
-    monsters: [],
-    isBossFloor: floorNum === config.floors,
-    biomass: 0,
-    lastRegenTurn: 0,
-    famine: false,
-    spawnedSinceFamine: 0,
-    biome: config.biome,
-    difficulty: config.difficulty,
-  };
-  
-  if (floorNum > 1) {
-    const prev = getRelativeFloor(floorNum - 1);
-    floorData.exits.up = prev.levelKey === levelKey
-      ? `${levelKey}_floor_${floorNum - 1}`
-      : `${prev.levelKey}_floor_${prev.relativeFloor}`;
+  if (!state.world.time) {
+    state.world.time = { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0 };
   }
-  
-  if (floorNum < config.floors) {
-    floorData.exits.down = `${levelKey}_floor_${floorNum + 1}`;
+  if (!state.world.weather) {
+    state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild" };
+  }
+  if (!state.world.worldRegistry) {
+    state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: [] };
   } else {
-    const next = getRelativeFloor(floorNum + 1);
-    if (next.levelKey !== levelKey) {
-      floorData.exits.down = `${next.levelKey}_floor_${next.relativeFloor}`;
-    }
+    if (!state.world.worldRegistry.modifiedLocations) state.world.worldRegistry.modifiedLocations = {};
+    if (!Array.isArray(state.world.worldRegistry.activeWorldEvents)) state.world.worldRegistry.activeWorldEvents = [];
   }
-  
-  const monsterCount = Math.min(5, 2 + Math.floor(floorNum / 5));
-  for (let i = 0; i < monsterCount; i++) {
-    const monsterPool = level.monsterPool || config.interactions.map(() => "Unknown");
-    const monsterName = monsterPool[Math.floor(Math.random() * monsterPool.length)];
-    const baseHealth = 20 + floorNum * 10;
-    floorData.monsters.push({
-      name: monsterName,
-      count: 1 + Math.floor(Math.random() * 3),
-      level: Math.max(1, floorNum - 2 + Math.floor(Math.random() * 3)),
-      health: baseHealth,
-      maxHealth: baseHealth,
-      damage: 5 + floorNum * 2,
-    });
-  }
-  
-  const interactionCount = Math.min(3, 1 + Math.floor(floorNum / 10));
-  for (let i = 0; i < interactionCount; i++) {
-    const intName = config.interactions[Math.floor(Math.random() * config.interactions.length)];
-    floorData.interactions.push(intName);
-  }
-  
-  dungeon.generatedFloors[`${levelKey}_floor_${floorNum}`] = floorData;
-  dungeon.lastGenerated = Date.now();
-  return floorData;
 }
 
-function checkLevelTransition(oldFloor, newFloor) {
-  const oldLevel = getRelativeFloor(oldFloor).levelKey;
-  const newLevel = getRelativeFloor(newFloor).levelKey;
-  if (oldLevel !== newLevel) {
-    const config = LABYRINTH_LEVEL_CONFIG[newLevel];
-    return `You have entered the ${config.name} (${config.biome}). The air grows ${config.difficulty >= 5 ? "heavy and oppressive" : "colder and damper"} as you descend.`;
-  }
-  return null;
-}
-
-function travelToLocation(destination) {
-  const currentLoc = getCurrentLocationKey();
-  const destinationLoc = destination.toLowerCase().replace(/\s+/g, "_");
-  const destData = getLocation(destinationLoc);
-  if (!destData) return { success: false, message: "Unknown destination." };
-  
-  const currentData = getLocation(currentLoc);
-  const connection = currentData.exits[destinationLoc] || currentData.exits[destination.toLowerCase()];
-  if (!connection && !destData.exits[currentLoc]) return { success: false, message: "No known path to that location." };
-  
-  state.PS.location = destData.type === "dungeon_entrance" ? "labyrinth" : "overworld";
-  state.PS.playerloc = destinationLoc;
-  destData.flags.discovered = true;
-  if (destData.type === "dungeon_entrance") enterDungeon("labyrinth", 1);
-  
-  return { success: true, message: `You travel to ${destData.name}.`, location: destData };
-}
-
-function enterDungeonFloor(floorNum) {
-  const dungeon = state.world.dungeons["labyrinth"];
-  if (!dungeon) return { success: false, message: "Dungeon not found." };
-  const oldFloor = dungeon.currentFloor || 1;
-  const levelKey = getDungeonLevelForFloor(floorNum);
-  const floorKey = `${levelKey}_floor_${floorNum}`;
-  if (!dungeon.generatedFloors[floorKey]) generateDungeonFloor("labyrinth", levelKey, floorNum);
-  state.PS.playerloc = floorKey;
-  state.PS.location = "labyrinth";
-  dungeon.currentFloor = floorNum;
-  
-  let message = `You arrive at Floor ${floorNum} of the Labyrinth.`;
-  const transitionMsg = checkLevelTransition(oldFloor, floorNum);
-  if (transitionMsg) message += ` ${transitionMsg}`;
-  
-  return { success: true, message, floorData: dungeon.generatedFloors[floorKey] };
-}
-
-function getDungeonLevelForFloor(floorNum) {
-  const dungeon = state.world.dungeons[state.world.currentDungeon];
-  if (!dungeon) return "top_level";
-  for (const levelKey of Object.keys(dungeon.levels)) {
-    if (floorNum <= dungeon.levels[levelKey].floors) return levelKey;
-  }
-  return Object.keys(dungeon.levels)[0];
-}
-
+/**
+ * Adds or updates a location in the Open World map.
+ * @param {Object} locationData - The location configuration.
+ */
 function addLocation(locationData) {
   ensureWorldState();
-  const cleanId = locationData.id.toLowerCase().replace(/\s+/g, "_");
-  state.world.map.locations[cleanId] = {
-    id: cleanId, name: locationData.name || "Unknown Location", type: locationData.type || "wilderness", biome: locationData.biome || "temperate",
-    description: locationData.description || "A mysterious place.", exits: locationData.exits || {}, interactions: locationData.interactions || [],
-    buildings: locationData.buildings || [], monsters: locationData.monsters || [], flags: locationData.flags || { discovered: false, locked: false, looted: false },
-    biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0, dynamicEvents: [], ...locationData
+  if (!locationData || !locationData.id) {
+    console.error("addLocation: locationData must have an 'id' property.");
+    return false;
+  }
+  
+  const locId = locationData.id.toLowerCase().replace(/\s+/g, "_");
+  
+  // Merge with existing location if it exists, otherwise create new
+  state.world.map.LocalLocation[locId] = {
+    id: locId,
+    name: locationData.name || "Unknown Location",
+    type: locationData.type || "wilderness", // town, dungeon, wilderness, etc.
+    biome: locationData.biome || "temperate",
+    description: locationData.description || "A mysterious place.",
+    exits: locationData.exits || {}, // e.g., { north: "safe_haven_market", down: "labyrinth_1" }
+    interactions: locationData.interactions || [], // Array of interactionIds
+    buildings: locationData.buildings || [],       // Array of buildingIds
+    monsters: locationData.monsters || [],         // Array of monster names/types that can spawn here
+    flags: locationData.flags || { discovered: false, locked: false, looted: false },
+    ...locationData // Allow overriding defaults
   };
-  return cleanId;
-}
-
-function connectLocations(fromId, toId, type = "path", distance = 10) {
-  ensureWorldState();
-  const from = state.world.map.locations[fromId.toLowerCase().replace(/\s+/g, "_")];
-  const to = state.world.map.locations[toId.toLowerCase().replace(/\s+/g, "_")];
-  if (!from || !to) return false;
-  if (!from.exits) from.exits = {};
-  if (!to.exits) to.exits = {};
-  from.exits[to.id] = type;
-  to.exits[from.id] = type;
   
-  // Check if connection already exists to avoid duplicates
-  const existingConnection = state.world.map.connections.find(
-    c => c.from === from.id && c.to === to.id && c.type === type
-  );
-  if (!existingConnection) {
-    state.world.map.connections.push({ from: from.id, to: to.id, type, distance });
-  }
   return true;
 }
 
-function generateDungeonLevel(dungeonKey, levelKey) {
-  const dungeon = state.world.dungeons[dungeonKey];
-  const level = dungeon.levels[levelKey];
-  if (!dungeon || !level) return;
-  for (let i = 1; i <= level.floors; i++) generateDungeonFloor(dungeonKey, levelKey, i);
-  dungeon.currentFloor = 1;
-  dungeon.lastGenerated = Date.now();
-}
-
-function enterDungeon(dungeonKey, startingFloor = 1) {
-  ensureWorldState();
-  const dungeon = state.world.dungeons[dungeonKey];
-  if (!dungeon) { console.error(`Dungeon "${dungeonKey}" not found.`); return false; }
-  if (!dungeon.generatedFloors[`${getCurrentDungeonLevel()}_floor_1`]) generateDungeonFloor(dungeonKey, getCurrentDungeonLevel(), 1);
-  state.world.currentDungeon = dungeonKey;
-  state.PS.location = "labyrinth";
-  state.PS.playerloc = `${getCurrentDungeonLevel()}_floor_1`;
-  return true;
-}
-
-function getCurrentDungeonLevel() {
-  const dungeon = state.world.dungeons[state.world.currentDungeon];
-  if (!dungeon) return null;
-  const floor = dungeon.currentFloor || 1;
-  for (const levelKey of Object.keys(dungeon.levels)) {
-    if (floor <= dungeon.levels[levelKey].floors) return levelKey;
-  }
-  return Object.keys(dungeon.levels)[0];
-}
-
-function interactWithObject(interactionId, optionIndex = 0) {
-  const interaction = state.world.registries.interactions[interactionId];
-  if (!interaction || interaction.state !== "active") return { success: false, message: "Nothing happens." };
-  const options = interaction.options || [];
-  const selectedOption = options[optionIndex] || options[0];
-  switch (selectedOption.action) {
-    case "read_notices": return handleReadNotices();
-    case "post_notice": return handlePostNotice();
-    case "shop_buy": return { success: false, message: "Please use the /shop command to purchase items." };
-    case "shop_sell": return { success: false, message: "Selling items is not currently supported." };
-    default: return { success: false, message: "Invalid action." };
-  }
-}
-
-function shopPurchase(itemName) {
-  const merchantInteractions = Object.values(state.world.registries.interactions).filter(i => i.type === "shop" && i.state === "active");
-  for (const merchant of merchantInteractions) {
-    const item = merchant.inventory.find(i => i.name.toLowerCase() === itemName.toLowerCase());
-    if (item) {
-      if (state.PS.gold >= item.price) {
-        state.PS.gold -= item.price;
-        addItem(item);
-        return { success: true, message: `You purchased ${item.name} for ${item.price} gold.` };
-      }
-      return { success: false, message: `You need ${item.price - state.PS.gold} more gold to buy ${item.name}.` };
-    }
-  }
-  return { success: false, message: "Item not available in any shop." };
-}
-
 /**
- * Advance world time by hours (legacy function, kept for compatibility).
- * @deprecated Use advanceWorldTurn(minutes) instead.
+ * Retrieves a location object by its ID.
+ * @param {string} locationId - The ID of the location.
+ * @returns {Object|null} The location object or null if not found.
  */
-function advanceWorldTime(hours = 1) {
-  advanceWorldTurn(hours * 60);
-}
-
-function consumeLocationBiomass(amount) {
-  const key = getCurrentLocationKey();
-  const location = getLocationEntry(key);
-  if (!location) return { ok: false, reason: "no_location" };
-  if (location.biomass + amount > 100) return { ok: false, reason: "over_capacity" };
-  location.biomass += amount;
-  location.spawnedSinceFamine = (location.spawnedSinceFamine || 0) + 1;
-  if (location.biomass >= 100 && !location.famine) {
-    location.famine = true;
-    location.spawnedSinceFamine = Number.MAX_SAFE_INTEGER;
-  }
-  return { ok: true, location };
-}
-
-function regenerateLocationBiomass() {
+function getLocation(locationId) {
   ensureWorldState();
-  for (const loc of Object.values(state.world.map.locations)) {
-    if (loc.biomass > 0) loc.biomass = Math.max(0, loc.biomass - 5);
-    if (loc.famine && loc.biomass <= 0) { loc.famine = false; loc.spawnedSinceFamine = 0; }
-  }
+  if (!locationId) return null;
+  const locId = locationId.toLowerCase().replace(/\s+/g, "_");
+  return state.world.map.LocalLocation[locId] || null;
 }
-
-function getCurrentLocationKey() {
-  if (!state.PS) return "safe_haven";
-  const playerloc = state.PS.playerloc || state.PS.location || "safe_haven";
-  if (playerloc.includes("labyrinth_") && playerloc.includes("_floor_")) return playerloc;
-  return playerloc.toLowerCase().replace(/\s+/g, "_");
-}
-
-function initializeWorld() {
-  ensureWorldState();
-  addLocation({ id: "safe_haven", name: "Safe Haven", type: "town", biome: "temperate", description: "A fortified settlement with shops and services.", exits: { north: "safe_haven_market", south: "labyrinth_entrance", east: "eastern_plains", north2: "northern_mountains" }, interactions: ["town_notice_board", "blacksmith", "merchant", "tavern"], buildings: ["town_hall", "inn", "guild_hall"], monsters: [], flags: { discovered: true, locked: false, looted: false } });
-  addLocation({ id: "labyrinth_entrance", name: "Labyrinth Entrance", type: "dungeon_entrance", biome: "ancient_stone", description: "A massive, ominous stairway descends into darkness.", exits: { north: "safe_haven", down: "labyrinth_top_level_floor_1" }, interactions: ["legion_identification_stone"], buildings: [], monsters: ["Maze Rat", "Chitterling", "Stone Mites"], flags: { discovered: true, locked: false, looted: false } });
-  connectLocations("safe_haven", "labyrinth_entrance", "path", 10);
-  connectLocations("safe_haven", "eastern_plains", "road", 15);
-  connectLocations("safe_haven", "northern_mountains", "trail", 20);
-  
-  // Clean up any duplicate connections that may have accumulated
-  deduplicateConnections();
-}
-
-function deduplicateConnections() {
-  if (!state.world?.map?.connections) return;
-  const seen = new Set();
-  state.world.map.connections = state.world.map.connections.filter(conn => {
-    const key = `${conn.from}|${conn.to}|${conn.type}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function displayWorldState() {
-  const world = state.world;
-  let output = "=== WORLD STATE ===\n";
-  output += `\nTime: Day ${world.time.day}, ${world.time.hour}:${world.time.minute} (${world.time.cyclePhase})\n`;
-  output += `Weather: ${world.weather.current} (Intensity: ${world.weather.intensity}, Temp: ${world.weather.temperature})\n`;
-  output += `\nLocations Discovered: ${Object.keys(world.map.locations).length}\n`;
-  output += `\nActive World Events:\n`;
-  world.activeWorldEvents.forEach(e => { output += `- ${e.message} (Turns: ${e.turnsRemaining})\n`; });
-  output += `\nCurrent Dungeon: ${world.currentDungeon || "None"}\n`;
-  output += `Dungeon Floors Generated: ${Object.values(world.dungeons).reduce((sum, d) => sum + Object.keys(d.generatedFloors).length, 0)}\n`;
-  return output;
-}
-
-// ============================================================================
-// PLAYER-WORLD BRIDGE - Unified system for player<->world interaction
-// ============================================================================
-
-/**
- * PlayerWorldBridge - Single source of truth for player position, inventory,
- * and activity in the world. Handles sync between state.PS and state.world.
- */
-<think>We are given a large codebase that seems to be for a text-based RPG game with a focus on player-world interaction.
- The user wants to change the PlayerWorldBridge to function as a sort of gate system to let text and other code through when things are checked or update the state in a special way.
-
- However, the provided code is very extensive and includes many systems (combat, inventory, world generation, etc.).
- The user's request is vague, but from the context, it seems they want the PlayerWorldBridge to act as a gatekeeper for text and code execution based on certain conditions.
-
- Let's break down the existing PlayerWorldBridge:
-
- The existing PlayerWorldBridge is defined at the end of the code and is an object with methods to sync player position, get current location, etc.
-
- The user's request: "my prompt was really bad i need the bridge to fuction as a sort of gate system to let text and other code threw when things are check or update the state in a speacial way"
-
- This is ambiguous. It might mean that the bridge should conditionally allow certain actions or text to pass through, perhaps based on game state.
-
- Since the user did not specify exactly what they want, I will assume they want to add a gatekeeping mechanism to the PlayerWorldBridge that can block or allow certain actions based on conditions.
-
- However, note that the existing PlayerWorldBridge is already used to sync state and provide context. We might want to extend it to include a gating function.
-
- Let's look at the existing code for the PlayerWorldBridge:
-
- We have a function `rpgCreationGate` that returns { allowed, message } and is used to check if the player can create a character.
-
- We might want to generalize this gating concept for other actions.
-
- Since the user's request is not clear, I will propose a design:
-
- 1. We can add a method to PlayerWorldBridge called `checkGate` that takes a gate name and returns whether the gate is open and a message.
-
- 2. We can define several gates (like the existing RPG_CONFIG_GATE_ENABLED) and then use this method to check them.
-
- 3. Alternatively, we can have a more dynamic system where we can register gates and then check them.
-
- However, the user's code already has a gate for RPG config. They might want to add more gates for other systems.
-
- Let's see what the user might mean by "let text and other code threw when things are check or update the state in a speacial way".
-
- It might be that they want to conditionally execute code based on the state of the game.
-
- Since the user's request is not clear, I will provide a general approach:
-
- We can create a `GateSystem` that can be used to check conditions and then allow or block actions.
-
- But note: the existing code already has a gate for RPG config. We can extend that idea.
-
- However, the user's code is very long and we cannot change everything. We must be cautious.
-
- Let me re-read the user's request: "my prompt was really bad i need the bridge to fuction as a sort of gate system to let text and other code threw when things are check or update the state in a speacial way"
-
- It might be that they want the bridge to act as a filter for text (like censoring or modifying text) and for code execution (like conditionally running code).
-
- But note: the bridge is already used to sync state and provide context. We don't want to break that.
-
- Alternatively, the user might be referring to the `PlayerWorldBridge` as a way to control the flow of information between the player and the world.
-
- Since the request is ambiguous, I will assume the user wants to add a gating mechanism for actions (like using skills, moving, etc.) based on certain conditions.
-
- However, the existing code already has checks for cooldowns, mana, health, etc. in the `useSkill` function.
-
- Maybe the user wants a more centralized gate for all actions?
-
- Let's look at the existing `rpgCreationGate` function:
-
- It checks if the RPG config gate is enabled and if the config card is enabled.
-
- We can create a similar function for other actions, but the user might want a unified system.
-
- Since the user's request is not clear, I will propose a design for a gate system that can be used in multiple places.
-
- We can create a `GateSystem` object that holds a set of gates (each gate is a condition and a message). Then, in various parts of the code, we can check the gate.
-
- But note: the existing code is already structured with many checks. We don't want to duplicate.
-
- Alternatively, we can extend the `PlayerWorldBridge` to have a method that checks a gate and returns a boolean and a message.
-
- However, the user's code already has a gate for RPG creation. We can follow that pattern.
-
- Since the user's request is about the bridge, let's extend the bridge:
-
- We can add a method `checkGate` to the `PlayerWorldBridge` that takes a gate name and returns an object with `allowed` and `message`.
-
- Then, in the code, we can call `PlayerWorldBridge.checkGate('some_gate')` and if not allowed, we can stop the action.
-
- But note: the bridge is already used in many places. We don't want to break existing functionality.
-
- Given the complexity and the fact that the user's request is not clear, I will provide a minimal change:
-
- We will add a `gates` object to the `PlayerWorldBridge` and a method `checkGate` that looks up the gate by name and returns the condition and message.
-
- However, the existing `rpgCreationGate` is a function, not a gate in the bridge. We can move it into the bridge.
-
- Let's restructure:
-
- 1. In the `PlayerWorldBridge` object, we add:
-    - a `gates` object that maps gate names to gate definitions (each gate definition is an object with `condition` and `message`).
-    - a method `checkGate(gateName)` that returns `{ allowed: boolean, message: string }`.
-
- 2. We move the existing `rpgCreationGate` function into the bridge as a gate.
-
- 3. We can then add more gates as needed.
-
- But note: the existing `rpgCreationGate` uses `RPG_CONFIG_GATE_ENABLED` and `getRpgConfig`. We can keep that logic inside the gate.
-
- However, the user might want to define gates in a more data-driven way.
-
- Since the user's request is ambiguous, I will provide a simple implementation:
-
- Let's change the `PlayerWorldBridge` to have:
-
-   gates: {
-     rpgCreation: {
-       condition: function() {
-         if (!RPG_CONFIG_GATE_ENABLED) return true;
-         const cfg = getRpgConfig();
-         return cfg.enabled === true;
-       },
-       message: `⚙️ RPG is disabled. Open the "${RPG_CONFIG_CARD_KEYS}" story card, set "> Enabled: true" and choose a Game Mode (open-world | rogue-like), then type /new player again.`
-     }
-   },
-
-   checkGate(gateName) {
-     const gate = this.gates[gateName];
-     if (!gate) return { allowed: true, message: '' };
-     const allowed = gate.condition();
-     return { allowed, message: allowed ? '' : gate.message };
-   }
-
- Then, in the code where we want to check the gate, we can do:
-
-   const gateResult = PlayerWorldBridge.checkGate('rpgCreation');
-   if (!gateResult.allowed) {
-     // show the message and stop
-   }
-
- But note: the existing `rpgCreationGate` is called in `createCharacter`. We can replace that call with the bridge's check.
-
- However, the user might have other gates in mind.
-
- Since the user's request is not clear, I will stop here and provide a basic implementation of the gate system in the bridge.
-
- But note: the user's code is very long and we are only allowed to output the changed code? The user said "change" but didn't specify what to change.
-
- Since the user's request is ambiguous, I will output the entire code with the changes for the bridge.
-
- However, note that the user's code is very long and we cannot output the entire code again. We must only output the changed parts.
-
- But the user's message is the entire code. They want to change the bridge.
-
- Let me re-read: "Thing i am working with and needing to change: ... This is the think i was working with but my prompt was really bad i need the bridge to fuction as a sort of gate system to let text and other code threw when things are check or update the state in a speacial way."
-
- It seems they want to change the bridge to be a gate system.
-
- Since the original bridge is already defined, I will change it to include a gate system.
-
- However, note that the bridge is defined at the end of the code. We are going to change that definition.
-
- Let's change the `PlayerWorldBridge` object to include:
-
-   gates: {
-     rpgCreation: {
-       condition: function() {
-         if (!RPG_CONFIG_GATE_ENABLED) return true;
-         const cfg = getRpgConfig();
-         return cfg.enabled === true;
-       },
-       message: `⚙️ RPG is disabled. Open the "${RPG_CONFIG_CARD_KEYS}" story card, set "> Enabled: true" and choose a Game Mode (open-world | rogue-like), then type /new player again.`
-     }
-   },
-
-   checkGate(gateName) {
-     const gate = this.gates[gateName];
-     if (!gate) {
-       console.warn(`Gate "${gateName}" not found.`);
-       return { allowed: true, message: '' };
-     }
-     const allowed = gate.condition();
-     return { allowed, message: allowed ? '' : gate.message };
-   }
-
- Then, in the `createCharacter` function, we replace the call to `rpgCreationGate` with `PlayerWorldBridge.checkGate('rpgCreation')`.
-
- But note: the `rpgCreationGate` function is defined above and used in `createCharacter`. We are going to remove that function and use the bridge's method.
-
- However, the user might have other places that use `rpgCreationGate`. We must change all of them.
-
- Since the user's code is long, I will only show the changes to the bridge and the `createCharacter` function.
-
- But note: the user's code also has a function `rpgCreationGate` that is used in `createCharacter`. We are going to remove that function and use the bridge.
-
- Let's do:
-
- 1. Remove the function `rpgCreationGate` (or keep it but have it call the bridge?).
-
- 2. Change `createCharacter` to use `PlayerWorldBridge.checkGate('rpgCreation')`.
-
- However, the user might have other gates in the future. We are setting up a system.
-
- Since the user's request is about the bridge, I will change the bridge and then update the `createCharacter` function.
-
- But note: the user's code is very long and we cannot output the entire code. We are only allowed to output the changed parts?
-
- The user's message is the entire code. They expect the entire code with changes? Or just the changed parts?
-
- Since the user said "change", I think they want the entire code with the changes. But that is too long.
-
- Alternatively, the user might have provided the entire code so we know the context, and we are to output only the changed parts.
-
- However, the instruction says: "change the bridge to function as a sort of gate system"
-
- So I will output the entire code with the bridge changed.
-
- But note: the code is very long. I will output the entire code with the changes, but that might be too much.
-
- Alternatively, I can output only the changed parts and the user can integrate them.
-
- Since the user provided the entire code, I think they want the entire code with the changes.
-
- However, due to the length, I will output the entire code with the changes, but note that the code is already very long.
-
- Let me summarize the changes:
-
- 1. In the `PlayerWorldBridge` object, add a `gates` object and a `checkGate` method.
-
- 2. Remove the `rpgCreationGate` function (or keep it but have it call the bridge?).
-
- 3. In `createCharacter`, replace the call to `rpgCreationGate` with `PlayerWorldBridge.checkGate('rpgCreation')`.
-
- 4. Also, we must define the gate in the bridge.
-
- But note: the bridge is defined at the end of the code. We are going to change that definition.
-
- Since the code is long, I will output the entire code with the changes.
-
- However, note that the user's code has many other functions and systems. We are only changing the bridge and the `createCharacter` function.
-
- But wait, the user might have other gates in mind. We are only setting up one gate.
-
- Since the user's request is ambiguous, I will set up the gate system and then the user can add more gates as needed.
-
- Let's write the code for the bridge with the gate system.
-
- However, note that the bridge is already defined. We are going to change it.
-
- Due to the length, I will only show the changed parts of the bridge and the `createCharacter` function.
-
- But the user might expect the entire code. Since the user provided the entire code, I think they want the entire code with the changes.
-
- I will output the entire code with the changes, but note that it is very long.
-
- Alternatively, I can output the changed parts and the user can copy-paste.
-
- Since the instruction says "change the bridge", I will change the bridge and the `createCharacter` function, and then output the entire code.
-
- However, note that the user's code is already very long and we are only making a few changes.
-
- Let's do:
-
- 1. In the bridge definition, add the `gates` and `checkGate` method.
-
- 2. Remove the `rpgCreationGate` function (or keep it but have it call the bridge?).
-
- 3. In `createCharacter`, replace the call to `rpgCreationGate` with `PlayerWorldBridge.checkGate('rpgCreation')`.
-
- But note: the `rpgCreationGate` function is defined above and used in `createCharacter`. We are going to remove that function and use the bridge.
-
- However, the user might have other places that use `rpgCreationGate`. We must change all of them.
-
- Since the user's code is long, I will only change the `createCharacter` function and remove the `rpgCreationGate` function.
-
- Let's write the code.
-
- Due to the length, I will output the entire code with the changes, but note that the code is already provided by the user.
-
- I think the user wants the entire code with the changes, so I will output the entire code with the bridge changed.
-
- However, note that the user's code has many other functions. We are only changing the bridge and the `createCharacter` function.
-
- But wait, the user might have other gates. We are only setting up one gate.
-
- Since the user's request is ambiguous, I will set up the gate system and then the user can add more gates.
-
- Let's code accordingly.
-
- Due to the character limit, I cannot output the entire code. I will output the changed parts and the user can integrate.
-
- But the user provided the entire code, so they might expect the entire code with changes.
-
- I will output the entire code with the changes, but note that it is very long.
-
- Alternatively, I can output the changed parts and the user can copy-paste.
-
- Since the instruction says "change the bridge", I will change the bridge and the `createCharacter` function, and then output the entire code.
-
- However, note that the user's code is already very long and we are only making a few changes.
-
- I will output the entire code with the changes, but note that the code is already provided by the user.
-
- Let me re-read: the user provided the entire code and said "Thing i am working with and needing to change: ... This is the think i was working with but my prompt was really bad i need the bridge to fuction as a sort of gate system to let text and other code threw when things are check or update the state in a speacial way."
-
- So they want to change the bridge.
-
- I will change the bridge and the `createCharacter` function.
-
- But note: the bridge is defined at the end of the code. I will change that definition.
-
- Let's write the code for the bridge with the gate system.
-
- Due to the length, I will output the entire code with the changes.
-
- However, note that the user's code is already very long and we are only making a few changes.
-
- I will output the entire code with the changes, but note that the code is already provided by the user.
-
- Since the user provided the entire code, I think they want the entire code with the changes.
-
- I will now output the entire code with the changes.
-
- But note: the code is very long and might exceed the token limit.
-
- Alternatively, I can output only the changed parts and the user can integrate.
-
- Since the user provided the entire code, I think they want the entire code with the changes.
-
- I will output the entire code with the changes.
-
- However, note that the user's code is already very long and we are only making a few changes.
-
- I will output the entire code with the changes, but note that the code is already provided by the user.
-
- Let's do it.</think>Looking at your code, I understand you want the `PlayerWorldBridge` to function as a gate system that controls what text/code gets through based on checks and special state updates. Here's a refactored version with a proper gate system:
-
-```javascript
-// ============================================================================
-// PLAYER-WORLD BRIDGE - Unified system for player<->world interaction with gate control
-// ============================================================================
-
-const PlayerWorldBridge = {
-  // Cache for derived state to avoid recomputation
-  _cache: {
-    currentLocation: null,
-    currentLocationKey: null,
-    locationExits: null,
-    nearbyMonsters: null,
-    availableInteractions: null,
-    lastSyncTurn: -1,
-    gateChecks: {} // Store results of gate checks
-  },
-
-  // Registry of gates that can block or modify behavior
-  gates: {
-    rpgCreation: {
-      condition: function() {
-        if (!RPG_CONFIG_GATE_ENABLED) return { allowed: true, message: null };
-        const cfg = getRpgConfig();
-        if (cfg.enabled === true) return { allowed: true, message: null };
-        return {
-          allowed: false,
-          message:
-            `⚙️ RPG is disabled. Open the "${RPG_CONFIG_CARD_KEYS}" story card, set ` +
-            `"> Enabled: true" and choose a Game Mode (open-world | rogue-like), then type /new player again.`,
-        };
-      }
-    },
-    // Add more gates here as needed
-    combatEnabled: {
-      condition: function() {
-        return { allowed: state.PS && state.PS.combatstatus !== "None", message: null };
-      }
-    },
-    survivalEnabled: {
-      condition: function() {
-        return { allowed: isSurvivalOn(), message: null };
-      }
-    },
-    // Example: A gate that checks if player has a specific item
-    hasKeyItem: {
-      condition: function(itemName) {
-        if (!state.PS || !state.PS.inventory) return { allowed: false, message: "No inventory found" };
-        const hasItem = state.PS.inventory.some(item => 
-          item.name && item.name.toLowerCase() === itemName.toLowerCase()
-        );
-        return { allowed: hasItem, message: hasItem ? null : `You don't have the ${itemName}` };
-      }
-    }
-  },
-
-  /**
-   * Check a gate by name with optional parameters
-   * @param {string} gateName - Name of the gate to check
-   * @param {Object} params - Optional parameters for the gate condition
-   * @returns {Object} { allowed: boolean, message: string|null }
-   */
-  checkGate(gateName, params = {}) {
-    // Check cache first
-    const cacheKey = `${gateName}_${JSON.stringify(params)}`;
-    if (this._cache.gateChecks[cacheKey]) {
-      return this._cache.gateChecks[cacheKey];
-    }
-
-    const gate = this.gates[gateName];
-    if (!gate) {
-      console.warn(`Gate "${gateName}" not found. Allowing by default.`);
-      return { allowed: true, message: null };
-    }
-
-    // Execute condition with params
-    const result = gate.condition(params);
-    this._cache.gateChecks[cacheKey] = result;
-    return result;
-  },
-
-  /**
-   * Clear gate check cache (call when game state changes significantly)
-   */
-  clearGateCache() {
-    this._cache.gateChecks = {};
-  },
-
-  /**
-   * Sync player position between PS and world.
-   * Call this whenever player moves or world changes.
-   */
-  syncPlayerPosition() {
-    if (!state.PS || !state.world) return;
-    
-    const key = this.getPlayerLocationKey();
-    const location = this.getLocation(key);
-    
-    if (location) {
-      // Update PS from world (authoritative for location data)
-      state.PS.playerloc = location.id;
-      state.PS.location = location.type === "dungeon_entrance" || location.type === "dungeon" 
-        ? "labyrinth" 
-        : location.type === "town" || location.type === "town_sub"
-          ? "safe_haven"
-          : "overworld";
-      
-      // Mark location as discovered if not already
-      if (!location.flags.discovered) {
-        location.flags.discovered = true;
-        state.world.worldRegistry.modifiedLocations[location.id] = true;
-      }
-    }
-    
-    // Invalidate cache
-    this._invalidateCache();
-  },
-
-  /**
-   * Get the normalized location key for the player's current position.
-   */
-  getPlayerLocationKey() {
-    if (!state.PS) return "safe_haven";
-    const playerloc = state.PS.playerloc || state.PS.location || "safe_haven";
-    // Already a specific floor key
-    if (playerloc.includes("labyrinth_") && playerloc.includes("_floor_")) {
-      return playerloc.toLowerCase().replace(/\s+/g, "_");
-    }
-    return playerloc.toLowerCase().replace(/\s+/g, "_");
-  },
-
-  /**
-   * Get the rich location object for the player's current position.
-   */
-  getCurrentLocation() {
-    if (this._cache.currentLocation && this._cache.lastSyncTurn === state.world?.time?.turn) {
-      return this._cache.currentLocation;
-    }
-    
-    const key = this.getPlayerLocationKey();
-    const location = this.getLocation(key);
-    this._cache.currentLocation = location;
-    this._cache.currentLocationKey = key;
-    this._cache.lastSyncTurn = state.world?.time?.turn ?? 0;
-    return location;
-  },
-
-  /**
-   * Get a location by key, with fallback generation.
-   */
-  getLocation(key) {
-    ensureWorldState();
-    const cleanKey = key.toLowerCase().replace(/\s+/g, "_");
-    
-    // Check dungeon floors first
-    const floorMatch = cleanKey.match(/^labyrinth_(top_level|middle_level|low_level|sub_level)_floor_(\d+)$/);
-    if (floorMatch) {
-      return this.getDungeonFloor(floorMatch[1], floorMatch[1], parseInt(floorMatch[2], 10));
-    }
-    
-    // Check world locations
-    if (state.world.map.locations[cleanKey]) {
-      return state.world.map.locations[cleanKey];
-    }
-    
-    // Generate if needed
-    return this.generateLocation(cleanKey);
-  },
-
-  /**
-   * Get dungeon floor data, generating if necessary.
-   */
-  getDungeonFloor(dungeonKey, levelKey, floorNum) {
-    const dungeon = state.world.dungeons[dungeonKey];
-    if (!dungeon || !dungeon.levels[levelKey]) return null;
-    
-    const floorKey = `${levelKey}_floor_${floorNum}`;
-    if (!dungeon.generatedFloors[floorKey]) {
-      this.generateDungeonFloor(dungeonKey, levelKey, floorNum);
-    }
-    return dungeon.generatedFloors[floorKey];
-  },
-
-  /**
-   * Generate a dungeon floor.
-   */
-  generateDungeonFloor(dungeonKey, levelKey, floorNum) {
-    const dungeon = state.world.dungeons[dungeonKey];
-    const level = dungeon.levels[levelKey];
-    
-    const floorData = {
-      id: `${levelKey}_floor_${floorNum}`,
-      displayName: `Floor ${floorNum} of ${level.name}`,
-      zoneType: "dungeon",
-      subArea: level.name,
-      exits: {},
-      interactions: [],
-      entities: [],
-      flags: { discovered: false, danger: level.difficulty, locked: false, looted: false },
-      monsters: [],
-      isBossFloor: floorNum === level.floors,
-      biomass: 0,
-      lastRegenTurn: 0,
-      famine: false,
-      spawnedSinceFamine: 0
-    };
-    
-    if (floorNum > 1) floorData.exits.up = `${levelKey}_floor_${floorNum - 1}`;
-    if (floorNum < level.floors) floorData.exits.down = `${levelKey}_floor_${floorNum + 1}`;
-    
-    const monsterCount = Math.min(5, 2 + Math.floor(floorNum / 5));
-    for (let i = 0; i < monsterCount; i++) {
-      const monsterPool = level.monsterPool || ["Goblin", "Skeleton", "Wolf"];
-      const monster = monsterPool[Math.floor(Math.random() * monsterPool.length)];
-      floorData.monsters.push({ 
-        name: monster, 
-        count: 1 + Math.floor(Math.random() * 3), 
-        level: Math.max(1, floorNum - 2 + Math.floor(Math.random() * 3)), 
-        health: 20 + floorNum * 10, 
-        maxHealth: 20 + floorNum * 10, 
-        damage: 5 + floorNum * 2 
-      });
-    }
-    
-    const possibleInteractions = ["campfire", "treasure_chest", "altar", "fountain", "lore_stone"];
-    const interactionCount = Math.min(3, 1 + Math.floor(floorNum / 10));
-    for (let i = 0; i < interactionCount; i++) {
-      floorData.interactions.push(possibleInteractions[Math.floor(Math.random() * possibleInteractions.length)]);
-    }
-    
-    dungeon.generatedFloors[`${levelKey}_floor_${floorNum}`] = floorData;
-    dungeon.lastGenerated = Date.now();
-    return floorData;
-  },
-
-  /**
-   * Generate a new world location.
-   */
-  generateLocation(locationId) {
-    const baseLocations = {
-      "eastern_plains": { name: "Eastern Plains", type: "wilderness", biome: "grassland", description: "Vast open plains with tall grass and scattered trees.", exits: { west: "safe_haven", north: "ancient_ruins" }, monsters: ["Giant Spider", "Wolf", "Bandit"], interactions: ["berry_bush", "ancient_statue"] },
-      "northern_mountains": { name: "Northern Mountains", type: "wilderness", biome: "mountain", description: "Rugged mountain paths and rocky cliffs.", exits: { south: "safe_haven", north: "mountain_pass" }, monsters: ["Mountain Lion", "Eagle", "Ice Golem"], interactions: ["mountain_spring", "cave_entrance"] },
-      "ancient_ruins": { name: "Ancient Ruins", type: "dungeon_entrance", biome: "ruins", description: "Crumbling stone structures half-swallowed by the earth.", exits: { south: "eastern_plains", down: "ruins_floor_1" }, monsters: ["Skeleton", "Ghoul", "Wraith"], interactions: ["broken_altar", "sealed_tomb"] },
-      "mountain_pass": { name: "Mountain Pass", type: "wilderness", biome: "mountain", description: "A narrow path through jagged peaks.", exits: { south: "northern_mountains", east: "frost_caves" }, monsters: ["Ice Golem", "Yeti", "Frost Wolf"], interactions: ["frozen_shrine", "avalanche_path"] }
-    };
-    
-    if (baseLocations[locationId]) {
-      state.world.map.locations[locationId] = {
-        ...baseLocations[locationId],
-        id: locationId,
-        buildings: [],
-        flags: { discovered: false, locked: false, looted: false },
-        biomass: 0,
-        lastRegenTurn: 0,
-        famine: false,
-        spawnedSinceFamine: 0,
-        dynamicEvents: []
-      };
-      return state.world.map.locations[locationId];
-    }
-    
-    // Generic fallback
-    state.world.map.locations[locationId] = {
-      id: locationId,
-      name: locationId.replace(/_/g, " ").split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
-      type: "wilderness",
-      biome: "temperate",
-      description: `The ${locationId} area.`,
-      exits: { west: "safe_haven" },
-      monsters: ["Giant Rat", "Wolf", "Bandit"],
-      interactions: ["berry_bush", "old_tree"],
-      buildings: [],
-      flags: { discovered: false, locked: false, looted: false },
-      biomass: 0,
-      lastRegenTurn: 0,
-      famine: false,
-      spawnedSinceFamine: 0,
-      dynamicEvents: []
-    };
-    return state.world.map.locations[locationId];
-  },
-
-  /**
-   * Get available exits from current location.
-   */
-  getAvailableExits() {
-    const loc = this.getCurrentLocation();
-    if (!loc || !loc.exits) return [];
-    return Object.entries(loc.exits).map(([dir, target]) => ({
-      direction: dir,
-      targetId: target,
-      targetName: this.getLocation(target)?.name || target,
-      type: typeof target === "object" ? target.type : "path"
-    }));
-  },
-
-  /**
-   * Get monsters at current location.
-   */
-  getCurrentMonsters() {
-    if (this._cache.nearbyMonsters && this._cache.lastSyncTurn === state.world?.time?.turn) {
-      return this._cache.nearbyMonsters;
-    }
-    
-    const loc = this.getCurrentLocation();
-    if (!loc || !loc.monsters) return [];
-    
-    const monsters = loc.monsters.map(m => 
-      typeof m === "string" ? { name: m } : m
-    );
-    
-    this._cache.nearbyMonsters = monsters;
-    return monsters;
-  },
-
-  /**
-   * Get available interactions at current location.
-   */
-  getAvailableInteractions() {
-    if (this._cache.availableInteractions && this._cache.lastSyncTurn === state.world?.time?.turn) {
-      return this._cache.availableInteractions;
-    }
-    
-    const loc = this.getCurrentLocation();
-    if (!loc || !loc.interactions) return [];
-    
-    const interactions = loc.interactions.map(intId => {
-      const registry = state.world.registries.interactions[intId];
-      return registry ? { id: intId, ...registry } : { id: intId, name: intId.replace(/_/g, " ") };
-    });
-    
-    this._cache.availableInteractions = interactions;
-    return interactions;
-  },
-
-  /**
-   * Get player's inventory with world context (items in current location, etc).
-   */
-  getPlayerInventory() {
-    if (!state.PS) return { items: [], containers: {} };
-    return {
-      items: state.PS.inventory || [],
-      containers: state.PS.containers || { main: state.PS.inventory || [], materials: [], skillStones: [], artifacts: [] },
-      gold: state.PS.gold || 0,
-      capacity: state.PS.inventoryMaxSize || 30
-    };
-  },
-
-  /**
-   * Get player's equipped items.
-   */
-  getEquippedItems() {
-    if (!state.PS) return {};
-    return state.PS.equipped || {};
-  },
-
-  /**
-   * Get player stats summary.
-   */
-  getPlayerStats() {
-    if (!state.PS) return {};
-    const eff = calculateEffectiveStats?.() || {};
-    return {
-      name: state.PS.Name,
-      class: state.PS.Class,
-      level: state.PS.level || 1,
-      health: state.PS.health || 0,
-      maxHealth: state.PS.maxHealth || 0,
-      mana: state.PS.mana || 0,
-      maxMana: state.PS.maxMana || 0,
-      gold: state.PS.gold || 0,
-      location: state.PS.playerloc,
-      region: state.PS.location,
-      combatStatus: state.PS.combatstatus,
-      effectiveStats: eff
-    };
-  },
-
-  /**
-   * Check if player can travel to a destination.
-   */
-  canTravelTo(destination) {
-    const current = this.getCurrentLocation();
-    if (!current) return { can: false, reason: "unknown_location" };
-    
-    const destKey = destination.toLowerCase().replace(/\s+/g, "_");
-    const hasExit = current.exits[destKey] || current.exits[destination.toLowerCase()];
-    const destLoc = this.getLocation(destKey);
-    
-    if (!hasExit && !destLoc?.exits?.[current.id]) {
-      return { can: false, reason: "no_path" };
-    }
-    
-    return { can: true, destination: destLoc };
-  },
-
-  /**
-   * Move player to a new location.
-   */
-  travelTo(destination) {
-    const check = this.canTravelTo(destination);
-    if (!check.can) return { success: false, message: `Cannot travel there: ${check.reason}` };
-    
-    const destKey = destination.toLowerCase().replace(/\s+/g, "_");
-    const destLoc = check.destination || this.getLocation(destKey);
-    
-    // Update PS
-    state.PS.playerloc = destLoc.id;
-    state.PS.location = destLoc.type === "dungeon_entrance" ? "labyrinth" : "overworld";
-    
-    // Advance time
-    advanceWorldTurn(15); // 15 minutes
-
-    // Sync
-    this.syncPlayerPosition();
-    
-    // Check for events at new location
-    const events = this.checkLocationEvents(destLoc);
-    
-    return { 
-      success: true, 
-      message: `You travel to ${destLoc.name}.`,
-      location: destLoc,
-      events
-    };
-  },
-
-  /**
-   * @deprecated Use advanceWorldTurn(minutes) instead.
-   */
-  advanceWorldTimeMinutes(minutes = 15) {
-    advanceWorldTurn(minutes);
-  },
-
-  /**
-   * Check for dynamic events at a location.
-   */
-  checkLocationEvents(location) {
-    const events = [];
-    if (!location) return events;
-    ensureWorldState();
-
-    // Check active world events
-    const activeEvent = state.world.activeWorldEvents.find(e => e.locationId === location.id);
-    if (activeEvent) {
-      events.push({
-        type: "world_event",
-        eventId: activeEvent.eventId,
-        message: activeEvent.message,
-        turnsRemaining: activeEvent.turnsRemaining
-      });
-      return events;
-    }
-
-    // Chance of a new event on arrival (same roll/cap rules as generateWorldEvents)
-    const eventDef = rollWorldEventForLocation(location);
-    const started = eventDef ? applyWorldEventToLocation(location, eventDef) : null;
-    if (started) {
-      events.push({ type: "new_event", eventId: started.eventId, message: started.message, turnsRemaining: started.turnsRemaining });
-    }
-
-    return events;
-  },
-
-  /**
-   * Get context string for AI prompt about current situation.
-   */
-  getContextString(maxLength = 500) {
-    const loc = this.getCurrentLocation();
-    const stats = this.getPlayerStats();
-    const exits = this.getAvailableExits();
-    const monsters = this.getCurrentMonsters();
-    const interactions = this.getAvailableInteractions();
-    
-    let ctx = "";
-    if (loc) {
-      ctx += `Location: ${loc.name} (${loc.type}, ${loc.biome}). `;
-      ctx += loc.description + ". ";
-      if (exits.length > 0) {
-        ctx += `Exits: ${exits.map(e => `${e.direction}->${e.targetName}`).join(", ")}. `;
-      }
-      if (monsters.length > 0) {
-        ctx += `Monsters: ${monsters.map(m => m.name).join(", ")}. `;
-      }
-      if (interactions.length > 0) {
-        ctx += `Interactions: ${interactions.map(i => i.name).join(", ")}. `;
-      }
-    }
-    
-    ctx += `Player: ${stats.name} (${stats.class} Lv${stats.level}), HP ${stats.health}/${stats.maxHealth}, Mana ${stats.mana}/${stats.maxMana}. `;
-    ctx += `Combat: ${stats.combatStatus}. `;
-    
-    return ctx.slice(0, maxLength);
-  },
-
-  /**
-   * Get action context for the current turn (what player is doing).
-   */
-  getActionContext() {
-    return {
-      intent: state.PlayerActions?.[0] || state.PlayerAction || null,
-      prompt: state.PlayerActionPrompt || "",
-      location: this.getCurrentLocation()?.id || "unknown",
-      time: state.world?.time ? { turn: state.world.time.turn, phase: state.world.time.cyclePhase } : null
-    };
-  },
-
-  /**
-   * Invalidate cached derived state.
-   */
-  _invalidateCache() {
-    this._cache.currentLocation = null;
-    this._cache.currentLocationKey = null;
-    this._cache.locationExits = null;
-    this._cache.nearbyMonsters = null;
-    this._cache.availableInteractions = null;
-    this.clearGateCache();
-  },
-
-  /**
-   * Force a full resync.
-   */
-  resync() {
-    this._invalidateCache();
-    this.syncPlayerPosition();
-  }
-};
-
-// Make globally accessible
-globalThis.PlayerWorldBridge = PlayerWorldBridge;
-
-// Backward compatibility helpers
-function getPlayerWorldContext() {
-  return PlayerWorldBridge.getContextString();
-}
-
-function getPlayerLocation() {
-  return PlayerWorldBridge.getCurrentLocation();
-}
-
-function getPlayerExits() {
-  return PlayerWorldBridge.getAvailableExits();
-}
-
-function getPlayerMonsters() {
-  return PlayerWorldBridge.getCurrentMonsters();
-}
-
-function getPlayerInteractions() {
-  return PlayerWorldBridge.getAvailableInteractions();
-}
-
-function canPlayerTravelTo(destination) {
-  return PlayerWorldBridge.canTravelTo(destination);
-}
-
-function playerTravelTo(destination) {
-  return PlayerWorldBridge.travelTo(destination);
-}
-
-// Update createCharacter to use the gate system
-function createCharacter() {
-  // Safeguard: never start creation while the RPG config is disabled.
-  const gateResult = PlayerWorldBridge.checkGate('rpgCreation');
-  if (!gateResult.allowed) {
-    return { 
-      error: true, 
-      message: gateResult.message || "RPG creation is currently blocked." 
-    };
-  }
-  
-  if (state.Players === undefined) state.Players = {};
-  state.tempCharacter = createPlayerState();
-  initPlayerContainers(state.tempCharacter);
-  state.requesting = null;
-  state.creationStep = 0;
-  return { error: false, message: "Character creation started" };
-}
-
-// Example of how to use gates in other parts of the code:
-function useSkillWithGateCheck(skillName, text) {
-  // Check if combat is enabled before allowing skill use
-  const combatGate = PlayerWorldBridge.checkGate('combatEnabled');
-  if (!combatGate.allowed) {
-    return [false, text]; // Don't spend mana/cooldown if gate blocked
-  }
-  
-  // Continue with normal skill usage...
-  return useSkill(skillName, text);
-}
-
-// Clear gate cache when significant state changes occur
-function onSignificantStateChange() {
-  PlayerWorldBridge.clearGateCache();
-}
-
-
-/**How to use this system:**
-
-1. **Check a gate before allowing an action:**
-```javascript
-const gateResult = PlayerWorldBridge.checkGate('hasKeyItem', { itemName: 'Ancient Key' });
-if (!gateResult.allowed) {
-  state.logMessages.Output.push(gateResult.message);
-  return;
-}
-*/
 
 /**
  * Gets the player's current rich location object based on state.PS.playerloc or state.PS.location.
@@ -10766,11 +8619,11 @@ if (!gateResult.allowed) {
 function getCurrentLocation() {
   if (!state.PS) return null;
   ensureWorldState();
-
+  
   // Prefer playerloc (specific area), fallback to location (general area)
   const targetLoc = state.PS.playerloc || state.PS.location;
   if (!targetLoc) return null;
-
+  
   return getLocation(targetLoc);
 }
 
@@ -10782,9 +8635,7 @@ function getCurrentLocation() {
 function addInteraction(locationId, interactionData) {
   ensureWorldState();
   if (!interactionData || !interactionData.id) {
-    console.error(
-      "addInteraction: interactionData must have an 'id' property.",
-    );
+    console.error("addInteraction: interactionData must have an 'id' property.");
     return false;
   }
 
@@ -10798,7 +8649,7 @@ function addInteraction(locationId, interactionData) {
     type: interactionData.type || "object", // npc, object, event, loot
     description: interactionData.description || "",
     state: interactionData.state || "active", // active, completed, destroyed, hidden
-    ...interactionData,
+    ...interactionData
   };
 
   // Link to location if it exists
@@ -10809,10 +8660,8 @@ function addInteraction(locationId, interactionData) {
     }
     return true;
   }
-
-  console.warn(
-    `addInteraction: Location '${locId}' not found. Interaction created in registry but not linked.`,
-  );
+  
+  console.warn(`addInteraction: Location '${locId}' not found. Interaction created in registry but not linked.`);
   return true;
 }
 
@@ -10822,9 +8671,8 @@ function addInteraction(locationId, interactionData) {
  * @returns {Object} Result object with success status and message.
  */
 function movePlayer(direction) {
-  if (!state.PS)
-    return { success: false, message: "Player state not initialized." };
-
+  if (!state.PS) return { success: false, message: "Player state not initialized." };
+  
   const currentLoc = getCurrentLocation();
   if (!currentLoc) {
     return { success: false, message: "You are in an undefined location." };
@@ -10834,25 +8682,21 @@ function movePlayer(direction) {
   const nextLocId = currentLoc.exits[dir];
 
   if (!nextLocId) {
-    return {
-      success: false,
-      message: `You cannot go ${dir} from here. Available exits: ${Object.keys(currentLoc.exits).join(", ") || "none"}.`,
+    return { 
+      success: false, 
+      message: `You cannot go ${dir} from here. Available exits: ${Object.keys(currentLoc.exits).join(", ") || "none"}.` 
     };
   }
 
   const targetLoc = getLocation(nextLocId);
   if (!targetLoc) {
-    return {
-      success: false,
-      message: `The path to ${nextLocId} leads to an uncharted void (Location data missing).`,
-    };
+    return { success: false, message: `The path to ${nextLocId} leads to an uncharted void (Location data missing).` };
   }
 
   // Update player position
   state.PS.playerloc = targetLoc.id;
-  state.PS.location =
-    targetLoc.type === "dungeon" ? "labyrinth" : state.PS.location; // Auto-update broad location if needed
-
+  state.PS.location = targetLoc.type === "dungeon" ? "labyrinth" : state.PS.location; // Auto-update broad location if needed
+  
   // Mark as discovered if not already
   if (!targetLoc.flags.discovered) {
     targetLoc.flags.discovered = true;
@@ -10872,40 +8716,201 @@ function movePlayer(direction) {
     }
   }
 
-  return {
-    success: true,
+  return { 
+    success: true, 
     message: `You travel ${dir} and arrive at: ${targetLoc.name}.`,
-    location: targetLoc,
+    location: targetLoc
   };
 }
 
+/**
+ * Seeds a basic default Open World map for testing and initial gameplay.
+ * Call this once during game initialization or character creation finalization.
+ */
+
+  // Default Open World
+function initializeDefaultOpenWorld() {
+  ensureWorldState();
+
+  // 1. Safe Haven (Hub)
+  addLocation({
+    id: "safe_haven",
+    name: "Safe Haven",
+    type: "town",
+    biome: "temperate",
+    description: "A fortified settlement offering rest, trade, and preparation for the labyrinth.",
+    exits: {
+      north: "safe_haven_market",
+      south: "labyrinth_entrance"
+    },
+    interactions: ["guard_gate", "notice_board", "innkeeper"],
+    buildings: ["tavern", "blacksmith", "general_store"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("safe_haven", {
+    id: "notice_board",
+    name: "Adventurer's Notice Board",
+    type: "object",
+    description: "A wooden board covered in requests for monster cores and exploration.",
+    state: "active"
+  });
+
+  // 2. Safe Haven Market
+  addLocation({
+    id: "safe_haven_market",
+    name: "Safe Haven Market",
+    type: "town_sub",
+    biome: "temperate",
+    description: "A bustling courtyard where merchants sell supplies and adventurers trade loot.",
+    exits: {
+      south: "safe_haven"
+    },
+    interactions: ["merchant_supplies", "merchant_potions"],
+    buildings: ["general_store"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  // 3. Labyrinth Entrance
+  addLocation({
+    id: "labyrinth_entrance",
+    name: "Labyrinth Entrance",
+    type: "dungeon_entrance",
+    biome: "stone",
+    description: "A massive, ominous stairway leading down into the earth. The air grows cold.",
+    exits: {
+      north: "safe_haven",
+      down: "labyrinth_top_level"
+    },
+    interactions: ["legion_identification_stone"],
+    buildings: [],
+    monsters: ["Maze Rat", "Gloom Spider"], 
+    flags: { discovered: true, locked: false }
+  });
+
+  // 4. Labyrinth Top Level
+  addLocation({
+    id: "labyrinth_top_level",
+    name: "Labyrinth: Top Level",
+    type: "dungeon",
+    biome: "cave",
+    description: "The upper echelons of the labyrinth. Faint light filters from above, but shadows stretch long.",
+    exits: {
+      up: "labyrinth_entrance",
+      north: "labyrinth_middle_level",
+      east: "labyrinth_side_cavern"
+    },
+    interactions: ["abandoned_campfire"],
+    buildings: [],
+    monsters: ["Maze Rat", "Gloom Spider", "Hollow Skeleton", "Goblin"],
+    flags: { discovered: false, locked: false }
+  });
+
+  // 5. Labyrinth Side Cavern (Example of a branching path)
+  addLocation({
+    id: "labyrinth_side_cavern",
+    name: "Labyrinth: Side Cavern",
+    type: "dungeon",
+    biome: "cave",
+    description: "A damp, echoing cavern with strange glowing fungi on the walls.",
+    exits: {
+      west: "labyrinth_top_level"
+    },
+    interactions: ["glowing_fungi_patch", "hidden_chest"],
+    buildings: [],
+    monsters: ["Sludge Crawler", "Cave Tick"],
+    flags: { discovered: false, locked: false }
+  });
+
+  console.log("Default Open World map initialized successfully.");
+}
+
+/**
+ * Gets a sanitized, lowercase key for the player's current specific location.
+ * Falls back to "safe_area" if player state is missing.
+ */
+function getCurrentLocationKey() {
+  if (!state.PS) return "safe_area";
+  // Prefer playerloc (specific area), fallback to location (general area)
+  const playerloc = state.PS.playerloc || state.PS.location || "safe area";
+  return playerloc.toLowerCase().replace(/\s+/g, "_");
+}
+
+/**
+ * Retrieves or initializes a location entry. 
+ * Fixes the path to state.world.map.LocalLocation and merges rich Open World 
+ * defaults with the existing biomass/spawning tracking system.
+ */
+function getLocationEntry(key) {
+  ensureWorldState();
+  if (!key) return null;
+
+  // Ensure we are using the correct path defined in ensureWorldState()
+  const locMap = state.world.map.LocalLocation;
+  
+  if (!locMap[key]) {
+    locMap[key] = {
+      // --- Open World Map Defaults ---
+      id: key,
+      displayName: key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+      zoneType: "unknown",
+      subArea: "",
+      exits: {},
+      interactions: [],
+      entities: [],
+      flags: { discovered: false, danger: 0, locked: false, looted: false },
+      
+      // --- Biomass / Spawning Tracking (Required by existing spawn system) ---
+      biomass: 0,
+      lastRegenTurn: 0,
+      famine: false,
+      spawnedSinceFamine: 0,
+    };
+  }
+  
+  return locMap[key];
+}
+
+/**
+ * Returns a fully populated, rich location object for the player's current position.
+ * Ensures all display and tracking properties are initialized for Gametrack() and UI.
+ */
+function getRichLocation() {
+  ensureWorldState();
+  const key = getCurrentLocationKey();
+  const entry = getLocationEntry(key);
+  
+  if (!entry) return null;
+
+  // Dynamically enrich with player state if defaults are missing
+  if (!entry.playerloc) {
+    entry.playerloc = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
+  }
+  if (!entry.displayName || entry.displayName === key) {
+    const fallbackName = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
+    entry.displayName = fallbackName.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  return entry;
+}
 
 const CYCLE_PHASE_BASELINES = { dawn: 0.6, day: 1.0, dusk: 0.45, night: 0.1 };
 
-const SEASONS = ["spring", "summer", "fall", "winter"];
-
-/**
- * The single authoritative world tick: advances the clock, updates cyclePhase
- * and lightLevel, then ticks/generates world events and invalidates the
- * PlayerWorldBridge cache. Gametrack() calls this once per turn.
- */
-function advanceWorldTurn(minutes = 10) {
+function advanceTime() {
   ensureWorldState();
   const t = state.world.time;
   const w = state.world.weather;
   t.turn = (Number(t.turn) || 0) + 1;
-  t.minute = (Number(t.minute) || 0) + (Number(minutes) || 0);
-  t.hour = Number(t.hour) || 0;
+  t.minute = (Number(t.minute) || 0) + 10;
   while (t.minute >= 60) {
     t.minute -= 60;
-    t.hour += 1;
+    t.hour = (Number(t.hour) || 0) + 1;
   }
   while (t.hour >= 24) {
     t.hour -= 24;
     t.day = (Number(t.day) || 1) + 1;
-    if (t.day % 30 === 0) {
-      t.season = SEASONS[(SEASONS.indexOf(t.season || "spring") + 1) % SEASONS.length];
-    }
   }
   const h = Number(t.hour) || 0;
   let phase;
@@ -10922,10 +8927,6 @@ function advanceWorldTurn(minutes = 10) {
   const intensity = Math.max(0, Math.min(1, Number(w && w.intensity) || 0));
   const raw = baseline - intensity * 0.3;
   t.lightLevel = Math.max(0, Math.min(1, raw));
-
-  tickWorldEvents();
-  generateWorldEvents();
-  PlayerWorldBridge._invalidateCache();
 }
 
 function summariseWorldRegistry(maxChars) {
@@ -10948,15 +8949,14 @@ function summariseWorldRegistry(maxChars) {
       ? mods[locId].lootedInteractions.length
       : 0;
   }
-  const safeId = (v) => String(v || "").replace(/[^a-zA-Z0-9_]/g, "").slice(0, 30);
   const events = (reg.activeWorldEvents || [])
     .slice(0, 5)
-    .map((e) => {
-      if (!e) return "";
-      if (typeof e !== "object") return safeId(e);
-      const turns = Math.max(0, Math.floor(Number(e.turnsRemaining) || 0));
-      return `${safeId(e.eventId)} at ${safeId(e.locationId)} (${turns}t)`;
-    })
+    .map((e) =>
+      String(e || "")
+        .replace(/[^a-zA-Z0-9\s]/g, "")
+        .trim()
+        .slice(0, 30),
+    )
     .filter(Boolean);
   let summary = `- Locations modified: ${locCount}\n- Doors unlocked: ${doorCount}\n- Interactions looted: ${lootedCount}`;
   if (events.length > 0) {
@@ -10978,6 +8978,22 @@ function computeSpawnCost(count, modifiers) {
     if (m) mult *= m;
   }
   return Math.max(1, Math.round(base * mult));
+}
+
+function consumeLocationBiomass(name, cost) {
+  const key = getCurrentLocationKey();
+  const entry = getLocationEntry(key);
+  if (!entry) return { ok: false, reason: "no-location" };
+  if (entry.famine) return { ok: false, reason: "famine" };
+  const capacity = CARRYING_CAPACITY_CONFIG.capacity;
+  if (entry.biomass + cost > capacity)
+    return { ok: false, reason: "over-capacity" };
+  entry.biomass += cost;
+  if (entry.biomass >= capacity && !entry.famine) {
+    entry.famine = true;
+    entry.spawnedSinceFamine = Number.MAX_SAFE_INTEGER;
+  }
+  return { ok: true, entry };
 }
 
 function tickDungeonDiscovery() {
@@ -11031,52 +9047,15 @@ function tickDungeonMovement() {
 function tickLocationRegen() {
   ensureWorldState();
   const cfg = CARRYING_CAPACITY_CONFIG;
-  
-  // Helper to process a location entry
-  const regenEntry = (entry) => {
-    if (!entry) return;
+  for (const key in state.world.LocalLocation) {
+    const entry = state.world.LocalLocation[key];
+    if (!entry) continue;
     if (entry.biomass > 0) {
       entry.biomass = Math.max(0, entry.biomass - cfg.regenPerTurn);
     }
     if (entry.famine && entry.biomass <= 0) {
       entry.famine = false;
       entry.spawnedSinceFamine = 0;
-    }
-  };
-
-  // 1. Regen Open World / Town locations (new structure: state.world.map.locations)
-  if (state.world.map && state.world.map.locations) {
-    for (const key in state.world.map.locations) {
-      regenEntry(state.world.map.locations[key]);
-    }
-  }
-  // Legacy support for LocalLocation
-  else if (state.world.map && state.world.map.LocalLocation) {
-    for (const key in state.world.map.LocalLocation) {
-      regenEntry(state.world.map.LocalLocation[key]);
-    }
-  }
-
-  // 2. Regen Labyrinth floors (Unified under state.world.dungeons.labyrinth)
-  if (state.world.dungeons && state.world.dungeons.labyrinth && state.world.dungeons.labyrinth.levels) {
-    for (const levelKey in state.world.dungeons.labyrinth.levels) {
-      const level = state.world.dungeons.labyrinth.levels[levelKey];
-      if (level && level.generatedFloors) {
-        for (const floorNum in level.generatedFloors) {
-          regenEntry(level.generatedFloors[floorNum]);
-        }
-      }
-    }
-  }
-  // Legacy support for state.world.labyrinth
-  else if (state.world.labyrinth && state.world.labyrinth.levels) {
-    for (const levelKey in state.world.labyrinth.levels) {
-      const level = state.world.labyrinth.levels[levelKey];
-      if (level && level.generatedFloors) {
-        for (const floorNum in level.generatedFloors) {
-          regenEntry(level.generatedFloors[floorNum]);
-        }
-      }
     }
   }
 }
@@ -11106,7 +9085,7 @@ function spawn(name, count = 1, modifiers = {}) {
   const charge = consumeLocationBiomass(name, cost);
   if (!charge.ok && charge.reason === "famine") {
     const key = getCurrentLocationKey();
-    const entry = getLocationEntry(key);
+    const entry = state.world.LocalLocation[key];
     if (entry && entry.spawnedSinceFamine === Number.MAX_SAFE_INTEGER) {
       state.logMessages["Input"].push(
         `The ${key.replace(/([A-Z])/g, " $1").trim()} has been picked clean — no monsters can be found here for now.`,
@@ -14397,7 +12376,7 @@ function updateDungeonCard() {
 // Player movement within the dungeon grid
 //The player movement should not be tracked but for now its okay to track it in the state.world.dungeon.playerPosition for the sake of the dungeon map and story card updates. In future iterations, we can remove this tracking if needed.
 // The player can move north, south, east, or west within the grid. Movement is blocked by walls and boundaries.
-function movePlayerAsciiDungeon(direction) {
+function movePlayer(direction) {
   ensureWorldState();
   const dg = state.world.dungeon;
   if (!dg.grid) {
@@ -15622,7 +13601,7 @@ const DungeonMapSystem = {
 };
 
 // When entering new floor / starting dungeon:
-function generateAsciiDungeonFloor(dungeonName, floor, playerLevel) {
+function generateDungeonFloor(dungeonName, floor, playerLevel) {
   ensureWorldState();
   const dg = state.world.dungeon;
   dg.name = dungeonName || "Underground Labyrinth";
@@ -15643,8 +13622,8 @@ function generateAsciiDungeonFloor(dungeonName, floor, playerLevel) {
   );
 }
 
-function enterAsciiDungeonFloor(dungeonName, floor, playerLevel) {
-  const newMap = generateAsciiDungeonFloor(dungeonName, floor, playerLevel);
+function enterDungeonFloor(dungeonName, floor, playerLevel) {
+  const newMap = generateDungeonFloor(dungeonName, floor, playerLevel);
   saveDungeonMap(newMap);
   return "You descend into a new floor...";
 }
