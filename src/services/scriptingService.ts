@@ -1,5 +1,5 @@
 import { runOfflineSimulation } from './offlineSimulationService';
-import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry, CARD_TYPES } from '../types';
+import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry, TextTransform, CARD_TYPES } from '../types';
 import { matchStoryCards } from '@/services/storyCardService';
 
 // The sandbox's `storyCards` global follows AID's script-facing schema (keys as a
@@ -411,6 +411,10 @@ const simulateStep = async (
   // Whether anything actually authored the output this run, as distinct from it
   // merely being falsy. Lets '' survive as a real result (see finalOutput below).
   let outputProduced = false;
+  // Track what each hook did to its `text` string — the before, after, and what
+  // was appended. On the real AID site this is the hidden scripted text that shows
+  // when you expand the text string; Atlas surfaces it in the State Deltas panel.
+  const textTransforms: TextTransform[] = [];
 
   // Reads state.message (the toast a script raised). `state` is the world state in
   // this sandbox, so a script writing state.message shows up here.
@@ -597,6 +601,7 @@ const simulateStep = async (
         // blanking the text on player death), and dropping it left the hook's work
         // silently discarded.
         if (typeof returnedText === 'string') {
+            const textBefore = currentInput;
             if (script.name === 'Input Modifier') {
                 modifiedInput = returnedText;
             } else if (script.name === 'Context Modifier') {
@@ -604,6 +609,21 @@ const simulateStep = async (
             } else if (script.name === 'Output Modifier') {
                 modifiedOutput = returnedText;
                 outputProduced = true;
+            }
+            // Record what this hook did to the text. If the returned text starts
+            // with the original, the tail is what was appended (the common AID
+            // pattern `text = text + scriptedText`). Otherwise treat the whole
+            // returned text as the transform result.
+            const appended = returnedText.startsWith(textBefore)
+              ? returnedText.slice(textBefore.length)
+              : '';
+            if (returnedText !== textBefore) {
+              textTransforms.push({
+                hook: script.name,
+                textBefore,
+                textAfter: returnedText,
+                appended,
+              });
             }
         }
 
@@ -707,6 +727,7 @@ const simulateStep = async (
     changedStoryCardIds,
     stateMessage,
     stateMessageAuthor: stateMessage ? messageAuthor : undefined,
+    textTransforms: textTransforms.length > 0 ? textTransforms : undefined,
   };
 };
 

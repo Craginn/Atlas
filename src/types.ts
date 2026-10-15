@@ -94,6 +94,17 @@ export interface KnowledgeBase {
   authorsNote: string;
 }
 
+// What a single hook did to the `text` string it received: the text going in,
+// the text coming out, and the diff (what was appended / changed). On the real
+// AID site this surfaces as `text = text + scriptedText`; Atlas exposes it in
+// the State Deltas panel under "Hidden Text".
+export interface TextTransform {
+  hook: string;
+  textBefore: string;
+  textAfter: string;
+  appended: string;
+}
+
 // Per-script state snapshot, so the UI can attribute each delta to the script
 // that produced it rather than showing one anonymous before/after.
 export interface ScriptStateTrace {
@@ -175,6 +186,11 @@ export interface SimulationResult {
   // replaces generated text (character-creation prompts, command replies, etc.).
   stateMessage?: string;
   stateMessageAuthor?: string;
+  // What each hook did to the `text` string: the before, after, and what was
+  // appended. On the real AID site this shows as the text the script injected
+  // (visible when you expand the text string); Atlas surfaces it in the State
+  // Deltas panel under "Hidden Text".
+  textTransforms?: TextTransform[];
 }
 
 export interface LastSimData extends SimulationResult {

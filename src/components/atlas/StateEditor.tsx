@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WorldState, ScriptStateTrace, HistoryEntry } from '@/types';
-import { Database, Code, GitCommit, ArrowRight, Plus, Minus, FileJson, Hash, Archive, Info, Upload, ChevronDown, ChevronRight, History } from 'lucide-react';
+import { WorldState, ScriptStateTrace, HistoryEntry, TextTransform } from '@/types';
+import { Database, Code, GitCommit, ArrowRight, Plus, Minus, FileJson, Hash, Archive, Info, Upload, ChevronDown, ChevronRight, History, EyeOff } from 'lucide-react';
 import EditorDefault from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-clike';
@@ -155,13 +155,97 @@ const DeltaItem: React.FC<{ delta: Delta; showPrevious?: boolean }> = ({ delta, 
   );
 };
 
+const HiddenTextView: React.FC<{ transforms: TextTransform[] }> = ({ transforms }) => {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggle = (key: string) => {
+    setCollapsed(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  if (transforms.length === 0) {
+    return (
+      <div className="rounded-xl border border-zinc-700/40 bg-black/20 p-3">
+        <div className="flex items-center gap-2 text-zinc-500">
+          <EyeOff size={12} />
+          <span className="text-[9px] font-black uppercase tracking-widest">Hidden Text</span>
+          <span className="text-[9px] font-mono italic">No hooks modified text this turn</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/10 p-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <EyeOff size={12} className="text-indigo-400" />
+        <span className="text-[9px] font-black uppercase tracking-widest text-indigo-300">Hidden Text</span>
+        <span className="text-[9px] font-mono text-zinc-500">{transforms.length} hook(s) modified text</span>
+      </div>
+      {transforms.map((t, i) => {
+        const key = `ht-${i}`;
+        const isCollapsed = collapsed.has(key);
+        const hasAppended = t.appended.length > 0;
+        return (
+          <div key={key} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
+            <button
+              onClick={() => toggle(key)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-zinc-800/30 transition-colors"
+            >
+              {isCollapsed
+                ? <ChevronRight size={10} className="text-zinc-500 shrink-0" />
+                : <ChevronDown size={10} className="text-zinc-500 shrink-0" />}
+              <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300/80 text-[9px] font-black uppercase tracking-widest">
+                {t.hook}
+              </span>
+              <span className="text-[9px] font-mono text-zinc-500">
+                {hasAppended ? `+${t.appended.length} chars appended` : 'text modified'}
+              </span>
+            </button>
+            {!isCollapsed && (
+              <div className="px-3 py-2 space-y-2 border-t border-zinc-800/40">
+                {hasAppended ? (
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400/70">Appended Text</span>
+                    <pre className="p-2 rounded-md bg-emerald-950/30 border border-emerald-500/20 text-[10px] font-mono text-emerald-200/90 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                      {t.appended}
+                    </pre>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-red-400/70">Before</span>
+                      <pre className="p-2 rounded-md bg-red-950/20 border border-red-500/20 text-[10px] font-mono text-red-200/80 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                        {t.textBefore || '(empty)'}
+                      </pre>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400/70">After</span>
+                      <pre className="p-2 rounded-md bg-emerald-950/20 border border-emerald-500/20 text-[10px] font-mono text-emerald-200/90 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                        {t.textAfter || '(empty)'}
+                      </pre>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const DeltaView: React.FC<{
   oldState: WorldState | null;
   newState: WorldState;
   stateTrace?: ScriptStateTrace[];
   /** The run threw — keep the pre-change values visible for debugging. */
   hasError?: boolean;
-}> = ({ oldState, newState, stateTrace, hasError = false }) => {
+  textTransforms?: TextTransform[];
+}> = ({ oldState, newState, stateTrace, hasError = false, textTransforms }) => {
   // Empty set = every box expanded, which is the default.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -203,8 +287,9 @@ const DeltaView: React.FC<{
   const total = groups.reduce((n, g) => n + g.deltas.length, 0);
   const allCollapsed = groups.length > 0 && groups.every(g => collapsed.has(g.key));
   const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(groups.map(g => g.key)));
+  const transforms = textTransforms ?? [];
 
-  if (total === 0) {
+  if (total === 0 && transforms.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-black/40 text-zinc-600 space-y-4">
         <Info size={32} />
@@ -220,15 +305,18 @@ const DeltaView: React.FC<{
 
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-4 custom-scrollbar bg-black/40">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[9px] font-mono text-zinc-500/50 uppercase">Showing {total} change(s):</p>
-        <button
-          onClick={toggleAll}
-          className="text-[9px] font-mono uppercase text-zinc-500/50 hover:text-zinc-300 transition-colors shrink-0"
-        >
-          {allCollapsed ? 'Expand all' : 'Collapse all'}
-        </button>
-      </div>
+      <HiddenTextView transforms={transforms} />
+      {total > 0 && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[9px] font-mono text-zinc-500/50 uppercase">Showing {total} change(s):</p>
+          <button
+            onClick={toggleAll}
+            className="text-[9px] font-mono uppercase text-zinc-500/50 hover:text-zinc-300 transition-colors shrink-0"
+          >
+            {allCollapsed ? 'Expand all' : 'Collapse all'}
+          </button>
+        </div>
+      )}
       {groups.map(group => {
         const isCollapsed = collapsed.has(group.key);
         return (
@@ -368,9 +456,10 @@ interface EditorProps {
    * own tab so the growing narrative text has a home separate from the state JSON.
    */
   history?: HistoryEntry[];
+  textTransforms?: TextTransform[];
 }
 
-const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previousWorldState, stateTrace, hasError, history = [] }) => {
+const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previousWorldState, stateTrace, hasError, history = [], textTransforms }) => {
   const [localText, setLocalText] = useState(JSON.stringify(worldState, null, 2));
   const [isValid, setIsValid] = useState(true);
   const [activeTab, setActiveTab] = useState<'raw' | 'delta' | 'history'>('raw');
@@ -504,7 +593,7 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
           </div>
         </div>
       ) : activeTab === 'delta' ? (
-        <DeltaView oldState={previousWorldState} newState={worldState} stateTrace={stateTrace} hasError={hasError} />
+        <DeltaView oldState={previousWorldState} newState={worldState} stateTrace={stateTrace} hasError={hasError} textTransforms={textTransforms} />
       ) : (
         <HistoryView history={history} />
       )}

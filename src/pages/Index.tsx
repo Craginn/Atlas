@@ -335,7 +335,7 @@ const Index: React.FC = () => {
       // older Director run — changes from these turns silently never appear.
       if (result.stateTrace) {
         setLastSimData(prev => prev
-          ? { ...prev, stateTrace: result.stateTrace, newState: result.newState ?? prev.newState }
+          ? { ...prev, stateTrace: result.stateTrace, newState: result.newState ?? prev.newState, textTransforms: result.textTransforms }
           : prev);
       }
       return { output: result.output ?? result.narration ?? '', reasoning: result.reasoning };
@@ -439,6 +439,7 @@ const Index: React.FC = () => {
         scriptErrors: result.scriptErrors ?? [],
         stateMessage: result.stateMessage ?? '',
         stateMessageAuthor: result.stateMessageAuthor,
+        textTransforms: result.textTransforms,
       }));
 
       console.log('[Index.tsx] Simulation result received:', {
@@ -551,7 +552,7 @@ const Index: React.FC = () => {
           />
         );
       case 'state':
-        return <StateEditor worldState={worldState} setWorldState={handleSetWorldState} previousWorldState={previousWorldState} stateTrace={lastSimData?.stateTrace} hasError={!!lastSimData?.executionError} history={history} />;
+        return <StateEditor worldState={worldState} setWorldState={handleSetWorldState} previousWorldState={previousWorldState} stateTrace={lastSimData?.stateTrace} hasError={!!lastSimData?.executionError} history={history} textTransforms={lastSimData?.textTransforms} />;
       case 'logic':
         return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} runtimeErrorsByScriptId={runtimeErrorsByScriptId} />;
       case 'blocks':
