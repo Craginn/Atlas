@@ -425,7 +425,7 @@ const OUTPUT_FORMATS = {
     priority: 95,
     gate: { when: "monsterDefeated" },
     text: "",
-    focus: "A foe fell this turn: describe the finishing blow and the body going still.",
+    get focus() { var names = defeatedNames(); return names.length ? names.join(", ") + " fell this turn: describe the finishing blow and the body going still." : "A foe fell this turn: describe the finishing blow and the body going still."; },
     rules: ["A defeated foe stays dead and takes no further action"],
   },
   danger: {
@@ -509,7 +509,7 @@ const OUTPUT_FORMATS = {
     priority: 95,
     gate: { when: "monsterDefeated" },
     text: "",
-    focus: "Celebrate the win: loot, XP, or a moment of relief after the fight.",
+    get focus() { var names = defeatedNames(); return names.length ? "The " + names.join(", ") + " has been slain. Celebrate the win: loot, XP, or a moment of relief after the fight." : "Celebrate the win: loot, XP, or a moment of relief after the fight."; },
     rules: [],
   },
   level_up: {
@@ -597,8 +597,23 @@ function sceneTurnEvents() {
 
 function recordSceneDefeat(name) {
   const ev = sceneTurnEvents();
-  if (name && ev.defeated.indexOf(name) === -1) ev.defeated.push(name);
+  if (!name) return;
+  if (ev.defeated.some(function(d) { return (typeof d === "string" ? d : d.name) === name; })) return;
+  var lib = LLM.concat(MLM, HLM);
+  var entry = lib.find(function(m) { return m.name.toLowerCase() === name.toLowerCase(); });
+  ev.defeated.push(entry ? { name: entry.name, type: entry.type } : { name: name, type: "Unknown" });
   state.SceneTurnEvents = ev;
+}
+
+function defeatedNames() {
+  return sceneTurnEvents().defeated.map(function(d) { return typeof d === "string" ? d : d.name; });
+}
+
+function defeatedDetails() {
+  return sceneTurnEvents().defeated.map(function(d) {
+    if (typeof d === "string") return d;
+    return d.name + " (" + d.type + ")";
+  });
 }
 
 const SCENE_STATE_GATES = {
@@ -717,7 +732,7 @@ function sceneFactNearby() {
 
 const SCENE_FACTS = [
   { id: "foes",      priority: 100, gate: { when: "monstersAlive" },  get: sceneFactFoes },
-  { id: "defeated",  priority: 95,  gate: { when: "monsterDefeated" }, get: function() { return "Defeated this turn: " + sceneTurnEvents().defeated.join(", "); } },
+  { id: "defeated",  priority: 95,  gate: { when: "monsterDefeated" }, get: function() { return "Defeated this turn: " + defeatedDetails().join(", "); } },
   { id: "location",  priority: 90,  gate: { always: true },           get: sceneFactLocation },
   { id: "condition", priority: 85,  gate: { when: "playerHurt", actions: ["rest", "support"], triggers: ["hurt", "wound", "heal", "health", "bleed"] }, get: sceneFactCondition },
   { id: "talk",      priority: 80,  gate: { actions: ["interaction"] }, get: sceneFactTalkTarget },
@@ -8613,16 +8628,6 @@ function playerAttack() {
       if (target.health < 0) target.health = 0;
 
       const actionBeat = parseAttackBeat(text) || "Strikes";
-      state.logMessages["Output"].push(
-        renderCombatOutput(
-          PlayerName,
-          target.name,
-          dmg,
-          false,
-          actionBeat,
-          target.health,
-        ),
-      );
 
       // Basic attacks carry the player's chosen elemental aspect.
       if (target.health > 0 && state.PS.Element) {
@@ -8639,16 +8644,6 @@ function playerAttack() {
           target.count--;
           target.health = target.maxHealth;
           rescalePackDamage(target);
-          state.logMessages["Output"].push(
-            renderCombatOutput(
-              PlayerName,
-              target.name,
-              dmg,
-              true,
-              "Slays one",
-              target.health,
-            ),
-          );
           onMonsterDefeated(deadOne);
         } else {
           const defeatedSnapshot = { ...target };
@@ -8661,16 +8656,6 @@ function playerAttack() {
           );
           state.logMessages["Input"].push(
             `\n${PlayerName}|Defeated:${target.name}`,
-          );
-          state.logMessages["Output"].push(
-            renderCombatOutput(
-              PlayerName,
-              target.name,
-              dmg,
-              true,
-              "Delivers the killing blow",
-              0,
-            ),
           );
           onMonsterDefeated(defeatedSnapshot);
 
