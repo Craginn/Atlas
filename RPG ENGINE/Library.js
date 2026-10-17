@@ -506,7 +506,7 @@ const OUTPUT_FORMATS = {
   },
   victory: {
     label: "Victory",
-    priority: 92,
+    priority: 95,
     gate: { when: "monsterDefeated" },
     text: "",
     focus: "Celebrate the win: loot, XP, or a moment of relief after the fight.",
@@ -514,7 +514,7 @@ const OUTPUT_FORMATS = {
   },
   level_up: {
     label: "Level Up",
-    priority: 93,
+    priority: 95,
     gate: { when: "playerLeveledUp" },
     text: "",
     focus: "The player has grown stronger. Announce the level and any new abilities.",
