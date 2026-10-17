@@ -33,11 +33,11 @@ let showcommands = {
   'skills': displaySkills,
   'damage': displayDamage,
   'defenses': displayDefenses,
-  'backpack main':        () => displayBackpackContainer("main"),
-  'backpack materials':   () => displayBackpackContainer("materials"),
+  'backpack main': () => displayBackpackContainer("main"),
+  'backpack materials': () => displayBackpackContainer("materials"),
   'backpack skillstones': () => displayBackpackContainer("skillStones"),
-  'backpack artifacts':   () => displayBackpackContainer("artifacts"),
-  'backpack all':         displayBackpackAll,
+  'backpack artifacts': () => displayBackpackContainer("artifacts"),
+  'backpack all': displayBackpackAll,
   'backpack': handleBackpackCommand,
   'help': showhelp,
   'dungeon map detailed': showDungeonMapDetailed,
@@ -375,159 +375,159 @@ const basecode = (text) => {
 
     state.logMessages['Output'].push("[Game Engine Started!]")
 
-     return text
-   }
+    return text
+  }
 
-// ── DUNGEON ENTRY ──────────────────────────────────────────────
-// ── DUNGEON ENTRY ──────────────────────────────────────────────
-const lowerInput = text.toLowerCase();
-if (state.PS && state.PS.Name && !state.tempCharacter) {
-  
-  const isDungeonEntry =
-    lowerInput.includes("enter labyrinth") ||
-    lowerInput.includes("enter dungeon") ||
-    lowerInput.includes("enter the labyrinth") ||
-    lowerInput.includes("descend into") ||
-    lowerInput.includes("go to labyrinth");
+  // ── DUNGEON ENTRY ──────────────────────────────────────────────
+  // ── DUNGEON ENTRY ──────────────────────────────────────────────
+  const lowerInput = text.toLowerCase();
+  if (state.PS && state.PS.Name && !state.tempCharacter) {
 
-  if (isDungeonEntry && (state.PS.location === "safe haven" || state.PS.playerloc === "safe area" || state.PS.playerloc === "labyrinth_entrance")) {
+    const isDungeonEntry =
+      lowerInput.includes("enter labyrinth") ||
+      lowerInput.includes("enter dungeon") ||
+      lowerInput.includes("enter the labyrinth") ||
+      lowerInput.includes("descend into") ||
+      lowerInput.includes("go to labyrinth");
+
+    if (isDungeonEntry && (state.PS.location === "safe haven" || state.PS.playerloc === "safe area" || state.PS.playerloc === "labyrinth_entrance")) {
+      ensureWorldState();
+      const layout = getWorldLayout();
+
+      if (layout === "Ascii Dungeon") {
+        // --- ASCII DUNGEON ENTRY ---
+        const dg = state.world.asciiDungeon;
+        state.PS.location = "labyrinth";
+        state.PS.playerloc = "labyrinth";
+        state.PS.combatstatus = "Not in Combat";
+
+        if (!dg.grid || Object.keys(dg.grid).length === 0) {
+          generateDungeon(); // Calls the ascii generator
+        }
+        const room = getCurrentRoom(); // Calls the ascii room getter
+        let roomDesc = "You stand at the threshold of the labyrinth.";
+        if (room) roomDesc = `You descend into the ${dg.name}. ${room.description}`;
+        state.logMessages['Input'].push(roomDesc);
+      } else {
+        // --- OPEN WORLD ENTRY ---
+        ensureWorldState();
+        const entered = enterDungeon("labyrinth", 1);
+        if (entered) {
+          const dungeon = state.world.dungeons.labyrinth;
+          const levelKey = getCurrentDungeonLevel();
+          const floorKey = `${levelKey}_floor_1`;
+          const floorData = dungeon.generatedFloors[floorKey];
+          state.PS.location = "labyrinth";
+          state.PS.playerloc = floorKey;
+          state.PS.dugfloor = 1;
+          state.PS.combatstatus = "Not in Combat";
+          state.logMessages['Input'].push(`You descend into the labyrinth. ${floorData ? floorData.displayName : 'Floor 1 of the Top Level'}.`);
+        }
+      }
+      return text;
+    }
+  }
+
+  // ── DUNGEON FLOOR TRAVERSAL (/descend /ascend) ───────────────────
+  if (lowerInput.includes('/descend')) {
     ensureWorldState();
     const layout = getWorldLayout();
 
-    if (layout === "Ascii Dungeon") {
-      // --- ASCII DUNGEON ENTRY ---
-      const dg = state.world.asciiDungeon;
-      state.PS.location = "labyrinth";
-      state.PS.playerloc = "labyrinth";
-      state.PS.combatstatus = "Not in Combat";
-      
-      if (!dg.grid || Object.keys(dg.grid).length === 0) {
-        generateDungeon(); // Calls the ascii generator
-      }
-      const room = getCurrentRoom(); // Calls the ascii room getter
-      let roomDesc = "You stand at the threshold of the labyrinth.";
-      if (room) roomDesc = `You descend into the ${dg.name}. ${room.description}`;
-      state.logMessages['Input'].push(roomDesc);
-    } else {
-      // --- OPEN WORLD ENTRY ---
-      ensureWorldState();
-      const entered = enterDungeon("labyrinth", 1);
-      if (entered) {
-        const dungeon = state.world.dungeons.labyrinth;
-        const levelKey = getCurrentDungeonLevel();
-        const floorKey = `${levelKey}_floor_1`;
-        const floorData = dungeon.generatedFloors[floorKey];
-        state.PS.location = "labyrinth";
-        state.PS.playerloc = floorKey;
-        state.PS.dugfloor = 1;
-        state.PS.combatstatus = "Not in Combat";
-        state.logMessages['Input'].push(`You descend into the labyrinth. ${floorData ? floorData.displayName : 'Floor 1 of the Top Level'}.`);
-      }
-    }
-    return text;
-  }
-}
-
-// ── DUNGEON FLOOR TRAVERSAL (/descend /ascend) ───────────────────
-if (lowerInput.includes('/descend')) {
-  ensureWorldState();
-  const layout = getWorldLayout();
-
-  if (state.PS.location !== "labyrinth" && state.PS.playerloc !== "labyrinth_entrance") {
-     state.overwrite = true;
-     state.output = "You can only descend while inside the labyrinth.";
-     return { text };
-  }
-
-  if (layout === "Ascii Dungeon") {
-    // --- ASCII DESCEND ---
-    const dg = state.world.asciiDungeon;
-    const currentFloor = dg.dugfloor || 1;
-    const newFloor = currentFloor + 1;
-    dg.dugfloor = newFloor;
-    dg.floor = newFloor;
-    dg.grid = {};
-    generateDungeon();
-    dg.playerPosition = { row: 1, col: "A" };
-    state.PS.dugfloor = newFloor;
-    state.PS.playerloc = "descend";
-    state.overwrite = true;
-    state.output = `You descend to Ascii Floor ${newFloor}.`;
-  } else {
-    // --- OPEN WORLD DESCEND ---
-    const currentFloor = state.PS.dugfloor || 1;
-    const newFloor = currentFloor + 1;
-    const result = enterDungeonFloor(newFloor);
-    
-    if (result.success) {
-      state.PS.dugfloor = newFloor;
-      state.PS.location = "labyrinth";
-      state.PS.playerloc = result.floorData.id;
+    if (state.PS.location !== "labyrinth" && state.PS.playerloc !== "labyrinth_entrance") {
       state.overwrite = true;
-      state.output = result.message;
-    } else {
-      state.overwrite = true;
-      state.output = result.message;
-    }
-  }
-  return { text };
-}
-
-if (lowerInput.includes('/ascend')) {
-  ensureWorldState();
-  const layout = getWorldLayout();
-
-  if (state.PS.location !== "labyrinth") {
-     state.overwrite = true;
-     state.output = "You can only ascend while inside the labyrinth.";
-     return { text };
-  }
-
-  if (layout === "Ascii Dungeon") {
-    // --- ASCII ASCEND ---
-    const dg = state.world.asciiDungeon;
-    const currentFloor = dg.dugfloor || 1;
-    const newFloor = Math.max(1, currentFloor - 1);
-    if (newFloor < currentFloor) {
-      if (dg.levels && dg.levels["floor_" + newFloor]) {
-        const level = dg.levels["floor_" + newFloor];
-        dg.grid = level.grid;
-        dg.playerPosition = level.playerPosition;
-      } else {
-        dg.dugfloor = newFloor; dg.floor = newFloor; dg.grid = {};
-        generateDungeon(); dg.playerPosition = { row: 1, col: "A" };
-      }
-      state.PS.dugfloor = newFloor;
-      state.overwrite = true;
-      state.output = `You ascend to Ascii Floor ${newFloor}.`;
-    } else {
-      state.overwrite = true;
-      state.output = "You are already at the top floor.";
-    }
-  } else {
-    // --- OPEN WORLD ASCEND ---
-    const currentFloor = state.PS.dugfloor || 1;
-    if (currentFloor <= 1) {
-      state.overwrite = true;
-      state.output = "You are already at the top floor of the labyrinth.";
+      state.output = "You can only descend while inside the labyrinth.";
       return { text };
     }
-    const newFloor = currentFloor - 1;
-    const result = enterDungeonFloor(newFloor);
-    
-    if (result.success) {
+
+    if (layout === "Ascii Dungeon") {
+      // --- ASCII DESCEND ---
+      const dg = state.world.asciiDungeon;
+      const currentFloor = dg.dugfloor || 1;
+      const newFloor = currentFloor + 1;
+      dg.dugfloor = newFloor;
+      dg.floor = newFloor;
+      dg.grid = {};
+      generateDungeon();
+      dg.playerPosition = { row: 1, col: "A" };
       state.PS.dugfloor = newFloor;
-      state.PS.location = "labyrinth";
-      state.PS.playerloc = result.floorData.id;
+      state.PS.playerloc = "descend";
       state.overwrite = true;
-      state.output = result.message;
+      state.output = `You descend to Ascii Floor ${newFloor}.`;
     } else {
-      state.overwrite = true;
-      state.output = result.message;
+      // --- OPEN WORLD DESCEND ---
+      const currentFloor = state.PS.dugfloor || 1;
+      const newFloor = currentFloor + 1;
+      const result = enterDungeonFloor(newFloor);
+
+      if (result.success) {
+        state.PS.dugfloor = newFloor;
+        state.PS.location = "labyrinth";
+        state.PS.playerloc = result.floorData.id;
+        state.overwrite = true;
+        state.output = result.message;
+      } else {
+        state.overwrite = true;
+        state.output = result.message;
+      }
     }
+    return { text };
   }
-  return { text };
-}
+
+  if (lowerInput.includes('/ascend')) {
+    ensureWorldState();
+    const layout = getWorldLayout();
+
+    if (state.PS.location !== "labyrinth") {
+      state.overwrite = true;
+      state.output = "You can only ascend while inside the labyrinth.";
+      return { text };
+    }
+
+    if (layout === "Ascii Dungeon") {
+      // --- ASCII ASCEND ---
+      const dg = state.world.asciiDungeon;
+      const currentFloor = dg.dugfloor || 1;
+      const newFloor = Math.max(1, currentFloor - 1);
+      if (newFloor < currentFloor) {
+        if (dg.levels && dg.levels["floor_" + newFloor]) {
+          const level = dg.levels["floor_" + newFloor];
+          dg.grid = level.grid;
+          dg.playerPosition = level.playerPosition;
+        } else {
+          dg.dugfloor = newFloor; dg.floor = newFloor; dg.grid = {};
+          generateDungeon(); dg.playerPosition = { row: 1, col: "A" };
+        }
+        state.PS.dugfloor = newFloor;
+        state.overwrite = true;
+        state.output = `You ascend to Ascii Floor ${newFloor}.`;
+      } else {
+        state.overwrite = true;
+        state.output = "You are already at the top floor.";
+      }
+    } else {
+      // --- OPEN WORLD ASCEND ---
+      const currentFloor = state.PS.dugfloor || 1;
+      if (currentFloor <= 1) {
+        state.overwrite = true;
+        state.output = "You are already at the top floor of the labyrinth.";
+        return { text };
+      }
+      const newFloor = currentFloor - 1;
+      const result = enterDungeonFloor(newFloor);
+
+      if (result.success) {
+        state.PS.dugfloor = newFloor;
+        state.PS.location = "labyrinth";
+        state.PS.playerloc = result.floorData.id;
+        state.overwrite = true;
+        state.output = result.message;
+      } else {
+        state.overwrite = true;
+        state.output = result.message;
+      }
+    }
+    return { text };
+  }
 
 
   // --- END GENERALIZED ITEM PICKUP COMMAND ---
@@ -627,9 +627,9 @@ const Playercommands = (text) => {
           }
 
           if (missing.length > 0) {
-          state.overwrite = true;
-          state.output = `You do not have the required ingredients to craft ${template.name}. You need: ${missing.join(", ")}.`;
-          return { text };
+            state.overwrite = true;
+            state.output = `You do not have the required ingredients to craft ${template.name}. You need: ${missing.join(", ")}.`;
+            return { text };
           }
 
           // Consume ingredients from whichever container holds them.
@@ -759,14 +759,14 @@ const Playercommands = (text) => {
   const shopMatch = lowerText.match(/\/shop/);
   const isInSafeHaven = state.PS?.location === "safe haven";
   if (shopMatch) {
-      if (!isInSafeHaven) {
-        state.overwrite = true;
-        state.logMessages['Output'].push(`[You can only visit the shop while in the Safe Haven.]`);
-        return { text };
-      }
-
-      shopMenu();
+    if (!isInSafeHaven) {
+      state.overwrite = true;
+      state.logMessages['Output'].push(`[You can only visit the shop while in the Safe Haven.]`);
       return { text };
+    }
+
+    shopMenu();
+    return { text };
   }
 
   if (lowerText.includes('/new player')) {
@@ -902,11 +902,12 @@ const Playercommands = (text) => {
         .replace(/\s+\b(?:on|at|the|a|an|my|myself|it|them)\b.*$/i, '')
         .replace(/[.!?]+$/, '')
         .trim();
-    if (attempted) {
-      state.logMessages['Output'].push(`You have failed to cast ${attempted}.`)
-      state.overwrite = true
-      state.output = ''
-      return { text }
+      if (attempted) {
+        state.logMessages['Output'].push(`You have failed to cast ${attempted}.`)
+        state.overwrite = true
+        state.output = ''
+        return { text }
+      }
     }
   }
 
@@ -1021,7 +1022,6 @@ const Playercommands = (text) => {
   playerAttack();
   Authornote();
   return { text }
-}
 }
 
 
