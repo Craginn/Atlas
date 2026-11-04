@@ -218,7 +218,7 @@ function rpgStartingLocation() {
   // Otherwise use game mode for open world
   return isRogueLike
     ? { location: "dungeon", playerloc: "dungeon entrance" }
-    : { location: "safe haven", playerloc: "safe area" };
+    : { location: "safe haven", playerloc: "safe_haven" };
 }
 
 // Resolve player death per the config: permadeath ends the run, otherwise the
@@ -582,7 +582,7 @@ function sceneHealthRatio() {
 function sceneLocationRecord() {
   const PS = state.PS || {};
   const key = String(PS.playerloc || PS.location || "").toLowerCase().replace(/\s+/g, "_");
-  const locations = state.world && state.world.map && state.world.map.locations;
+  const locations = state.world && state.world.map && state.world.map.LocalLocation;
   return { key, loc: key && locations ? locations[key] || null : null };
 }
 
@@ -2264,7 +2264,7 @@ function companionCombatTick() {
     return;
   }
   // Nothing fights in town.
-  if (state.PS.playerloc === "safe area" && state.PS.location === "safe haven")
+  if (state.PS.playerloc === "safe_haven" && state.PS.location === "safe haven")
     return;
 
   // --- Movement Phase ---
@@ -2606,7 +2606,7 @@ if (state.PS === undefined) {
     status: "None" || [],
     combatstatus: "None",
     nearTarget: "None",
-    playerloc: "safe area",
+    playerloc: "safe_haven",
     location: "safe haven",
     combatRange: 0,
     skillPoints: 0,
@@ -3840,7 +3840,7 @@ function createPlayerState() {
     fatigue: 450,
     status: "None" || [],
     effects: "None" || [],
-    playerloc: "safe area",
+    playerloc: "safe_haven",
     location: "safe haven",
     combatStatus: "None",
     combatRange: 0,
@@ -4555,7 +4555,7 @@ function U_playerTrack() {
         // Player is in safe haven
         if (player.location !== "safe haven") {
           player.location = "safe haven";
-          player.playerloc = "safe area";
+          player.playerloc = "safe_haven";
           player.combatstatus = "Not in Combat"; // or "safe" if you prefer that string
           locationChanged = true;
           combatStatusChanged = true;
@@ -7826,8 +7826,12 @@ if (!state.MS) {
   };
 }
 
-if (!state.world || !state.world.LocalLocation) {
+if (!state.world || !state.world.map || !state.world.map.LocalLocation) {
   ensureWorldState();
+  const layout = (state.rpgConfig && state.rpgConfig.worldLayout) || "Open";
+  if (layout === "Open") {
+    initializeDefaultOpenWorld();
+  }
 }
 
 const KnownMonsters = [...LLM, ...MLM, ...HLM].map((m) => m.name);
@@ -8584,8 +8588,8 @@ function playerAttack() {
     }
 
     // A live monster you are attacking means you are in combat. This used to
-    // be gated on playerloc !== "safe area", but playerloc defaults to
-    // "safe area", so fresh players never got a monster response. Monsters
+    // be gated on playerloc !== "safe_haven", but playerloc defaults to
+    // "safe_haven", so fresh players never got a monster response. Monsters
     // only exist in the labyrinth, so a present target is the reliable signal.
     const inTown =
       state.PS.location === "safe haven" &&
@@ -8832,12 +8836,44 @@ function ensureWorldState() {
   if (!state.world) {
     state.world = {
       map: {
-        continent: [],
-        region: [],
-        territory: [],
-        terrain: [],
-        biome: [],
-        LocalLocation: {}, // Key: locationId, Value: Location Object
+        continent: [
+          { id: "aethermere", name: "Aethermere", description: "A fractured continent scarred by the labyrinth's emergence. Civilizations cling to its surface while adventurers delve below.", regions: ["haven_reach", "labyrinth_wastes", "outer_wilds"] }
+        ],
+        region: [
+          { id: "haven_reach", name: "Haven Reach", continent: "aethermere", description: "The settled lands surrounding Safe Haven, where the Legion maintains order.", territories: ["haven", "northern_outskirts"] },
+          { id: "labyrinth_wastes", name: "Labyrinth Wastes", continent: "aethermere", description: "Blighted terrain surrounding the labyrinth's surface entrance. The ground is cracked and the air tastes of stone.", territories: ["labyrinth_approach", "labyrinth_depths"] },
+          { id: "outer_wilds", name: "Outer Wilds", continent: "aethermere", description: "Untamed wilderness beyond Legion patrols. Ruins of older civilizations dot the landscape.", territories: ["pilgrim_road", "ashen_ruins"] }
+        ],
+        territory: [
+          { id: "haven", name: "Haven Proper", region: "haven_reach", biomes: ["temperate"], description: "The fortified settlement and its immediate surroundings." },
+          { id: "northern_outskirts", name: "Northern Outskirts", region: "haven_reach", biomes: ["temperate", "grassland"], description: "Farmland and trade roads north of Safe Haven." },
+          { id: "labyrinth_approach", name: "Labyrinth Approach", region: "labyrinth_wastes", biomes: ["stone", "scrubland"], description: "The desolate path from Safe Haven to the labyrinth entrance." },
+          { id: "labyrinth_depths", name: "Labyrinth Depths", region: "labyrinth_wastes", biomes: ["cave", "stone"], description: "The subterranean levels of the great labyrinth." },
+          { id: "pilgrim_road", name: "Pilgrim Road", region: "outer_wilds", biomes: ["temperate", "forest"], description: "An old road once used by pilgrims, now overgrown and dangerous." },
+          { id: "ashen_ruins", name: "Ashen Ruins", region: "outer_wilds", biomes: ["scrubland", "stone"], description: "Crumbling remains of a settlement destroyed when the labyrinth opened." }
+        ],
+        terrain: [
+          { id: "grassland", name: "Grassland", moveCost: 1, visibility: "high" },
+          { id: "forest", name: "Dense Forest", moveCost: 1.5, visibility: "low" },
+          { id: "stone", name: "Rocky Ground", moveCost: 1.2, visibility: "medium" },
+          { id: "scrubland", name: "Scrubland", moveCost: 1.1, visibility: "medium" },
+          { id: "cave", name: "Cave System", moveCost: 1.3, visibility: "very_low" },
+          { id: "road", name: "Paved Road", moveCost: 0.8, visibility: "high" }
+        ],
+        city: [],
+        village: [],
+        settlement: [
+          { id: "safe_haven", name: "Safe Haven", type: "fortified_town", region: "haven_reach", population: "medium", faction: "Legion" }
+        ],
+        biome: [
+          { id: "temperate", name: "Temperate", temperature: "mild", precipitation: "moderate", flora: "abundant", fauna: "common" },
+          { id: "stone", name: "Stonelands", temperature: "cool", precipitation: "low", flora: "sparse", fauna: "scarce" },
+          { id: "cave", name: "Subterranean", temperature: "cold", precipitation: "none", flora: "fungal", fauna: "adapted" },
+          { id: "forest", name: "Woodland", temperature: "mild", precipitation: "moderate", flora: "dense", fauna: "abundant" },
+          { id: "grassland", name: "Open Plains", temperature: "mild", precipitation: "moderate", flora: "grasses", fauna: "common" },
+          { id: "scrubland", name: "Dry Scrub", temperature: "warm", precipitation: "low", flora: "sparse", fauna: "scarce" }
+        ],
+        LocalLocation: {},
       },
       interactionRegistry: {}, // Key: interactionId, Value: Interaction Object
       buildingRegistry: {},    // Key: buildingId, Value: Building Object
@@ -9040,7 +9076,8 @@ function movePlayer(direction) {
 
   // Update player position
   state.PS.playerloc = targetLoc.id;
-  state.PS.location = targetLoc.type === "dungeon" ? "labyrinth" : state.PS.location; // Auto-update broad location if needed
+  state.PS.location = targetLoc.type === "dungeon" ? "labyrinth" : state.PS.location;
+  state.worldBiome = targetLoc.biome || "default";
   
   // Mark as discovered if not already
   if (!targetLoc.flags.discovered) {
@@ -9076,6 +9113,9 @@ function movePlayer(direction) {
   // Default Open World
 function initializeDefaultOpenWorld() {
   ensureWorldState();
+  if (Object.keys(state.world.map.LocalLocation).length > 0) return;
+
+  // ── Town Areas ──────────────────────────────────────────────
 
   // 1. Safe Haven (Hub)
   addLocation({
@@ -9083,10 +9123,13 @@ function initializeDefaultOpenWorld() {
     name: "Safe Haven",
     type: "town",
     biome: "temperate",
-    description: "A fortified settlement offering rest, trade, and preparation for the labyrinth.",
+    territory: "haven",
+    description: "A fortified settlement offering rest, trade, and preparation for the labyrinth. Legion banners hang above the gates.",
     exits: {
       north: "safe_haven_market",
-      south: "labyrinth_entrance"
+      south: "south_road",
+      east: "haven_east_gate",
+      west: "legion_barracks"
     },
     interactions: ["guard_gate", "notice_board", "innkeeper"],
     buildings: ["tavern", "blacksmith", "general_store"],
@@ -9101,6 +9144,20 @@ function initializeDefaultOpenWorld() {
     description: "A wooden board covered in requests for monster cores and exploration.",
     state: "active"
   });
+  addInteraction("safe_haven", {
+    id: "innkeeper",
+    name: "Innkeeper Maren",
+    type: "npc",
+    description: "A stout woman who runs the Hearthstone Tavern. She offers rest and rumors.",
+    state: "active"
+  });
+  addInteraction("safe_haven", {
+    id: "guard_gate",
+    name: "Gate Guard",
+    type: "npc",
+    description: "A Legion soldier standing watch at the southern gate. Warns travelers about the road ahead.",
+    state: "active"
+  });
 
   // 2. Safe Haven Market
   addLocation({
@@ -9108,6 +9165,7 @@ function initializeDefaultOpenWorld() {
     name: "Safe Haven Market",
     type: "town_sub",
     biome: "temperate",
+    territory: "haven",
     description: "A bustling courtyard where merchants sell supplies and adventurers trade loot.",
     exits: {
       south: "safe_haven"
@@ -9118,29 +9176,235 @@ function initializeDefaultOpenWorld() {
     flags: { discovered: true, locked: false }
   });
 
-  // 3. Labyrinth Entrance
+  addInteraction("safe_haven_market", {
+    id: "merchant_supplies",
+    name: "Quartermaster Dren",
+    type: "npc",
+    description: "A grizzled merchant selling rations, rope, torches, and basic adventuring supplies.",
+    state: "active"
+  });
+  addInteraction("safe_haven_market", {
+    id: "merchant_potions",
+    name: "Alchemist Vessa",
+    type: "npc",
+    description: "A quiet woman who brews and sells healing potions and antidotes.",
+    state: "active"
+  });
+
+  // 3. Legion Barracks
+  addLocation({
+    id: "legion_barracks",
+    name: "Legion Barracks",
+    type: "town_sub",
+    biome: "temperate",
+    territory: "haven",
+    description: "A stone compound where Legion soldiers train and receive orders. Weapon racks line the walls.",
+    exits: {
+      east: "safe_haven"
+    },
+    interactions: ["legion_commander", "training_dummy"],
+    buildings: ["barracks", "armory"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("legion_barracks", {
+    id: "legion_commander",
+    name: "Commander Aldric",
+    type: "npc",
+    description: "The Legion officer overseeing Safe Haven's defenses. May have tasks for capable adventurers.",
+    state: "active"
+  });
+  addInteraction("legion_barracks", {
+    id: "training_dummy",
+    name: "Training Dummy",
+    type: "object",
+    description: "A battered practice target used by Legion soldiers and adventurers alike.",
+    state: "active"
+  });
+
+  // 4. Haven East Gate
+  addLocation({
+    id: "haven_east_gate",
+    name: "Haven East Gate",
+    type: "town_sub",
+    biome: "temperate",
+    territory: "haven",
+    description: "The eastern exit of Safe Haven. Beyond it, a dirt trail leads into overgrown wilderness.",
+    exits: {
+      west: "safe_haven",
+      south: "pilgrim_road"
+    },
+    interactions: ["gate_guard_east"],
+    buildings: [],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("haven_east_gate", {
+    id: "gate_guard_east",
+    name: "East Gate Sentry",
+    type: "npc",
+    description: "A young Legion recruit guarding the eastern exit. Nervous about recent wolf sightings on the pilgrim road.",
+    state: "active"
+  });
+
+  // ── Wilderness Areas ────────────────────────────────────────
+
+  // 5. South Road
+  addLocation({
+    id: "south_road",
+    name: "South Road",
+    type: "wilderness",
+    biome: "temperate",
+    territory: "haven",
+    description: "A beaten dirt road heading south from Safe Haven toward the labyrinth. Tall grass sways on either side.",
+    exits: {
+      north: "safe_haven",
+      south: "labyrinth_approach",
+      east: "wayside_shrine"
+    },
+    interactions: [],
+    buildings: [],
+    monsters: ["Narrow Wolf", "Goblin"],
+    flags: { discovered: false, locked: false }
+  });
+
+  // 6. Wayside Shrine
+  addLocation({
+    id: "wayside_shrine",
+    name: "Wayside Shrine",
+    type: "wilderness",
+    biome: "stone",
+    territory: "labyrinth_approach",
+    description: "A crumbling stone shrine at a crossroads. Offerings of wilted flowers and old coins litter the base.",
+    exits: {
+      west: "south_road"
+    },
+    interactions: ["prayer_shrine", "old_campfire"],
+    buildings: [],
+    monsters: [],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("wayside_shrine", {
+    id: "prayer_shrine",
+    name: "Weathered Shrine",
+    type: "object",
+    description: "An ancient stone shrine dedicated to a forgotten deity. Faint warmth radiates from the carved runes.",
+    state: "active"
+  });
+  addInteraction("wayside_shrine", {
+    id: "old_campfire",
+    name: "Abandoned Campfire",
+    type: "object",
+    description: "Cold ashes and scattered supplies. Someone left in a hurry.",
+    state: "active"
+  });
+
+  // 7. Pilgrim Road
+  addLocation({
+    id: "pilgrim_road",
+    name: "Pilgrim Road",
+    type: "wilderness",
+    biome: "forest",
+    territory: "pilgrim_road",
+    description: "An old road once used by pilgrims, now overgrown with tangled roots and dense canopy. The air is damp and still.",
+    exits: {
+      north: "haven_east_gate",
+      south: "ashen_ruins"
+    },
+    interactions: [],
+    buildings: [],
+    monsters: ["Narrow Wolf", "Gloom Spider", "Bat"],
+    flags: { discovered: false, locked: false }
+  });
+
+  // 8. Ashen Ruins
+  addLocation({
+    id: "ashen_ruins",
+    name: "Ashen Ruins",
+    type: "wilderness",
+    biome: "scrubland",
+    territory: "ashen_ruins",
+    description: "Crumbling walls and scorched foundations — all that remains of a settlement destroyed when the labyrinth opened. The undead stir here.",
+    exits: {
+      north: "pilgrim_road"
+    },
+    interactions: ["collapsed_cellar", "weathered_monument"],
+    buildings: [],
+    monsters: ["Hollow Skeleton", "Feral Shade", "Goblin"],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("ashen_ruins", {
+    id: "collapsed_cellar",
+    name: "Collapsed Cellar",
+    type: "loot",
+    description: "A half-buried cellar beneath rubble. Something glints inside.",
+    state: "active"
+  });
+  addInteraction("ashen_ruins", {
+    id: "weathered_monument",
+    name: "Weathered Monument",
+    type: "object",
+    description: "A cracked stone monument. The inscription reads: 'Here stood Ashford, before the deep opened.'",
+    state: "active"
+  });
+
+  // 9. Labyrinth Approach
+  addLocation({
+    id: "labyrinth_approach",
+    name: "Labyrinth Approach",
+    type: "wilderness",
+    biome: "stone",
+    territory: "labyrinth_approach",
+    description: "The ground turns barren and cracked. A faint rumble echoes from below. The labyrinth entrance looms ahead.",
+    exits: {
+      north: "south_road",
+      south: "labyrinth_entrance"
+    },
+    interactions: ["legion_checkpoint"],
+    buildings: [],
+    monsters: ["Maze Rat", "Stone Mites"],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("labyrinth_approach", {
+    id: "legion_checkpoint",
+    name: "Legion Checkpoint",
+    type: "npc",
+    description: "Two Legion soldiers stationed at a makeshift barrier. They verify identification bracelets before allowing passage to the labyrinth.",
+    state: "active"
+  });
+
+  // ── Dungeon Areas ───────────────────────────────────────────
+
+  // 10. Labyrinth Entrance
   addLocation({
     id: "labyrinth_entrance",
     name: "Labyrinth Entrance",
     type: "dungeon_entrance",
     biome: "stone",
-    description: "A massive, ominous stairway leading down into the earth. The air grows cold.",
+    territory: "labyrinth_approach",
+    description: "A massive, ominous stairway leading down into the earth. The air grows cold and the light fades.",
     exits: {
-      north: "safe_haven",
+      north: "labyrinth_approach",
       down: "labyrinth_top_level"
     },
     interactions: ["legion_identification_stone"],
     buildings: [],
-    monsters: ["Maze Rat", "Gloom Spider"], 
+    monsters: ["Maze Rat", "Gloom Spider"],
     flags: { discovered: true, locked: false }
   });
 
-  // 4. Labyrinth Top Level
+  // 11. Labyrinth Top Level
   addLocation({
     id: "labyrinth_top_level",
     name: "Labyrinth: Top Level",
     type: "dungeon",
     biome: "cave",
+    territory: "labyrinth_depths",
     description: "The upper echelons of the labyrinth. Faint light filters from above, but shadows stretch long.",
     exits: {
       up: "labyrinth_entrance",
@@ -9153,12 +9417,45 @@ function initializeDefaultOpenWorld() {
     flags: { discovered: false, locked: false }
   });
 
-  // 5. Labyrinth Side Cavern (Example of a branching path)
+  // 12. Labyrinth Middle Level
+  addLocation({
+    id: "labyrinth_middle_level",
+    name: "Labyrinth: Middle Level",
+    type: "dungeon",
+    biome: "cave",
+    territory: "labyrinth_depths",
+    description: "Deeper corridors carved from dark stone. The walls are slick with moisture and strange inscriptions glow faintly.",
+    exits: {
+      south: "labyrinth_top_level"
+    },
+    interactions: ["collapsed_bridge", "strange_inscription"],
+    buildings: [],
+    monsters: ["Sludge Crawler", "Hollow Skeleton", "Grime Ghoul", "Ash Imp"],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("labyrinth_middle_level", {
+    id: "collapsed_bridge",
+    name: "Collapsed Bridge",
+    type: "object",
+    description: "A stone bridge over a bottomless chasm. Half of it has crumbled away — crossing requires care.",
+    state: "active"
+  });
+  addInteraction("labyrinth_middle_level", {
+    id: "strange_inscription",
+    name: "Strange Inscription",
+    type: "object",
+    description: "Carved symbols glow faintly on the wall. They seem to be a warning in an ancient script.",
+    state: "active"
+  });
+
+  // 13. Labyrinth Side Cavern
   addLocation({
     id: "labyrinth_side_cavern",
     name: "Labyrinth: Side Cavern",
     type: "dungeon",
     biome: "cave",
+    territory: "labyrinth_depths",
     description: "A damp, echoing cavern with strange glowing fungi on the walls.",
     exits: {
       west: "labyrinth_top_level"
@@ -9169,7 +9466,8 @@ function initializeDefaultOpenWorld() {
     flags: { discovered: false, locked: false }
   });
 
-  console.log("Default Open World map initialized successfully.");
+  state.worldBiome = "temperate";
+  console.log("Default Open World map initialized with 13 locations.");
 }
 
 /**
@@ -9179,7 +9477,7 @@ function initializeDefaultOpenWorld() {
 function getCurrentLocationKey() {
   if (!state.PS) return "safe_area";
   // Prefer playerloc (specific area), fallback to location (general area)
-  const playerloc = state.PS.playerloc || state.PS.location || "safe area";
+  const playerloc = state.PS.playerloc || state.PS.location || "safe_haven";
   return playerloc.toLowerCase().replace(/\s+/g, "_");
 }
 
@@ -9392,8 +9690,8 @@ function tickDungeonMovement() {
 function tickLocationRegen() {
   ensureWorldState();
   const cfg = CARRYING_CAPACITY_CONFIG;
-  for (const key in state.world.LocalLocation) {
-    const entry = state.world.LocalLocation[key];
+  for (const key in state.world.map.LocalLocation) {
+    const entry = state.world.map.LocalLocation[key];
     if (!entry) continue;
     if (entry.biomass > 0) {
       entry.biomass = Math.max(0, entry.biomass - cfg.regenPerTurn);
@@ -9430,7 +9728,7 @@ function spawn(name, count = 1, modifiers = {}) {
   const charge = consumeLocationBiomass(name, cost);
   if (!charge.ok && charge.reason === "famine") {
     const key = getCurrentLocationKey();
-    const entry = state.world.LocalLocation[key];
+    const entry = state.world.map.LocalLocation[key];
     if (entry && entry.spawnedSinceFamine === Number.MAX_SAFE_INTEGER) {
       state.logMessages["Input"].push(
         `The ${key.replace(/([A-Z])/g, " $1").trim()} has been picked clean — no monsters can be found here for now.`,
@@ -9553,14 +9851,14 @@ function startMonsterAttacks() {
       !alreadyWon &&
       !alreadyStarted &&
       combatStatus !== "In Combat" &&
-      playerloc !== "safe area"
+      playerloc !== "safe_haven"
     ) {
       combatstatus = "In Combat";
       state.logMessages["Output"].push(`-Combat Started-`);
       alreadyStarted = true;
     }
 
-    if (combatStatus === "In Combat" && playerloc !== "safe area") {
+    if (combatStatus === "In Combat" && playerloc !== "safe_haven") {
       let remainingDamage = dmg;
 
       if (state.PS.barrier && state.PS.barrier > 0) {
@@ -14187,7 +14485,7 @@ function LabyrinthController() {
   }
 
   // Reset action location (common pattern)
-  player.playerloc = "safe area";
+  player.playerloc = "safe_haven";
 
   return output;
 }

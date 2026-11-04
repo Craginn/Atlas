@@ -59,8 +59,7 @@ const RPG_CONFIG_DEFAULTS = {
 // newlines, trailing prose would otherwise glue onto the last setting's value.
 const RPG_CONFIG_HEADER =
   "RPG world configuration. Edit the values below to tune the world.\n" +
-  "Game Mode: open-world | rogue-like\n" +
-  "Difficulty: easy | medium | hard\n" +
+  "Game Mode: open-world | rogue-like   Difficulty: easy | medium | hard\n" +
   "World Layout: Open | Ascii Dungeon\n";
 
 // Render the canonical entry (header + one setting per line) from a values map.
@@ -219,7 +218,7 @@ function rpgStartingLocation() {
   // Otherwise use game mode for open world
   return isRogueLike
     ? { location: "dungeon", playerloc: "dungeon entrance" }
-    : { location: "safe haven", playerloc: "safe area" };
+    : { location: "safe haven", playerloc: "safe_haven" };
 }
 
 // Resolve player death per the config: permadeath ends the run, otherwise the
@@ -352,106 +351,480 @@ function rpgCreationGate() {
   };
 }
 
-// Prompting Engine
+
+// =========================================================================
+// Prompting Engine v2 — gate-based modular prompt composer
+// =========================================================================
+// Each module carries:
+//   label    -> section name shown in the brief
+//   priority -> higher wins when more than SCENE_BRIEF_CAP modules open
+//   gate     -> when the module opens (see sceneGateOpen):
+//                 locations: array of playerloc/location strings
+//                 actions:   parsed player action types (PLAYER_ACTION_MATCHERS)
+//                 triggers:  words searched for in the player's input
+//                 when:      a SCENE_STATE_GATES key checked against engine state
+//               No gate (or always: true) = open every turn, outside the cap.
+//   text     -> the guidance string injected into the context when the gate opens
+//   focus    -> one-line AI instruction (what this part of the response covers)
+//   rules    -> short extra rules; duplicates across open modules are dropped
+//
+// Runtime tweaks: updateOutputFormat(id, {…}) merges overrides into state,
+// resetOutputFormat(id) drops the override, registerModule(id, def) adds new ones.
+
+//To add your own module, you'd do something like:
+/*
+registerModule("boss_fight", {
+  label: "Boss",
+  priority: 96,
+  gate: { when: "monstersAlive", locations: ["boss_room"] },
+  text: "This is the floor boss. Describe an epic showdown.",
+  focus: "The boss fights with devastating power and unique mechanics.",
+  rules: ["The boss uses its signature ability at least once"],
+});
+
+*/
+// =========================================================================
+const OUTPUT_FORMATS_VERSION = 3;
+const SCENE_BRIEF_CAP = 5;
+
 const OUTPUT_FORMATS = {
   default: {
-    header: `# STRICT OUTPUT FORMAT\n The response MUST follow this exact structure:`,
-    lineTemplate: `("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major)`,
-    example: `([name]) ([name] strikes [name] with their mighty blade, drawing blood) ([Name] attacked [Name] with their blade, hurting them)`,
+    label: "Style",
+    priority: 100,
+    gate: { always: true },
+    text: "",
+    focus: "Continue the story by resolving the player's intentions in the order given.",
     rules: [
-      `EVERY line MUST contain: ("character name"|None) (full present tense telegraphic action beat) (short past tense version of the action beat, plus the result) (action scope: local|region|world) (action importance: minor|moderate|major|plot defining)`,
-      `Avoid paragraphs`,
-      `Avoid adding any text outside this structure`,
-      `Output only a numbered list`,
-      `Include the player's intended action(s) first, in order`,
-      `Avoid making up decisions, actions, or dialogue for the player`,
+      "Never invent actions, choices or dialogue for the player",
+      "Show the outcome of each intention before introducing anything new",
+      "Stay consistent with every Scene fact",
+      "Write story prose only: no lists, headings or notes",
     ],
   },
   combat: {
-    header: `# COMBAT OUTPUT FORMAT\n The response MUST follow this exact combat structure:`,
-    lineTemplate: `[Name] [Action Beat] [Result/Damage]`,
-    example: `Kaelen Swings broadsword at Goblin Hits for 12 dmg, Goblin reels`,
+    label: "Combat",
+    priority: 90,
+    gate: { actions: ["combat"], when: "monstersAlive", triggers: ["fight", "battle", "enemy", "ambush"] },
+    text: "",
+    focus: "Show each blow landing or missing and its effect; foes still standing stay a threat and react.",
     rules: [
-      `EVERY line MUST follow: [Name] [Action] [Result]. In a flowery explination format.`,
-      `Prioritize mechanical results (damage, status effects, and misses if needed only.)`,
-      `Keep beats extremely concise and telegraphic`,
-      `Allow flowery prose during combat exchanges without deviation from the results`,
-      `Output as a prosed pharagraph`,
+      "Only the listed foes are present; add no new enemies mid-fight",
+      "Foes only die when the Scene says they are defeated",
     ],
   },
-  // Extension: used while a monster is active and still alive after being hit.
-  // The player's attack is described as landing on a live target.
   combat_alive: {
-    header: `# COMBAT — MONSTER ACTIVE\n The response MUST follow this structure when a monster is still alive after being attacked:`,
-    lineTemplate: `[Player Name] [Attack Beat — how the player attacked] [Result — monster still alive, damage dealt]`,
-    example: `[Kaelen] [Swings broadsword at the Goblin] [Hits for 12 dmg, Goblin is hurt but stays standing]`,
-    rules: [
-      `EVERY line MUST follow: [Player Name] [Attack Beat] [Result]`,
-      `The Result MUST describe the monster STILL BEING ALIVE (wounded, snarling, defiant, standing)`,
-      `Include the damage dealt and the monster's remaining health`,
-      `The Attack Beat MUST be in present tense and telegraphic`,
-    ],
+    label: "Monster Active",
+    priority: 91,
+    gate: { when: "monstersAlive", actions: ["combat"] },
+    text: "",
+    focus: "The monster survives the hit: describe the attack landing and the monster still standing.",
+    rules: ["Include damage dealt and remaining health", "The monster reacts but does not fall"],
   },
-  // Extension: used when a monster is actually dead / defeated by the player's attack.
   combat_dead: {
-    header: `# COMBAT — MONSTER DEFEATED\n The response MUST follow this structure when a monster falls to the player's attack:`,
-    lineTemplate: `[Player Name] [Finishing Attack Beat] [Defeated: [Monster Name]]`,
-    example: `Kaelen Drives blade through the Goblin's chest Defeated: Goblin`,
-    rules: [
-      `EVERY line MUST follow: [Player Name] [Attack Beat] [Defeated: [Monster Name]]`,
-      `The Result MUST announce the monster FALLING and being DEFEATED (slain, falls, defeated, collapses)`,
-      `The Attack Beat MUST be in present tense and telegraphic`,
-      `The output needs to be a prosed pharagraph`,
-    ],
+    label: "Kill",
+    priority: 95,
+    gate: { when: "monsterDefeated" },
+    text: "",
+    get focus() { var names = defeatedNames(); return names.length ? names.join(", ") + " fell this turn: describe the finishing blow and the body going still." : "A foe fell this turn: describe the finishing blow and the body going still."; },
+    rules: ["A defeated foe stays dead and takes no further action"],
   },
-  exploration: {
-    header: `# EXPLORATION OUTPUT FORMAT\n The response MUST follow this environmental structure:`,
-    lineTemplate: `1. (Location/Entity) (Sensory Detail/Discovery) (Immediate Effect/Context) (Scope) (Importance)`,
-    example: `1. (Old Ruins) (A faint blue glow emanates from the altar) (Triggers a low hum in the air) (local) (moderate)`,
-    rules: [
-      `EVERY line MUST follow: (Target) (Observation) (Result) (Scope) (Importance)`,
-      `Focus on sensory details: sight, sound, smell`,
-      `Avoid narrative filler; describe the discovery directly`,
-      `Output only the numbered list`,
-    ],
+  danger: {
+    label: "Danger",
+    priority: 85,
+    gate: { when: "playerLow" },
+    text: "",
+    focus: "The player is badly hurt: let the wounds slow them and raise the stakes.",
+    rules: [],
+  },
+  magic: {
+    label: "Magic",
+    priority: 80,
+    gate: { actions: ["magic", "skill"] },
+    text: "",
+    focus: "Describe the ability being used and its visible effect, matching the named spell or skill.",
+    rules: ["Only use spells and skills named in the intentions"],
+  },
+  stealth: {
+    label: "Stealth",
+    priority: 75,
+    gate: { actions: ["stealth"] },
+    text: "",
+    focus: "Track who could notice the player; build the tension of staying unseen and show any slip.",
+    rules: [],
   },
   interaction: {
-    header: `# INTERACTION OUTPUT FORMAT\n The response MUST follow this dialogue structure:`,
-    lineTemplate: `1. ([Name]) ([Dialogue/Reaction]) ([Emotional Subtext/Body Language]) (Scope) (Importance)`,
-    example: `1. (Guard) ("Halt! Who goes there?") (Hand rests on sword hilt, suspicious) (local) (moderate)`,
-    rules: [
-      `EVERY line MUST follow: ([Name]) ([Speech]) ([Action/Tone]) (Scope) (Importance)`,
-      `Keep dialogue punchy and in-character`,
-      `Describe body language in parentheses`,
-      `Output only the numbered list`,
-    ],
+    label: "Dialogue",
+    priority: 70,
+    gate: { actions: ["interaction", "emote"], triggers: ["talk", "speak", "say", "ask", "tell"] },
+    text: "",
+    focus: "NPCs reply in character with short, distinct voices and react through body language.",
+    rules: ["Quote the player's words exactly; never add lines for them"],
+  },
+  exploration: {
+    label: "Surroundings",
+    priority: 60,
+    gate: {
+      actions: ["exploration", "movement", "gather", "object"],
+      triggers: ["look", "around", "listen", "smell", "where am i", "search"],
+      locations: ["dungeon", "labyrinth", "dungeon entrance", "ascii world"],
+    },
+    text: "",
+    focus: "Ground the action in the location: what the player sees, hears and smells, and anything they find.",
+    rules: ["Only reveal exits, items or creatures that fit the Scene"],
+  },
+  dungeon: {
+    label: "Dungeon",
+    priority: 65,
+    gate: { locations: ["dungeon", "dungeon entrance", "labyrinth"] },
+    text: "",
+    focus: "The player is underground: describe corridors, chambers, dim light, echoes, and the weight of stone overhead.",
+    rules: ["Maintain dungeon atmosphere — dark, enclosed, layered depths"],
+  },
+  rest: {
+    label: "Rest",
+    priority: 50,
+    gate: { actions: ["rest"], triggers: ["rest", "sleep", "camp", "sit"] },
+    text: "",
+    focus: "Slow the pace: show time passing and the player recovering; interrupt only for a threat in the Scene.",
+    rules: [],
+  },
+  crafting: {
+    label: "Crafting",
+    priority: 55,
+    gate: { actions: ["crafting"], triggers: ["craft", "forge", "brew", "build"] },
+    text: "",
+    focus: "Describe the work step by step and how the finished piece looks and feels.",
+    rules: [],
+  },
+  trade: {
+    label: "Trade",
+    priority: 60,
+    gate: { actions: ["trade"], triggers: ["buy", "sell", "trade", "shop", "merchant"] },
+    text: "",
+    focus: "Show the transaction: what is offered, what is exchanged, and how the merchant reacts.",
+    rules: [],
+  },
+  victory: {
+    label: "Victory",
+    priority: 95,
+    gate: { when: "monsterDefeated" },
+    text: "",
+    get focus() { var names = defeatedNames(); return names.length ? "The " + names.join(", ") + " has been slain. Celebrate the win: loot, XP, or a moment of relief after the fight." : "Celebrate the win: loot, XP, or a moment of relief after the fight."; },
+    rules: [],
+  },
+  level_up: {
+    label: "Level Up",
+    priority: 95,
+    gate: { when: "playerLeveledUp" },
+    text: "",
+    focus: "The player has grown stronger. Announce the level and any new abilities.",
+    rules: [],
+  },
+  story: {
+    label: "Story",
+    priority: 40,
+    gate: { actions: ["story"] },
+    text: "",
+    focus: "Advance the scene naturally from where it left off.",
+    rules: [],
   },
 };
 
-function getOutputFormat(type = "default") {
-  if (!state.outputFormats) {
-    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
+
+// ---------------------------------------------------------------------------
+//  Module runtime: overrides, registration, and access
+// ---------------------------------------------------------------------------
+
+function outputFormatOverrides() {
+  if (!state.outputFormats || state.outputFormatsVersion !== OUTPUT_FORMATS_VERSION) {
+    state.outputFormats = {};
+    state.outputFormatsVersion = OUTPUT_FORMATS_VERSION;
   }
-  return state.outputFormats[type] || state.outputFormats["default"];
+  return state.outputFormats;
+}
+
+function getOutputFormat(type) {
+  if (!type) type = "default";
+  const base = OUTPUT_FORMATS[type];
+  const over = outputFormatOverrides()[type];
+  if (!base && !over) return Object.assign({}, OUTPUT_FORMATS.default);
+  return Object.assign({}, base, over);
 }
 
 function updateOutputFormat(type, updates) {
-  const current = getOutputFormat(type);
-  state.outputFormats[type] = { ...current, ...updates };
-  console.log(state.outputFormats);
+  const over = outputFormatOverrides();
+  over[type] = Object.assign({}, over[type], updates);
 }
 
-function resetOutputFormat(type = "default") {
-  if (!state.outputFormats) {
-    state.outputFormats = JSON.parse(JSON.stringify(OUTPUT_FORMATS));
-  } else {
-    state.outputFormats[type] = JSON.parse(
-      JSON.stringify(OUTPUT_FORMATS[type] || OUTPUT_FORMATS.default),
-    );
+function resetOutputFormat(type) {
+  if (!type) type = "default";
+  delete outputFormatOverrides()[type];
+}
+
+function registerModule(id, def) {
+  OUTPUT_FORMATS[id] = def;
+}
+
+// ---------------------------------------------------------------------------
+//  Gate engine — decides which modules open each turn
+// ---------------------------------------------------------------------------
+
+function sceneLiveMonsters() {
+  const MS = state.MS || {};
+  return Array.isArray(MS.activeMonsters) ? MS.activeMonsters.filter(m => m && !m.isDead && m.name) : [];
+}
+
+function sceneHealthRatio() {
+  const PS = state.PS || {};
+  return PS.maxHealth > 0 ? PS.health / PS.maxHealth : 1;
+}
+
+function sceneLocationRecord() {
+  const PS = state.PS || {};
+  const key = String(PS.playerloc || PS.location || "").toLowerCase().replace(/\s+/g, "_");
+  const locations = state.world && state.world.map && state.world.map.LocalLocation;
+  return { key, loc: key && locations ? locations[key] || null : null };
+}
+
+function resetSceneTurnEvents() {
+  state.SceneTurnEvents = { defeated: [] };
+}
+
+function sceneTurnEvents() {
+  const ev = state.SceneTurnEvents;
+  return ev && Array.isArray(ev.defeated) ? ev : { defeated: [] };
+}
+
+function recordSceneDefeat(name) {
+  const ev = sceneTurnEvents();
+  if (!name) return;
+  if (ev.defeated.some(function(d) { return (typeof d === "string" ? d : d.name) === name; })) return;
+  var lib = LLM.concat(MLM, HLM);
+  var entry = lib.find(function(m) { return m.name.toLowerCase() === name.toLowerCase(); });
+  ev.defeated.push(entry ? { name: entry.name, type: entry.type } : { name: name, type: "Unknown" });
+  state.SceneTurnEvents = ev;
+}
+
+function defeatedNames() {
+  return sceneTurnEvents().defeated.map(function(d) { return typeof d === "string" ? d : d.name; });
+}
+
+function defeatedDetails() {
+  return sceneTurnEvents().defeated.map(function(d) {
+    if (typeof d === "string") return d;
+    return d.name + " (" + d.type + ")";
+  });
+}
+
+const SCENE_STATE_GATES = {
+  monstersAlive:    () => sceneLiveMonsters().length > 0,
+  monsterDefeated:  () => sceneTurnEvents().defeated.length > 0,
+  playerHurt:       () => sceneHealthRatio() <= 0.6,
+  playerLow:        () => sceneHealthRatio() <= 0.3,
+  playerLeveledUp:  () => !!state._leveledUpThisTurn,
+  worldEvent:       () => {
+    const events = state.world && state.world.activeWorldEvents;
+    if (!Array.isArray(events) || !events.length) return false;
+    const { key } = sceneLocationRecord();
+    return events.some(e => e && e.locationId === key);
+  },
+};
+
+function sceneTextHas(text, word) {
+  const w = String(word || "").toLowerCase();
+  if (!w) return false;
+  if (!/^\w/.test(w)) return text.includes(w);
+  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp("\\b" + esc + "\\b").test(text);
+}
+
+function sceneGateOpen(gate, scan) {
+  if (!gate || gate.always) return true;
+  if (gate.actions && gate.actions.some(t => scan.types.has(t))) return true;
+  if (gate.triggers && gate.triggers.some(w => sceneTextHas(scan.text, w))) return true;
+  if (gate.locations) {
+    const loc = scan.location;
+    if (loc && gate.locations.some(l => loc.includes(l.toLowerCase()))) return true;
   }
+  if (gate.when) {
+    const check = SCENE_STATE_GATES[gate.when];
+    try { if (check && check()) return true; } catch (e) {
+      console.error('Scene gate "' + gate.when + '" failed: ' + (e && e.message));
+    }
+  }
+  return false;
 }
 
-// Renders a single combat line in the strict OUTPUT_FORMATS structure.
+
+// ---------------------------------------------------------------------------
+//  Scene Facts — dynamic situational data injected into the brief
+// ---------------------------------------------------------------------------
+const sceneTidyId = (s) => String(s || "").replace(/_/g, " ").trim();
+
+function sceneFactFoes() {
+  const foes = sceneLiveMonsters();
+  if (!foes.length) return null;
+  const list = foes.slice(0, 3).map(m => {
+    const count = m.count > 1 ? " x" + m.count : "";
+    let hp = "";
+    if (typeof m.health === "number") {
+      hp = m.maxHealth > 0 ? " (" + m.health + "/" + m.maxHealth + " HP)" : " (" + m.health + " HP)";
+    }
+    return m.name + count + hp;
+  });
+  const more = foes.length > 3 ? " and " + (foes.length - 3) + " more" : "";
+  return "Fighting " + list.join(", ") + more;
+}
+
+function sceneFactLocation() {
+  const PS = state.PS || {};
+  const { loc } = sceneLocationRecord();
+  const name = (loc && (loc.name || loc.displayName)) || sceneTidyId(PS.playerloc || PS.location);
+  if (!name) return null;
+  const biome = loc && (loc.biome || loc.zoneType);
+  return "At " + name + (biome ? " (" + biome + ")" : "");
+}
+
+function sceneFactCondition() {
+  const PS = state.PS || {};
+  if (!(PS.maxHealth > 0)) return null;
+  const r = sceneHealthRatio();
+  const label = r <= 0.3 ? "badly wounded" : r <= 0.6 ? "hurt" : "healthy";
+  return PS.Name + " is " + label + " (" + PS.health + "/" + PS.maxHealth + " HP)";
+}
+
+function sceneFactTalkTarget() {
+  const talk = (state.PlayerActions || []).find(a => a && a.name === "Talk" && a.target);
+  return talk ? "Speaking with " + talk.target : null;
+}
+
+function sceneFactAllies() {
+  if (typeof getLivingCompanions !== "function") return null;
+  const allies = getLivingCompanions();
+  if (!allies.length) return null;
+  return "Allies: " + allies.slice(0, 3).map(c => c.name).join(", ");
+}
+
+function sceneFactWorldEvent() {
+  const events = state.world && state.world.activeWorldEvents;
+  if (!Array.isArray(events) || !events.length) return null;
+  const { key } = sceneLocationRecord();
+  const ev = events.find(e => e && e.locationId === key);
+  return ev && ev.message ? "Event: " + ev.message : null;
+}
+
+function sceneFactTime() {
+  const t = state.world && state.world.time;
+  if (!t || !t.cyclePhase) return null;
+  return "Time: " + t.cyclePhase + (t.season ? ", " + t.season : "");
+}
+
+function sceneFactNearby() {
+  const { loc } = sceneLocationRecord();
+  if (!loc || !Array.isArray(loc.interactions) || !loc.interactions.length) return null;
+  const registry = (state.world && state.world.interactionRegistry) || {};
+  const names = loc.interactions.slice(0, 3).map(id => {
+    const rec = typeof id === "string" ? registry[id] : id;
+    return (rec && rec.name) || sceneTidyId(typeof id === "string" ? id : "");
+  });
+  return "Nearby: " + names.filter(Boolean).join(", ");
+}
+
+const SCENE_FACTS = [
+  { id: "foes",      priority: 100, gate: { when: "monstersAlive" },  get: sceneFactFoes },
+  { id: "defeated",  priority: 95,  gate: { when: "monsterDefeated" }, get: function() { return "Defeated this turn: " + defeatedDetails().join(", "); } },
+  { id: "location",  priority: 90,  gate: { always: true },           get: sceneFactLocation },
+  { id: "condition", priority: 85,  gate: { when: "playerHurt", actions: ["rest", "support"], triggers: ["hurt", "wound", "heal", "health", "bleed"] }, get: sceneFactCondition },
+  { id: "talk",      priority: 80,  gate: { actions: ["interaction"] }, get: sceneFactTalkTarget },
+  { id: "allies",    priority: 70,  gate: { actions: ["combat"], when: "monstersAlive", triggers: ["ally", "allies", "companion", "party", "summon"] }, get: sceneFactAllies },
+  { id: "event",     priority: 65,  gate: { when: "worldEvent" },      get: sceneFactWorldEvent },
+  { id: "time",      priority: 50,  gate: { actions: ["exploration", "movement", "rest", "stealth"], triggers: ["night", "day", "dark", "sky", "sun", "moon", "time"] }, get: sceneFactTime },
+  { id: "nearby",    priority: 40,  gate: { actions: ["exploration", "gather", "object"] }, get: sceneFactNearby },
+];
+
+
+// ---------------------------------------------------------------------------
+//  Scene Composer — builds the per-turn "[Scene Brief ...]" block
+// ---------------------------------------------------------------------------
+const byScenePriority = (a, b) => (b.priority || 0) - (a.priority || 0);
+
+function buildSceneBrief() {
+  if (!state.PS || !state.PS.Name || state.tempCharacter) return "";
+  const actions = Array.isArray(state.PlayerActions) ? state.PlayerActions : [];
+  const PS = state.PS || {};
+  const scan = {
+    types: new Set(actions.map(a => a && a.type)),
+    text: String(state.PlayerInputRaw || "").toLowerCase(),
+    location: String(PS.playerloc || PS.location || "").toLowerCase(),
+  };
+
+  const facts = [];
+  for (const f of SCENE_FACTS.slice().sort(byScenePriority)) {
+    if (facts.length >= SCENE_BRIEF_CAP) break;
+    if (!sceneGateOpen(f.gate, scan)) continue;
+    try {
+      const line = f.get();
+      if (line) facts.push(line);
+    } catch (e) {
+      console.error('Scene fact "' + f.id + '" failed: ' + (e && e.message));
+    }
+  }
+
+  const ids = Object.keys(OUTPUT_FORMATS).concat(
+    Object.keys(outputFormatOverrides()).filter(id => !OUTPUT_FORMATS[id]),
+  );
+  const modules = ids.map(id => getOutputFormat(id));
+  const isBase = (m) => !m.gate || m.gate.always;
+  const open = modules.filter(isBase).sort(byScenePriority).concat(
+    modules.filter(m => !isBase(m) && sceneGateOpen(m.gate, scan)).sort(byScenePriority).slice(0, SCENE_BRIEF_CAP),
+  );
+
+  const lines = [];
+  if (state.PlayerActionPrompt) lines.push(state.PlayerActionPrompt);
+  if (facts.length) lines.push("Scene: " + facts.join("; ") + ".");
+  for (const m of open) {
+    if (m.text) lines.push(m.text);
+    if (m.focus) lines.push((m.label || "Guide") + ": " + m.focus);
+  }
+  const rules = [];
+  for (const m of open) {
+    for (const r of m.rules || []) if (rules.indexOf(r) === -1) rules.push(r);
+  }
+  if (rules.length) lines.push("Rules: " + rules.join(". ") + ".");
+
+  state.SceneBriefDebug = {
+    openModules: open.map(m => m.label),
+    facts: facts,
+    location: scan.location,
+  };
+
+  return lines.length ? "[Scene Brief\n" + lines.join("\n") + "]" : "";
+}
+
+function injectSceneBrief(text) {
+  const brief = buildSceneBrief();
+  state.SceneBrief = brief;
+  let body = String(text || "");
+  if (!brief) return body;
+  const addition = "\n\n" + brief;
+  const max = typeof info !== "undefined" && info ? info.maxChars : 0;
+  const over = max ? body.length + addition.length - max : 0;
+  if (over > 0) {
+    const head = "Recent Story:\n";
+    const rs = body.indexOf(head);
+    if (rs !== -1) {
+      const start = rs + head.length;
+      let cut = start + over + 3;
+      const ws = body.slice(cut).search(/\s/);
+      if (ws !== -1) cut += ws;
+      if (cut < body.length) body = body.slice(0, start) + "..." + body.slice(cut);
+    }
+  }
+  return body + addition;
+}
+
+
+// Renders a single combat line in the OUTPUT_FORMATS structure.
 // When `isDead` is false the `combat_alive` format is used (attack describes
 // the monster surviving the blow); when `isDead` is true the `combat_dead`
 // format is used (attack describes the monster being defeated).
@@ -470,7 +843,7 @@ function renderCombatOutput(
   actionBeat,
   remaining,
 ) {
-  getOutputFormat(isDead ? "combat_dead" : "combat_alive");
+  if (isDead) recordSceneDefeat(targetName);
 
   let result;
   let beat = actionBeat || (isDead ? "Delivers the killing blow" : "Strikes");
@@ -481,7 +854,7 @@ function renderCombatOutput(
     result = `${damage} dmg dealt, ${targetName} still alive (${remaining} HP remaining)`;
   }
 
-  return `1. (${playerName}) (${beat}) (${result}) (local) (major)`;
+  return `1. (${playerName}) (${beat}) (${result})`;
 }
 
 // Maps the first verb of a matched attack phrase to a present-tense beat.
@@ -1891,7 +2264,7 @@ function companionCombatTick() {
     return;
   }
   // Nothing fights in town.
-  if (state.PS.playerloc === "safe area" && state.PS.location === "safe haven")
+  if (state.PS.playerloc === "safe_haven" && state.PS.location === "safe haven")
     return;
 
   // --- Movement Phase ---
@@ -2233,7 +2606,7 @@ if (state.PS === undefined) {
     status: "None" || [],
     combatstatus: "None",
     nearTarget: "None",
-    playerloc: "safe area",
+    playerloc: "safe_haven",
     location: "safe haven",
     combatRange: 0,
     skillPoints: 0,
@@ -2913,6 +3286,7 @@ function parsePlayerActions(rawText) {
   state.PlayerActions = [];
   state.PlayerAction = "None";
   state.PlayerActionPrompt = "";
+  state.PlayerInputRaw = "";
   state.logMessages = state.logMessages || {};
   state.logMessages["Output"] = state.logMessages["Output"] || [];
 
@@ -2921,6 +3295,7 @@ function parsePlayerActions(rawText) {
     return state.PlayerActions;
 
   const raw = String(rawText ?? "").trim();
+  state.PlayerInputRaw = raw;
   if (!raw) return state.PlayerActions;
 
   // Split into clauses so several actions in one input each get parsed:
@@ -3465,7 +3840,7 @@ function createPlayerState() {
     fatigue: 450,
     status: "None" || [],
     effects: "None" || [],
-    playerloc: "safe area",
+    playerloc: "safe_haven",
     location: "safe haven",
     combatStatus: "None",
     combatRange: 0,
@@ -4180,7 +4555,7 @@ function U_playerTrack() {
         // Player is in safe haven
         if (player.location !== "safe haven") {
           player.location = "safe haven";
-          player.playerloc = "safe area";
+          player.playerloc = "safe_haven";
           player.combatstatus = "Not in Combat"; // or "safe" if you prefer that string
           locationChanged = true;
           combatStatusChanged = true;
@@ -7451,8 +7826,12 @@ if (!state.MS) {
   };
 }
 
-if (!state.world || !state.world.LocalLocation) {
+if (!state.world || !state.world.map || !state.world.map.LocalLocation) {
   ensureWorldState();
+  const layout = (state.rpgConfig && state.rpgConfig.worldLayout) || "Open";
+  if (layout === "Open") {
+    initializeDefaultOpenWorld();
+  }
 }
 
 const KnownMonsters = [...LLM, ...MLM, ...HLM].map((m) => m.name);
@@ -8209,8 +8588,8 @@ function playerAttack() {
     }
 
     // A live monster you are attacking means you are in combat. This used to
-    // be gated on playerloc !== "safe area", but playerloc defaults to
-    // "safe area", so fresh players never got a monster response. Monsters
+    // be gated on playerloc !== "safe_haven", but playerloc defaults to
+    // "safe_haven", so fresh players never got a monster response. Monsters
     // only exist in the labyrinth, so a present target is the reliable signal.
     const inTown =
       state.PS.location === "safe haven" &&
@@ -8253,16 +8632,6 @@ function playerAttack() {
       if (target.health < 0) target.health = 0;
 
       const actionBeat = parseAttackBeat(text) || "Strikes";
-      state.logMessages["Output"].push(
-        renderCombatOutput(
-          PlayerName,
-          target.name,
-          dmg,
-          false,
-          actionBeat,
-          target.health,
-        ),
-      );
 
       // Basic attacks carry the player's chosen elemental aspect.
       if (target.health > 0 && state.PS.Element) {
@@ -8279,16 +8648,6 @@ function playerAttack() {
           target.count--;
           target.health = target.maxHealth;
           rescalePackDamage(target);
-          state.logMessages["Output"].push(
-            renderCombatOutput(
-              PlayerName,
-              target.name,
-              dmg,
-              true,
-              "Slays one",
-              target.health,
-            ),
-          );
           onMonsterDefeated(deadOne);
         } else {
           const defeatedSnapshot = { ...target };
@@ -8301,16 +8660,6 @@ function playerAttack() {
           );
           state.logMessages["Input"].push(
             `\n${PlayerName}|Defeated:${target.name}`,
-          );
-          state.logMessages["Output"].push(
-            renderCombatOutput(
-              PlayerName,
-              target.name,
-              dmg,
-              true,
-              "Delivers the killing blow",
-              0,
-            ),
           );
           onMonsterDefeated(defeatedSnapshot);
 
@@ -8477,112 +8826,128 @@ const CARRYING_CAPACITY_CONFIG = {
 // OPEN WORLD MAP & STATE MANAGEMENT SYSTEM
 // ===========================================================================
 
-
-// LABYRINTH PROCEDURAL GENERATION CONFIGURATION
-
-const LABYRINTH_LEVEL_CONFIG = {
-  top_level: {
-    name: "Top Level",
-    floors: 50,
-    biome: "ancient stone",
-    difficulty: 1,
-    interactions: ["abandoned campfire", "glowing fungi", "ominous chest", "runic shrine", "patrolling guard"]
-  },
-  middle_level: {
-    name: "Middle Level",
-    floors: 25,
-    biome: "damp cavern",
-    difficulty: 3,
-    interactions: ["dripping stalactites", "mossy altar", "slumbering beast", "collapsed tunnel", "forgotten shrine"]
-  },
-  low_level: {
-    name: "Low Level",
-    floors: 25,
-    biome: "obsidian depths",
-    difficulty: 5,
-    interactions: ["lava fissure", "bone pile", "cursed anvil", "shadowy ambush", "echoing void"]
-  },
-  sub_level: {
-    name: "Sub Level",
-    floors: 50,
-    biome: "void-touched",
-    difficulty: 8,
-    interactions: ["void altar", "crystallized mana", "reality tear", "corrupted guardian", "silent abyss"]
-  }
-};
-
-
 /**
  * Ensures the world state is properly initialized with all necessary tracking structures.
  * Safe to call multiple times; it will not overwrite existing valid data.
  */
-/**
- * Ensures the world state is properly initialized with all necessary tracking structures and default world data.
- * Safe to call multiple times; it will not overwrite existing valid data.
- */
 function ensureWorldState() {
   const layout = (state.rpgConfig && state.rpgConfig.worldLayout) || "Open";
-  
+  log(state.word)
   if (!state.world) {
     state.world = {
       map: {
-        continent: ["The Realm"], region: ["The Starting Lands"], territory: ["Safe Haven Territory", "Labyrinth Depths"],
-        terrain: ["grassland", "stone", "cave", "void"], biome: ["temperate", "ancient stone", "damp cavern", "obsidian depths", "void-touched"],
-        LocalLocation: {
-          safe_haven: { id: "safe_haven", name: "Safe Haven", type: "town", biome: "temperate", description: "A fortified settlement.", exits: { north: "safe_haven_market", south: "labyrinth_entrance" }, interactions: ["notice_board"], buildings: ["tavern"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0 },
-          safe_haven_market: { id: "safe_haven_market", name: "Safe Haven Market", type: "town_sub", biome: "temperate", description: "A bustling courtyard.", exits: { south: "safe_haven" }, interactions: ["merchant_supplies"], buildings: ["general_store"], monsters: [], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0 },
-          labyrinth_entrance: { id: "labyrinth_entrance", name: "Labyrinth Entrance", type: "dungeon_entrance", biome: "ancient stone", description: "A massive, ominous stairway.", exits: { north: "safe_haven", down: "labyrinth_top_level_floor_1" }, interactions: ["legion_identification_stone"], buildings: [], monsters: ["Maze Rat"], flags: { discovered: true, locked: false, looted: false }, biomass: 0, lastRegenTurn: 0, famine: false, spawnedSinceFamine: 0 }
-        },
+        continent: [
+          { id: "aethermere", name: "Aethermere", description: "A fractured continent scarred by the labyrinth's emergence. Civilizations cling to its surface while adventurers delve below.", regions: ["haven_reach", "labyrinth_wastes", "outer_wilds"] }
+        ],
+        region: [
+          { id: "haven_reach", name: "Haven Reach", continent: "aethermere", description: "The settled lands surrounding Safe Haven, where the Legion maintains order.", territories: ["haven", "northern_outskirts"] },
+          { id: "labyrinth_wastes", name: "Labyrinth Wastes", continent: "aethermere", description: "Blighted terrain surrounding the labyrinth's surface entrance. The ground is cracked and the air tastes of stone.", territories: ["labyrinth_approach", "labyrinth_depths"] },
+          { id: "outer_wilds", name: "Outer Wilds", continent: "aethermere", description: "Untamed wilderness beyond Legion patrols. Ruins of older civilizations dot the landscape.", territories: ["pilgrim_road", "ashen_ruins"] }
+        ],
+        territory: [
+          { id: "haven", name: "Haven Proper", region: "haven_reach", biomes: ["temperate"], description: "The fortified settlement and its immediate surroundings." },
+          { id: "northern_outskirts", name: "Northern Outskirts", region: "haven_reach", biomes: ["temperate", "grassland"], description: "Farmland and trade roads north of Safe Haven." },
+          { id: "labyrinth_approach", name: "Labyrinth Approach", region: "labyrinth_wastes", biomes: ["stone", "scrubland"], description: "The desolate path from Safe Haven to the labyrinth entrance." },
+          { id: "labyrinth_depths", name: "Labyrinth Depths", region: "labyrinth_wastes", biomes: ["cave", "stone"], description: "The subterranean levels of the great labyrinth." },
+          { id: "pilgrim_road", name: "Pilgrim Road", region: "outer_wilds", biomes: ["temperate", "forest"], description: "An old road once used by pilgrims, now overgrown and dangerous." },
+          { id: "ashen_ruins", name: "Ashen Ruins", region: "outer_wilds", biomes: ["scrubland", "stone"], description: "Crumbling remains of a settlement destroyed when the labyrinth opened." }
+        ],
+        terrain: [
+          { id: "grassland", name: "Grassland", moveCost: 1, visibility: "high" },
+          { id: "forest", name: "Dense Forest", moveCost: 1.5, visibility: "low" },
+          { id: "stone", name: "Rocky Ground", moveCost: 1.2, visibility: "medium" },
+          { id: "scrubland", name: "Scrubland", moveCost: 1.1, visibility: "medium" },
+          { id: "cave", name: "Cave System", moveCost: 1.3, visibility: "very_low" },
+          { id: "road", name: "Paved Road", moveCost: 0.8, visibility: "high" }
+        ],
+        city: [],
+        village: [],
+        settlement: [
+          { id: "safe_haven", name: "Safe Haven", type: "fortified_town", region: "haven_reach", population: "medium", faction: "Legion" }
+        ],
+        biome: [
+          { id: "temperate", name: "Temperate", temperature: "mild", precipitation: "moderate", flora: "abundant", fauna: "common" },
+          { id: "stone", name: "Stonelands", temperature: "cool", precipitation: "low", flora: "sparse", fauna: "scarce" },
+          { id: "cave", name: "Subterranean", temperature: "cold", precipitation: "none", flora: "fungal", fauna: "adapted" },
+          { id: "forest", name: "Woodland", temperature: "mild", precipitation: "moderate", flora: "dense", fauna: "abundant" },
+          { id: "grassland", name: "Open Plains", temperature: "mild", precipitation: "moderate", flora: "grasses", fauna: "common" },
+          { id: "scrubland", name: "Dry Scrub", temperature: "warm", precipitation: "low", flora: "sparse", fauna: "scarce" }
+        ],
+        LocalLocation: {},
       },
-      interactionRegistry: { notice_board: { id: "notice_board", name: "Adventurer's Notice Board", type: "object", description: "A wooden board.", state: "active" } },
-      buildingRegistry: {}, monsterRegistry: {},
-      time: { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0 },
-      weather: { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild" },
-      worldRegistry: { modifiedLocations: { "safe_haven": true, "safe_haven_market": true, "labyrinth_entrance": true }, activeWorldEvents: [] },
+      interactionRegistry: {}, // Key: interactionId, Value: Interaction Object
+      buildingRegistry: {},    // Key: buildingId, Value: Building Object
+      monsterRegistry: {},     // Key: monsterTypeId, Value: Monster Template
+      time: {
+        turn: 0,
+        day: 1,
+        hour: 6,
+        minute: 0,
+        cyclePhase: "dawn",
+        lightLevel: 1.0,
+      },
+      weather: {
+        current: "clear",
+        intensity: 0,
+        visibilityModifier: 1.0,
+        temperature: "mild",
+      },
+      worldRegistry: { 
+        modifiedLocations: {}, 
+        activeWorldEvents: [] 
+      },
     };
+
+    if (layout === "Ascii Dungeon") {
+      state.world.asciiWorld = {
+        grid: null,
+        floor: 1,
+        dugfloor: 1,
+        rows: 50,
+        cols: 50,
+        playerPosition: { x: 25, y: 25 },
+        regions: {},
+        generatedAt: 0,
+      };
+      state.world.dungeon = null;
+    } else {
+      // OPEN WORLD — unified structure
+      state.world.dungeon = {
+        map: [],
+        levels: [],
+        currentLevel: null,
+        activeMap: null,
+        floor: 1,
+        playerPosition: {},
+        generatedAt: 0,
+        interactionRegistry: {},
+        buildingRegistry: {},
+        monsterRegistry: {},
+        currentLevelName: null,
+        dugfloor: 1,
+      };
+    }
   }
 
-  // =========================================================================
-  // 1. OPEN WORLD LABYRINTH (Macro-state for procedural floors)
-  // =========================================================================
-  if (!state.world.labyrinth) {
-    state.world.labyrinth = {
-      levels: {},
-      currentLevel: null,
-      currentLevelName: null,
-      floor: 1,
-      dugfloor: 1,
-      generatedAt: 0,
-    };
-  }
-
-  // =========================================================================
-  // 2. ASCII DUNGEON (Grid-state for ASCII map)
-  // =========================================================================
-  if (!state.world.asciiDungeon) {
-    state.world.asciiDungeon = {
-      name: "Underground Labyrinth",
-      grid: null,
-      floor: 1,
-      dugfloor: 1,
-      rows: 8,
-      cols: 5,
-      playerPosition: { row: 1, col: "A" },
-      activeMap: null,
-      levels: {},
-      generatedAt: 0,
-    };
-  }
-
-  // Ensure nested objects exist
+  // Ensure nested objects exist even if state.world was partially defined elsewhere
   if (!state.world.map) state.world.map = { LocalLocation: {} };
   if (!state.world.map.LocalLocation) state.world.map.LocalLocation = {};
   if (!state.world.interactionRegistry) state.world.interactionRegistry = {};
   if (!state.world.buildingRegistry) state.world.buildingRegistry = {};
   if (!state.world.monsterRegistry) state.world.monsterRegistry = {};
-  if (!state.world.time) state.world.time = { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0 };
-  if (!state.world.weather) state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild" };
-  if (!state.world.worldRegistry) state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: [] };
+  
+  if (!state.world.time) {
+    state.world.time = { turn: 0, day: 1, hour: 6, minute: 0, cyclePhase: "dawn", lightLevel: 1.0 };
+  }
+  if (!state.world.weather) {
+    state.world.weather = { current: "clear", intensity: 0, visibilityModifier: 1.0, temperature: "mild" };
+  }
+  if (!state.world.worldRegistry) {
+    state.world.worldRegistry = { modifiedLocations: {}, activeWorldEvents: [] };
+  } else {
+    if (!state.world.worldRegistry.modifiedLocations) state.world.worldRegistry.modifiedLocations = {};
+    if (!Array.isArray(state.world.worldRegistry.activeWorldEvents)) state.world.worldRegistry.activeWorldEvents = [];
+  }
 }
 
 /**
@@ -8595,9 +8960,9 @@ function addLocation(locationData) {
     console.error("addLocation: locationData must have an 'id' property.");
     return false;
   }
-
+  
   const locId = locationData.id.toLowerCase().replace(/\s+/g, "_");
-
+  
   // Merge with existing location if it exists, otherwise create new
   state.world.map.LocalLocation[locId] = {
     id: locId,
@@ -8607,16 +8972,12 @@ function addLocation(locationData) {
     description: locationData.description || "A mysterious place.",
     exits: locationData.exits || {}, // e.g., { north: "safe_haven_market", down: "labyrinth_1" }
     interactions: locationData.interactions || [], // Array of interactionIds
-    buildings: locationData.buildings || [], // Array of buildingIds
-    monsters: locationData.monsters || [], // Array of monster names/types that can spawn here
-    flags: locationData.flags || {
-      discovered: false,
-      locked: false,
-      looted: false,
-    },
-    ...locationData, // Allow overriding defaults
+    buildings: locationData.buildings || [],       // Array of buildingIds
+    monsters: locationData.monsters || [],         // Array of monster names/types that can spawn here
+    flags: locationData.flags || { discovered: false, locked: false, looted: false },
+    ...locationData // Allow overriding defaults
   };
-
+  
   return true;
 }
 
@@ -8639,11 +9000,11 @@ function getLocation(locationId) {
 function getCurrentLocation() {
   if (!state.PS) return null;
   ensureWorldState();
-
+  
   // Prefer playerloc (specific area), fallback to location (general area)
   const targetLoc = state.PS.playerloc || state.PS.location;
   if (!targetLoc) return null;
-
+  
   return getLocation(targetLoc);
 }
 
@@ -8655,9 +9016,7 @@ function getCurrentLocation() {
 function addInteraction(locationId, interactionData) {
   ensureWorldState();
   if (!interactionData || !interactionData.id) {
-    console.error(
-      "addInteraction: interactionData must have an 'id' property.",
-    );
+    console.error("addInteraction: interactionData must have an 'id' property.");
     return false;
   }
 
@@ -8671,7 +9030,7 @@ function addInteraction(locationId, interactionData) {
     type: interactionData.type || "object", // npc, object, event, loot
     description: interactionData.description || "",
     state: interactionData.state || "active", // active, completed, destroyed, hidden
-    ...interactionData,
+    ...interactionData
   };
 
   // Link to location if it exists
@@ -8682,10 +9041,8 @@ function addInteraction(locationId, interactionData) {
     }
     return true;
   }
-
-  console.warn(
-    `addInteraction: Location '${locId}' not found. Interaction created in registry but not linked.`,
-  );
+  
+  console.warn(`addInteraction: Location '${locId}' not found. Interaction created in registry but not linked.`);
   return true;
 }
 
@@ -8695,9 +9052,8 @@ function addInteraction(locationId, interactionData) {
  * @returns {Object} Result object with success status and message.
  */
 function movePlayer(direction) {
-  if (!state.PS)
-    return { success: false, message: "Player state not initialized." };
-
+  if (!state.PS) return { success: false, message: "Player state not initialized." };
+  
   const currentLoc = getCurrentLocation();
   if (!currentLoc) {
     return { success: false, message: "You are in an undefined location." };
@@ -8707,25 +9063,22 @@ function movePlayer(direction) {
   const nextLocId = currentLoc.exits[dir];
 
   if (!nextLocId) {
-    return {
-      success: false,
-      message: `You cannot go ${dir} from here. Available exits: ${Object.keys(currentLoc.exits).join(", ") || "none"}.`,
+    return { 
+      success: false, 
+      message: `You cannot go ${dir} from here. Available exits: ${Object.keys(currentLoc.exits).join(", ") || "none"}.` 
     };
   }
 
   const targetLoc = getLocation(nextLocId);
   if (!targetLoc) {
-    return {
-      success: false,
-      message: `The path to ${nextLocId} leads to an uncharted void (Location data missing).`,
-    };
+    return { success: false, message: `The path to ${nextLocId} leads to an uncharted void (Location data missing).` };
   }
 
   // Update player position
   state.PS.playerloc = targetLoc.id;
-  state.PS.location =
-    targetLoc.type === "dungeon" ? "labyrinth" : state.PS.location; // Auto-update broad location if needed
-
+  state.PS.location = targetLoc.type === "dungeon" ? "labyrinth" : state.PS.location;
+  state.worldBiome = targetLoc.biome || "default";
+  
   // Mark as discovered if not already
   if (!targetLoc.flags.discovered) {
     targetLoc.flags.discovered = true;
@@ -8745,230 +9098,404 @@ function movePlayer(direction) {
     }
   }
 
-  return {
-    success: true,
+  return { 
+    success: true, 
     message: `You travel ${dir} and arrive at: ${targetLoc.name}.`,
-    location: targetLoc,
+    location: targetLoc
   };
 }
-
 
 /**
  * Seeds a basic default Open World map for testing and initial gameplay.
  * Call this once during game initialization or character creation finalization.
  */
 
-// Default Open World
+  // Default Open World
+function initializeDefaultOpenWorld() {
+  ensureWorldState();
+  if (Object.keys(state.world.map.LocalLocation).length > 0) return;
+
+  // ── Town Areas ──────────────────────────────────────────────
+
+  // 1. Safe Haven (Hub)
+  addLocation({
+    id: "safe_haven",
+    name: "Safe Haven",
+    type: "town",
+    biome: "temperate",
+    territory: "haven",
+    description: "A fortified settlement offering rest, trade, and preparation for the labyrinth. Legion banners hang above the gates.",
+    exits: {
+      north: "safe_haven_market",
+      south: "south_road",
+      east: "haven_east_gate",
+      west: "legion_barracks"
+    },
+    interactions: ["guard_gate", "notice_board", "innkeeper"],
+    buildings: ["tavern", "blacksmith", "general_store"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("safe_haven", {
+    id: "notice_board",
+    name: "Adventurer's Notice Board",
+    type: "object",
+    description: "A wooden board covered in requests for monster cores and exploration.",
+    state: "active"
+  });
+  addInteraction("safe_haven", {
+    id: "innkeeper",
+    name: "Innkeeper Maren",
+    type: "npc",
+    description: "A stout woman who runs the Hearthstone Tavern. She offers rest and rumors.",
+    state: "active"
+  });
+  addInteraction("safe_haven", {
+    id: "guard_gate",
+    name: "Gate Guard",
+    type: "npc",
+    description: "A Legion soldier standing watch at the southern gate. Warns travelers about the road ahead.",
+    state: "active"
+  });
+
+  // 2. Safe Haven Market
+  addLocation({
+    id: "safe_haven_market",
+    name: "Safe Haven Market",
+    type: "town_sub",
+    biome: "temperate",
+    territory: "haven",
+    description: "A bustling courtyard where merchants sell supplies and adventurers trade loot.",
+    exits: {
+      south: "safe_haven"
+    },
+    interactions: ["merchant_supplies", "merchant_potions"],
+    buildings: ["general_store"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("safe_haven_market", {
+    id: "merchant_supplies",
+    name: "Quartermaster Dren",
+    type: "npc",
+    description: "A grizzled merchant selling rations, rope, torches, and basic adventuring supplies.",
+    state: "active"
+  });
+  addInteraction("safe_haven_market", {
+    id: "merchant_potions",
+    name: "Alchemist Vessa",
+    type: "npc",
+    description: "A quiet woman who brews and sells healing potions and antidotes.",
+    state: "active"
+  });
+
+  // 3. Legion Barracks
+  addLocation({
+    id: "legion_barracks",
+    name: "Legion Barracks",
+    type: "town_sub",
+    biome: "temperate",
+    territory: "haven",
+    description: "A stone compound where Legion soldiers train and receive orders. Weapon racks line the walls.",
+    exits: {
+      east: "safe_haven"
+    },
+    interactions: ["legion_commander", "training_dummy"],
+    buildings: ["barracks", "armory"],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("legion_barracks", {
+    id: "legion_commander",
+    name: "Commander Aldric",
+    type: "npc",
+    description: "The Legion officer overseeing Safe Haven's defenses. May have tasks for capable adventurers.",
+    state: "active"
+  });
+  addInteraction("legion_barracks", {
+    id: "training_dummy",
+    name: "Training Dummy",
+    type: "object",
+    description: "A battered practice target used by Legion soldiers and adventurers alike.",
+    state: "active"
+  });
+
+  // 4. Haven East Gate
+  addLocation({
+    id: "haven_east_gate",
+    name: "Haven East Gate",
+    type: "town_sub",
+    biome: "temperate",
+    territory: "haven",
+    description: "The eastern exit of Safe Haven. Beyond it, a dirt trail leads into overgrown wilderness.",
+    exits: {
+      west: "safe_haven",
+      south: "pilgrim_road"
+    },
+    interactions: ["gate_guard_east"],
+    buildings: [],
+    monsters: [],
+    flags: { discovered: true, locked: false }
+  });
+
+  addInteraction("haven_east_gate", {
+    id: "gate_guard_east",
+    name: "East Gate Sentry",
+    type: "npc",
+    description: "A young Legion recruit guarding the eastern exit. Nervous about recent wolf sightings on the pilgrim road.",
+    state: "active"
+  });
+
+  // ── Wilderness Areas ────────────────────────────────────────
+
+  // 5. South Road
+  addLocation({
+    id: "south_road",
+    name: "South Road",
+    type: "wilderness",
+    biome: "temperate",
+    territory: "haven",
+    description: "A beaten dirt road heading south from Safe Haven toward the labyrinth. Tall grass sways on either side.",
+    exits: {
+      north: "safe_haven",
+      south: "labyrinth_approach",
+      east: "wayside_shrine"
+    },
+    interactions: [],
+    buildings: [],
+    monsters: ["Narrow Wolf", "Goblin"],
+    flags: { discovered: false, locked: false }
+  });
+
+  // 6. Wayside Shrine
+  addLocation({
+    id: "wayside_shrine",
+    name: "Wayside Shrine",
+    type: "wilderness",
+    biome: "stone",
+    territory: "labyrinth_approach",
+    description: "A crumbling stone shrine at a crossroads. Offerings of wilted flowers and old coins litter the base.",
+    exits: {
+      west: "south_road"
+    },
+    interactions: ["prayer_shrine", "old_campfire"],
+    buildings: [],
+    monsters: [],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("wayside_shrine", {
+    id: "prayer_shrine",
+    name: "Weathered Shrine",
+    type: "object",
+    description: "An ancient stone shrine dedicated to a forgotten deity. Faint warmth radiates from the carved runes.",
+    state: "active"
+  });
+  addInteraction("wayside_shrine", {
+    id: "old_campfire",
+    name: "Abandoned Campfire",
+    type: "object",
+    description: "Cold ashes and scattered supplies. Someone left in a hurry.",
+    state: "active"
+  });
+
+  // 7. Pilgrim Road
+  addLocation({
+    id: "pilgrim_road",
+    name: "Pilgrim Road",
+    type: "wilderness",
+    biome: "forest",
+    territory: "pilgrim_road",
+    description: "An old road once used by pilgrims, now overgrown with tangled roots and dense canopy. The air is damp and still.",
+    exits: {
+      north: "haven_east_gate",
+      south: "ashen_ruins"
+    },
+    interactions: [],
+    buildings: [],
+    monsters: ["Narrow Wolf", "Gloom Spider", "Bat"],
+    flags: { discovered: false, locked: false }
+  });
+
+  // 8. Ashen Ruins
+  addLocation({
+    id: "ashen_ruins",
+    name: "Ashen Ruins",
+    type: "wilderness",
+    biome: "scrubland",
+    territory: "ashen_ruins",
+    description: "Crumbling walls and scorched foundations — all that remains of a settlement destroyed when the labyrinth opened. The undead stir here.",
+    exits: {
+      north: "pilgrim_road"
+    },
+    interactions: ["collapsed_cellar", "weathered_monument"],
+    buildings: [],
+    monsters: ["Hollow Skeleton", "Feral Shade", "Goblin"],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("ashen_ruins", {
+    id: "collapsed_cellar",
+    name: "Collapsed Cellar",
+    type: "loot",
+    description: "A half-buried cellar beneath rubble. Something glints inside.",
+    state: "active"
+  });
+  addInteraction("ashen_ruins", {
+    id: "weathered_monument",
+    name: "Weathered Monument",
+    type: "object",
+    description: "A cracked stone monument. The inscription reads: 'Here stood Ashford, before the deep opened.'",
+    state: "active"
+  });
+
+  // 9. Labyrinth Approach
+  addLocation({
+    id: "labyrinth_approach",
+    name: "Labyrinth Approach",
+    type: "wilderness",
+    biome: "stone",
+    territory: "labyrinth_approach",
+    description: "The ground turns barren and cracked. A faint rumble echoes from below. The labyrinth entrance looms ahead.",
+    exits: {
+      north: "south_road",
+      south: "labyrinth_entrance"
+    },
+    interactions: ["legion_checkpoint"],
+    buildings: [],
+    monsters: ["Maze Rat", "Stone Mites"],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("labyrinth_approach", {
+    id: "legion_checkpoint",
+    name: "Legion Checkpoint",
+    type: "npc",
+    description: "Two Legion soldiers stationed at a makeshift barrier. They verify identification bracelets before allowing passage to the labyrinth.",
+    state: "active"
+  });
+
+  // ── Dungeon Areas ───────────────────────────────────────────
+
+  // 10. Labyrinth Entrance
+  addLocation({
+    id: "labyrinth_entrance",
+    name: "Labyrinth Entrance",
+    type: "dungeon_entrance",
+    biome: "stone",
+    territory: "labyrinth_approach",
+    description: "A massive, ominous stairway leading down into the earth. The air grows cold and the light fades.",
+    exits: {
+      north: "labyrinth_approach",
+      down: "labyrinth_top_level"
+    },
+    interactions: ["legion_identification_stone"],
+    buildings: [],
+    monsters: ["Maze Rat", "Gloom Spider"],
+    flags: { discovered: true, locked: false }
+  });
+
+  // 11. Labyrinth Top Level
+  addLocation({
+    id: "labyrinth_top_level",
+    name: "Labyrinth: Top Level",
+    type: "dungeon",
+    biome: "cave",
+    territory: "labyrinth_depths",
+    description: "The upper echelons of the labyrinth. Faint light filters from above, but shadows stretch long.",
+    exits: {
+      up: "labyrinth_entrance",
+      north: "labyrinth_middle_level",
+      east: "labyrinth_side_cavern"
+    },
+    interactions: ["abandoned_campfire"],
+    buildings: [],
+    monsters: ["Maze Rat", "Gloom Spider", "Hollow Skeleton", "Goblin"],
+    flags: { discovered: false, locked: false }
+  });
+
+  // 12. Labyrinth Middle Level
+  addLocation({
+    id: "labyrinth_middle_level",
+    name: "Labyrinth: Middle Level",
+    type: "dungeon",
+    biome: "cave",
+    territory: "labyrinth_depths",
+    description: "Deeper corridors carved from dark stone. The walls are slick with moisture and strange inscriptions glow faintly.",
+    exits: {
+      south: "labyrinth_top_level"
+    },
+    interactions: ["collapsed_bridge", "strange_inscription"],
+    buildings: [],
+    monsters: ["Sludge Crawler", "Hollow Skeleton", "Grime Ghoul", "Ash Imp"],
+    flags: { discovered: false, locked: false }
+  });
+
+  addInteraction("labyrinth_middle_level", {
+    id: "collapsed_bridge",
+    name: "Collapsed Bridge",
+    type: "object",
+    description: "A stone bridge over a bottomless chasm. Half of it has crumbled away — crossing requires care.",
+    state: "active"
+  });
+  addInteraction("labyrinth_middle_level", {
+    id: "strange_inscription",
+    name: "Strange Inscription",
+    type: "object",
+    description: "Carved symbols glow faintly on the wall. They seem to be a warning in an ancient script.",
+    state: "active"
+  });
+
+  // 13. Labyrinth Side Cavern
+  addLocation({
+    id: "labyrinth_side_cavern",
+    name: "Labyrinth: Side Cavern",
+    type: "dungeon",
+    biome: "cave",
+    territory: "labyrinth_depths",
+    description: "A damp, echoing cavern with strange glowing fungi on the walls.",
+    exits: {
+      west: "labyrinth_top_level"
+    },
+    interactions: ["glowing_fungi_patch", "hidden_chest"],
+    buildings: [],
+    monsters: ["Sludge Crawler", "Cave Tick"],
+    flags: { discovered: false, locked: false }
+  });
+
+  state.worldBiome = "temperate";
+  console.log("Default Open World map initialized with 13 locations.");
+}
+
+/**
+ * Gets a sanitized, lowercase key for the player's current specific location.
+ * Falls back to "safe_area" if player state is missing.
+ */
 function getCurrentLocationKey() {
   if (!state.PS) return "safe_area";
-  const playerloc = state.PS.playerloc || state.PS.location || "safe area";
-  
-  // If already a specific generated floor key, use it directly
-  if (playerloc.startsWith("labyrinth_") && playerloc.includes("_floor_")) {
-    return playerloc.toLowerCase().replace(/\s+/g, "_");
-  }
-  
-  // Fallback: construct the key dynamically based on total dugfloor
-  if (state.PS.dugfloor && (state.PS.location === "labyrinth" || playerloc === "labyrinth")) {
-    const floor = state.PS.dugfloor;
-    let levelKey = "top_level";
-    let relativeFloor = floor;
-    
-    if (floor > 50) { levelKey = "middle_level"; relativeFloor = floor - 50; }
-    if (floor > 75) { levelKey = "low_level"; relativeFloor = floor - 75; }
-    if (floor > 100) { levelKey = "sub_level"; relativeFloor = floor - 100; }
-    
-    return `labyrinth_${levelKey}_floor_${relativeFloor}`;
-  }
-  
+  // Prefer playerloc (specific area), fallback to location (general area)
+  const playerloc = state.PS.playerloc || state.PS.location || "safe_haven";
   return playerloc.toLowerCase().replace(/\s+/g, "_");
 }
 
-function getLocationEntry(key) {
-  ensureWorldState();
-  if (!key) return null;
-  const locMap = state.world.map.LocalLocation;
-  
-  if (!locMap[key]) {
-    // Check if it's a labyrinth floor key that needs procedural generation
-    const floorMatch = key.match(/^labyrinth_(top_level|middle_level|low_level|sub_level)_floor_(\d+)$/);
-    if (floorMatch) {
-      const floorNum = parseInt(floorMatch[2], 10);
-      return procedurallyGenerateLabyrinthFloor(floorNum);
-    }
-    
-    // Fallback for other dynamic locations
-    locMap[key] = {
-      id: key,
-      displayName: key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
-      zoneType: "unknown",
-      subArea: "",
-      exits: {},
-      interactions: [],
-      entities: [],
-      flags: { discovered: false, danger: 0, locked: false, looted: false },
-      biomass: 0,
-      lastRegenTurn: 0,
-      famine: false,
-      spawnedSinceFamine: 0,
-    };
-  }
-  return locMap[key];
-}
-
-function getRichLocation() {
-  ensureWorldState();
-  const key = getCurrentLocationKey();
-  const entry = getLocationEntry(key);
-  if (!entry) return null;
-
-  // Dynamically enrich with player state if defaults are missing
-  if (!entry.playerloc) entry.playerloc = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
-  if (!entry.displayName || entry.displayName === key) {
-    const fallbackName = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
-    entry.displayName = fallbackName.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  }
-  
-  // Ensure all rich display properties exist
-  if (!entry.exits) entry.exits = {};
-  if (!entry.interactions) entry.interactions = [];
-  if (!entry.entities) entry.entities = [];
-  if (!entry.flags) entry.flags = { discovered: false, danger: 0, locked: false, looted: false };
-  if (!entry.monsters) entry.monsters = [];
-
-  return entry;
-}
-
-// procedural Generation
-// This is the core generation logic for the Open State, building rich text, interactions, and biomass tracking on the fly
-function procedurallyGenerateLabyrinthFloor(floorNumber) {
-  ensureWorldState();
-  const dg = state.world.dungeon;
-  
-  // 1. Sanitize and determine level based on floorNumber (ENSURE IT'S A NUMBER)
-  const floor = parseInt(floorNumber, 10);
-  if (isNaN(floor) || floor < 1) return null;
-
-  let levelKey = "top_level";
-  let relativeFloor = floor;
-  
-  if (floor > 50) { levelKey = "middle_level"; relativeFloor = floor - 50; }
-  if (floor > 75) { levelKey = "low_level"; relativeFloor = floor - 75; }
-  if (floor > 100) { levelKey = "sub_level"; relativeFloor = floor - 100; }
-  
-  const config = LABYRINTH_LEVEL_CONFIG[levelKey];
-  const locId = `labyrinth_${levelKey}_floor_${relativeFloor}`;
-  
-  // 2. Update state.world.dungeon macro-state (STRICTLY NUMERIC)
-  dg.dugfloor = floor;
-  dg.floor = floor;
-  dg.currentLevelName = levelKey;
-  
-  if (!dg.levels[levelKey]) {
-    dg.levels[levelKey] = { name: config.name, floors: config.floors, biome: config.biome, difficulty: config.difficulty, generatedFloors: {} };
-  }
-  
-  // If already generated, return existing to prevent overwriting player state
-  if (dg.levels[levelKey].generatedFloors[relativeFloor]) {
-    return state.world.map.LocalLocation[locId];
-  }
-
-  // 3. Determine exits
-  const exits = {};
-  if (relativeFloor > 1) {
-    exits.up = `labyrinth_${levelKey}_floor_${relativeFloor - 1}`;
-  } else {
-    if (levelKey === "top_level") exits.up = "labyrinth_entrance";
-    else if (levelKey === "middle_level") exits.up = "labyrinth_top_level_floor_50";
-    else if (levelKey === "low_level") exits.up = "labyrinth_middle_level_floor_25";
-    else if (levelKey === "sub_level") exits.up = "labyrinth_low_level_floor_25";
-  }
-
-  const isBossFloor = relativeFloor === config.floors;
-  if (!isBossFloor) {
-    exits.down = `labyrinth_${levelKey}_floor_${relativeFloor + 1}`;
-  } else {
-    if (levelKey === "top_level") exits.down = "labyrinth_middle_level_floor_1";
-    else if (levelKey === "middle_level") exits.down = "labyrinth_low_level_floor_1";
-    else if (levelKey === "low_level") exits.down = "labyrinth_sub_level_floor_1";
-    else exits.down = "labyrinth_final_victory";
-  }
-
-  // 4. Generate interactions
-  const numInteractions = 1 + Math.floor(Math.random() * 3);
-  const interactions = [];
-  for (let i = 0; i < numInteractions; i++) {
-    const intName = config.interactions[Math.floor(Math.random() * config.interactions.length)];
-    const intId = `${locId}_int_${i}`;
-    const intObj = { id: intId, name: intName, type: "object", state: "active", description: `A ${intName} rests here.` };
-    interactions.push(intObj);
-    state.world.interactionRegistry[intId] = intObj;
-  }
-
-  // 5. Determine monsters
-  let monsterPool = lowlevelMonsters;
-  if (levelKey === "middle_level") monsterPool = middlelevelMonsters;
-  else if (levelKey === "low_level" || levelKey === "sub_level") monsterPool = highlevelMonsters;
-
-  const numMonsters = isBossFloor ? 1 : Math.floor(Math.random() * 3);
-  const monsters = [];
-  for (let i = 0; i < numMonsters; i++) {
-    if (isBossFloor) monsters.push(`${config.name} Guardian`);
-    else {
-      const m = monsterPool[Math.floor(Math.random() * monsterPool.length)];
-      monsters.push(m.name);
-    }
-  }
-
-  // 6. Build Location Data
-  const locationData = {
-    id: locId,
-    displayName: `Labyrinth: ${config.name} - Floor ${relativeFloor}${isBossFloor ? " (Boss Chamber)" : ""}`,
-    zoneType: "dungeon",
-    subArea: config.biome,
-    description: isBossFloor 
-      ? `The air grows heavy and oppressive. You have reached the boss chamber of the ${config.name}.` 
-      : `You are on floor ${relativeFloor} of the ${config.name}. The ${config.biome} surroundings are ${relativeFloor > config.floors / 2 ? "increasingly hostile" : "relatively stable"}.`,
-    exits: exits,
-    interactions: interactions,
-    entities: [],
-    monsters: monsters,
-    flags: { discovered: false, danger: config.difficulty, locked: false, looted: false },
-    biomass: 0,
-    lastRegenTurn: 0,
-    famine: false,
-    spawnedSinceFamine: 0,
-  };
-
-  // 7. Save to BOTH registries to prevent conflict
-  dg.levels[levelKey].generatedFloors[relativeFloor] = true;
-  state.world.map.LocalLocation[locId] = locationData;
-  
-  return locationData;
-}
-
-
 /**
- * Retrieves or initializes a location entry.
- * Fixes the path to state.world.map.LocalLocation and merges rich Open World
+ * Retrieves or initializes a location entry. 
+ * Fixes the path to state.world.map.LocalLocation and merges rich Open World 
  * defaults with the existing biomass/spawning tracking system.
  */
 function getLocationEntry(key) {
   ensureWorldState();
   if (!key) return null;
+
+  // Ensure we are using the correct path defined in ensureWorldState()
   const locMap = state.world.map.LocalLocation;
   
   if (!locMap[key]) {
-    // Check if it's a labyrinth floor key that needs procedural generation
-    const floorMatch = key.match(/^labyrinth_(top_level|middle_level|low_level|sub_level)_floor_(\d+)$/);
-    if (floorMatch) {
-      const levelKey = floorMatch[1];
-      const floorNum = parseInt(floorMatch[2], 10);
-      return procedurallyGenerateLabyrinthFloor(levelKey, floorNum);
-    }
-    
-    // Fallback for other dynamic locations
     locMap[key] = {
+      // --- Open World Map Defaults ---
       id: key,
       displayName: key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
       zoneType: "unknown",
@@ -8977,12 +9504,15 @@ function getLocationEntry(key) {
       interactions: [],
       entities: [],
       flags: { discovered: false, danger: 0, locked: false, looted: false },
+      
+      // --- Biomass / Spawning Tracking (Required by existing spawn system) ---
       biomass: 0,
       lastRegenTurn: 0,
       famine: false,
       spawnedSinceFamine: 0,
     };
   }
+  
   return locMap[key];
 }
 
@@ -8994,6 +9524,7 @@ function getRichLocation() {
   ensureWorldState();
   const key = getCurrentLocationKey();
   const entry = getLocationEntry(key);
+  
   if (!entry) return null;
 
   // Dynamically enrich with player state if defaults are missing
@@ -9004,13 +9535,6 @@ function getRichLocation() {
     const fallbackName = (state.PS && state.PS.playerloc) ? state.PS.playerloc : key;
     entry.displayName = fallbackName.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   }
-  
-  // Ensure all rich display properties exist
-  if (!entry.exits) entry.exits = {};
-  if (!entry.interactions) entry.interactions = [];
-  if (!entry.entities) entry.entities = [];
-  if (!entry.flags) entry.flags = { discovered: false, danger: 0, locked: false, looted: false };
-  if (!entry.monsters) entry.monsters = [];
 
   return entry;
 }
@@ -9166,8 +9690,8 @@ function tickDungeonMovement() {
 function tickLocationRegen() {
   ensureWorldState();
   const cfg = CARRYING_CAPACITY_CONFIG;
-  for (const key in state.world.LocalLocation) {
-    const entry = state.world.LocalLocation[key];
+  for (const key in state.world.map.LocalLocation) {
+    const entry = state.world.map.LocalLocation[key];
     if (!entry) continue;
     if (entry.biomass > 0) {
       entry.biomass = Math.max(0, entry.biomass - cfg.regenPerTurn);
@@ -9204,7 +9728,7 @@ function spawn(name, count = 1, modifiers = {}) {
   const charge = consumeLocationBiomass(name, cost);
   if (!charge.ok && charge.reason === "famine") {
     const key = getCurrentLocationKey();
-    const entry = state.world.LocalLocation[key];
+    const entry = state.world.map.LocalLocation[key];
     if (entry && entry.spawnedSinceFamine === Number.MAX_SAFE_INTEGER) {
       state.logMessages["Input"].push(
         `The ${key.replace(/([A-Z])/g, " $1").trim()} has been picked clean — no monsters can be found here for now.`,
@@ -9327,14 +9851,14 @@ function startMonsterAttacks() {
       !alreadyWon &&
       !alreadyStarted &&
       combatStatus !== "In Combat" &&
-      playerloc !== "safe area"
+      playerloc !== "safe_haven"
     ) {
       combatstatus = "In Combat";
       state.logMessages["Output"].push(`-Combat Started-`);
       alreadyStarted = true;
     }
 
-    if (combatStatus === "In Combat" && playerloc !== "safe area") {
+    if (combatStatus === "In Combat" && playerloc !== "safe_haven") {
       let remainingDamage = dmg;
 
       if (state.PS.barrier && state.PS.barrier > 0) {
@@ -10546,6 +11070,7 @@ function useSkill(skillName, text) {
     }
   }
 
+  // This is for when a use skill cost is paid in health or mana, and the player doesn't have enough to pay for it. The skill will not be used, and a message will be logged to the output.
   // --- PAY COST ---
   if (manaCost) updateStat("mana", manaCost);
   if (healthCost) {
@@ -13960,7 +14485,7 @@ function LabyrinthController() {
   }
 
   // Reset action location (common pattern)
-  player.playerloc = "safe area";
+  player.playerloc = "safe_haven";
 
   return output;
 }

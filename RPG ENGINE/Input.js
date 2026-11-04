@@ -246,7 +246,7 @@ const basecode = (text) => {
 
     let player = state.PS.Name
     let playerloc = state.PS.playerloc
-    let safehaven = state.PS.location === "safe haven" || playerloc === "safe area"
+    let safehaven = state.PS.location === "safe haven" || playerloc === "safe_haven"
     if (!safehaven) {
       for (const match of normText.matchAll(spawnRegex)) {
         const qtyStr = match[1];
@@ -390,7 +390,7 @@ const basecode = (text) => {
       lowerInput.includes("descend into") ||
       lowerInput.includes("go to labyrinth");
 
-    if (isDungeonEntry && (state.PS.location === "safe haven" || state.PS.playerloc === "safe area" || state.PS.playerloc === "labyrinth_entrance")) {
+    if (isDungeonEntry && (state.PS.location === "safe haven" || state.PS.playerloc === "safe_haven" || state.PS.playerloc === "labyrinth_entrance")) {
       ensureWorldState();
       const layout = getWorldLayout();
 
