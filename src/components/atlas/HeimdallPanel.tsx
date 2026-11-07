@@ -166,13 +166,17 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
 
       {hasExecutionError && lastResult?.executionError && (
         <div className="flex-shrink-0 px-3 py-2 bg-red-950/40 border-b border-red-500/30 text-[11px] text-red-300">
-          <span className="font-bold">EXECUTION ERROR</span>
-          {' — Hook: '}
-          <span className="text-red-200">"{lastResult.executionError.hook}"</span>
-          {' at line: '}
-          <span className="text-red-200">"{lastResult.executionError.line}"</span>
+          <span className="font-bold">SCRIPT ERROR</span>
+          {' in '}
+          <span className="text-red-200 font-semibold">{lastResult.executionError.hook}</span>
+          {lastResult.executionError.line && lastResult.executionError.line !== 'unknown' ? (
+            <>
+              {' at '}
+              <span className="text-red-200 font-semibold">line {lastResult.executionError.line}</span>
+            </>
+          ) : null}
           {': '}
-          <span className="text-red-200">"{lastResult.executionError.message}"</span>
+          <span className="text-red-100">{lastResult.executionError.message}</span>
         </div>
       )}
 

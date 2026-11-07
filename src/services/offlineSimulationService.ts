@@ -1,3 +1,4 @@
+import { parse as acornParse, tokenizer, tokTypes as tt, type Token } from 'acorn';
 import { WorldState, HistoryEntry } from '../types';
 
 // The documented AID scripting API surface (per AID-Docs 01-scripting/api),
@@ -77,26 +78,35 @@ export const runOfflineSimulation = async (
   // validator's full suggestion list) — never shown automatically.
   error?: { hook: string; line: string; message: string; details?: string } | null;
 }> => {
-  // Validate syntax before execution
-  const validation = validateScriptSyntax(code, isModifierScript, hookCode);
-  if (!validation.valid && validation.errors.length > 0) {
-    const first = validation.errors.find(e => e.type !== 'SYNTAX_ERROR') ?? validation.errors[0];
-    let mappedLine = first.line;
-    if (libraryLineCount > 0) {
-      const adjusted = first.line - libraryLineCount;
-      mappedLine = adjusted > 0 ? adjusted : 'unknown';
+  const rejected = (hook: string, line: number, message: string, details: string) => ({
+    newState: worldState,
+    logs: [`[ERROR] ${hook}${line > 0 ? `, line ${line}` : ''}: ${message}`],
+    result: null,
+    error: { hook, line: line > 0 ? String(line) : 'unknown', message, details },
+  });
+  const detailsFor = (error: ValidationError) =>
+    formatValidationResults({ valid: false, errors: [error], warnings: [] });
+
+  // Check the hook and the Library apart so each error's line matches the file the
+  // editor shows, then the two together: only the bundle can reveal a name declared in both.
+  const validation = validateScriptSyntax(hookCode || code, isModifierScript);
+  if (!validation.valid) {
+    const [first] = validation.errors;
+    return rejected(hookName, first.line, first.message, formatValidationResults(validation));
+  }
+  if (hookCode) {
+    const libraryCode = code.slice(0, code.length - hookCode.length);
+    const libraryError = libraryCode.trim() ? diagnoseSyntax(libraryCode) : null;
+    if (libraryError) {
+      return rejected('Library', libraryError.line, libraryError.message, detailsFor(libraryError));
     }
-    return {
-      newState: worldState,
-      logs: [`[ERROR] ${hookName}, line ${mappedLine}: ${first.message}`],
-      result: null,
-      error: {
-        hook: hookName,
-        line: String(mappedLine ?? 'unknown'),
-        message: first.message ?? 'Validation failed',
-        details: formatValidationResults(validation),
-      },
-    };
+    const bundleError = diagnoseSyntax(code);
+    if (bundleError) {
+      const hookLine = bundleError.line - (libraryCode.split('\n').length - 1);
+      return hookLine > 0
+        ? rejected(hookName, hookLine, bundleError.message, detailsFor(bundleError))
+        : rejected('Library', bundleError.line, bundleError.message, detailsFor(bundleError));
+    }
   }
 
   const workerCode = `
@@ -112,14 +122,30 @@ export const runOfflineSimulation = async (
       // (scriptingService snapshots it either side of the run and the State Editor
       // renders the delta), so dumping it here only buried the script's own output.
 
+      const _locateUndefined = (args) => {
+        if (!args.some(a => a === undefined)) return '';
+        try {
+          const stack = new Error().stack || '';
+          const re = /userscript\\.js:(\\d+)/g;
+          let fm;
+          while ((fm = re.exec(stack)) !== null) {
+            const rel = Number(fm[1]) - hookLineOffset;
+            if (rel >= 1) {
+              const src = (execCode.split(String.fromCharCode(10))[rel - 1] || '').trim();
+              return '  [undefined at hook line ' + rel + (src ? ': ' + src.substring(0, 120) : '') + ']';
+            }
+          }
+        } catch(e) {}
+        return '';
+      };
       const console = {
         log: (...args) => {
           const formatted = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a));
-          logs.push(formatted.join(' '));
+          logs.push(formatted.join(' ') + _locateUndefined(args));
         },
         error: (...args) => {
           const formatted = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a));
-          logs.push(['ERROR:', ...formatted].join(' '));
+          logs.push(['ERROR:', ...formatted].join(' ') + _locateUndefined(args));
         }
       };
       // Hoisted so the catch block can attribute the error: execCode is the
@@ -339,15 +365,6 @@ interface ValidationResult {
   warnings: ValidationError[];
 }
 
-// Helper function to get line and column from absolute position
-function getLineColumn(code: string, position: number): { line: number; column: number } {
-  const lines = code.substring(0, position).split('\n');
-  return {
-    line: lines.length,
-    column: lines[lines.length - 1].length + 1
-  };
-}
-
 // Helper to get line of code
 function getLineOfCode(code: string, lineNumber: number): string {
   return code.split('\n')[lineNumber - 1] || '';
@@ -390,6 +407,185 @@ function isEditDistanceOne(a: string, b: string): boolean {
   return edits === 1;
 }
 
+const ACORN_OPTIONS = {
+  ecmaVersion: 'latest',
+  sourceType: 'script',
+  allowReturnOutsideFunction: true,
+  locations: true,
+} as const;
+
+const acornError = (code: string): (Error & { loc?: { line: number; column: number } }) | null => {
+  try {
+    acornParse(code, ACORN_OPTIONS);
+    return null;
+  } catch (err) {
+    return err as Error & { loc?: { line: number; column: number } };
+  }
+};
+
+const CLOSER_OF: Record<string, string> = { '{': '}', '(': ')', '[': ']' };
+const OPENER_TOKENS = new Map([
+  [tt.braceL, '{'], [tt.dollarBraceL, '{'], [tt.parenL, '('], [tt.bracketL, '['],
+]);
+const CLOSER_TOKENS = new Map([[tt.braceR, '}'], [tt.parenR, ')'], [tt.bracketR, ']']]);
+
+// Each repair is re-parsed, so this bounds the work done per keystroke on a broken file.
+const MAX_REPAIR_ATTEMPTS = 6;
+
+interface OpenBracket { char: string; line: number; column: number }
+
+interface BracketSuspect {
+  // Missing: `text` is inserted at `pos`. Extra: the one character at `pos` is deleted.
+  kind: 'missing' | 'extra';
+  text: string;
+  pos: number;
+  line: number;
+  column: number;
+  opener?: OpenBracket;
+}
+
+// A parser only notices a missing } where the code stops making sense, which can
+// be the end of the file. Indentation still shows where a block was meant to end,
+// so walk the real tokens and flag where the two disagree. The tokenizer (unlike a
+// character scan) is not fooled by comments, strings or regex literals.
+function findBracketSuspects(code: string): { suspects: BracketSuspect[]; balanced: boolean } | null {
+  const sourceLines = code.split('\n');
+  const indentOf = (line: number) => sourceLines[line - 1].match(/^[ \t]*/)![0].length;
+  const stack: OpenBracket[] = [];
+  const flagged = new Set<OpenBracket>();
+  const suspects: BracketSuspect[] = [];
+  let balanced = true;
+  let prev: Token | null = null;
+
+  const flagMissing = (opener: OpenBracket) => {
+    if (flagged.has(opener) || !prev?.loc) return;
+    flagged.add(opener);
+    suspects.push({
+      kind: 'missing',
+      text: CLOSER_OF[opener.char],
+      pos: prev.end,
+      line: prev.loc.end.line,
+      column: prev.loc.end.column + 1,
+      opener,
+    });
+  };
+  const flagExtra = (tok: Token, char: string) => {
+    if (!tok.loc) return;
+    suspects.push({ kind: 'extra', text: char, pos: tok.start, line: tok.loc.start.line, column: tok.loc.start.column + 1 });
+  };
+
+  try {
+    for (const tok of tokenizer(code, ACORN_OPTIONS)) {
+      if (!tok.loc) continue;
+      const line = tok.loc.start.line;
+      const closer = CLOSER_TOKENS.get(tok.type);
+      const opener = OPENER_TOKENS.get(tok.type);
+      const top = stack[stack.length - 1];
+      const firstOnLine = !prev?.loc || prev.loc.end.line < line;
+
+      if (top && firstOnLine && line > top.line) {
+        const indent = indentOf(line);
+        const topIndent = indentOf(top.line);
+        // `case` is commonly written level with its `switch`.
+        const isCaseLabel = tok.type === tt._case || tok.type === tt._default;
+        if (closer ? indent < topIndent : indent <= topIndent && !isCaseLabel) flagMissing(top);
+        else if (closer && indent > topIndent && CLOSER_OF[top.char] === closer) flagExtra(tok, closer);
+      }
+
+      if (closer) {
+        if (top && CLOSER_OF[top.char] === closer) {
+          stack.pop();
+        } else {
+          balanced = false;
+          let match = stack.length - 1;
+          while (match >= 0 && CLOSER_OF[stack[match].char] !== closer) match--;
+          if (match < 0) {
+            flagExtra(tok, closer);
+          } else {
+            for (let i = stack.length - 1; i > match; i--) flagMissing(stack[i]);
+            stack.length = match;
+          }
+        }
+      } else if (opener) {
+        stack.push({ char: opener, line, column: tok.loc.start.column + 1 });
+      }
+      prev = tok;
+    }
+  } catch {
+    // An unterminated string or regex stops the tokenizer; the parser's own message covers those.
+    return null;
+  }
+
+  if (stack.length > 0) {
+    balanced = false;
+    for (let i = stack.length - 1; i >= 0; i--) flagMissing(stack[i]);
+  }
+  return { suspects, balanced };
+}
+
+const applyRepair = (code: string, suspect: BracketSuspect) =>
+  suspect.kind === 'missing'
+    ? code.slice(0, suspect.pos) + suspect.text + code.slice(suspect.pos)
+    : code.slice(0, suspect.pos) + code.slice(suspect.pos + 1);
+
+function describeSuspect(code: string, suspect: BracketSuspect, confirmed: boolean): ValidationError {
+  const { kind, text, line, column, opener } = suspect;
+  const message = kind === 'extra'
+    ? `Extra ${text} on line ${line}: nothing is open for it to close. Remove it, or add the missing opening bracket above it.`
+    : confirmed
+      ? `Missing ${text}: the ${opener!.char} opened on line ${opener!.line} is never closed. Add ${text} after line ${line}.`
+      : `Possibly missing ${text}: the ${opener!.char} opened on line ${opener!.line} doesn't look closed. Check around line ${line}.`;
+  return {
+    type: kind === 'extra' ? 'EXTRA_BRACKET' : 'MISSING_BRACKET',
+    message,
+    line,
+    column,
+    severity: 'error',
+    codeSnippet: getLineOfCode(code, line),
+    context: (opener ? getContextWithCaret(code, opener.line, opener.column, 0) : '') + getContextWithCaret(code, line, column),
+  };
+}
+
+// The one syntax error worth reporting. The JS engine decides whether the code is
+// valid; acorn says where, because V8's SyntaxError carries no line for evaluated code.
+export const diagnoseSyntax = (code: string): ValidationError | null => {
+  let engineMessage: string;
+  try {
+    new Function(code);
+    return null;
+  } catch (err) {
+    engineMessage = (err as Error).message;
+  }
+
+  const parseError = acornError(code);
+  if (!parseError?.loc) {
+    return {
+      type: 'SYNTAX_ERROR', message: engineMessage, line: 0, column: 0, severity: 'error', codeSnippet: '', context: '',
+    };
+  }
+
+  const scan = findBracketSuspects(code);
+  if (scan) {
+    const confirmed = scan.suspects
+      .slice(0, MAX_REPAIR_ATTEMPTS)
+      .find(s => !acornError(applyRepair(code, s)));
+    if (confirmed) return describeSuspect(code, confirmed, true);
+    // Indentation alone can't blame a bracket when the brackets all pair up.
+    if (!scan.balanced && scan.suspects.length > 0) return describeSuspect(code, scan.suspects[0], false);
+  }
+
+  const { line, column } = parseError.loc;
+  return {
+    type: 'SYNTAX_ERROR',
+    message: parseError.message.replace(/\s*\(\d+:\d+\)$/, ''),
+    line,
+    column: column + 1,
+    severity: 'error',
+    codeSnippet: getLineOfCode(code, line),
+    context: getContextWithCaret(code, line, column + 1),
+  };
+};
+
 export const validateScriptSyntax = (code: string, isModifierScript = false, hookCode?: string): ValidationResult => {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
@@ -402,181 +598,7 @@ export const validateScriptSyntax = (code: string, isModifierScript = false, hoo
   // The JS engine (or the runtime error path) is the source of truth for
   // actual redeclaration failures, so we no longer pre-emptively flag them.
 
-  // ============ 1. BRACKET/BRACE/PAREN MATCHING WITH LINE TRACKING ============
-  const checkBracketBalance = () => {
-    const stack: Array<{ type: string; line: number; column: number; pos: number }> = [];
-    let inString = false;
-    let stringChar = '';
-    let inRegex = false;
-
-    for (let i = 0; i < code.length; i++) {
-      const char = code[i];
-      const prevChar = i > 0 ? code[i - 1] : '';
-
-      if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
-        if (!inString) {
-          inString = true;
-          stringChar = char;
-        } else if (char === stringChar) {
-          inString = false;
-        }
-      }
-
-      if (!inString) {
-        // Detect regex literals: /pattern/flags
-        // Regex appears after: =, (, [, {, ,, :, !, &, |, ?, +, -, *, /, %, return, etc.
-        if (char === '/' && !inRegex) {
-          const regexStart = /[=([{,:!&|?+\-*/%\s]\s*$/.test(code.substring(0, i));
-          if (regexStart) inRegex = true;
-        } else if (char === '/' && inRegex && prevChar !== '\\') {
-          inRegex = false;
-          // Skip past flags (gimsuvy)
-          let j = i + 1;
-          while (j < code.length && /[gimsuvy]/.test(code[j])) j++;
-          i = j - 1;
-        }
-
-        if (!inRegex) {
-          if (char === '{' || char === '[' || char === '(') {
-            const { line, column } = getLineColumn(code, i);
-            stack.push({ type: char, line, column, pos: i });
-          } else if (char === '}' || char === ']' || char === ')') {
-            const expected = char === '}' ? '{' : char === ']' ? '[' : '(';
-            const { line, column } = getLineColumn(code, i);
-            
-            if (stack.length === 0 || stack[stack.length - 1].type !== expected) {
-              errors.push({
-                type: 'BRACKET_MISMATCH',
-                message: `Unexpected closing ${char} - no matching opening ${expected}`,
-                line,
-                column,
-                severity: 'error',
-                codeSnippet: getLineOfCode(code, line),
-                context: getContextWithCaret(code, line, column)
-              });
-            } else {
-              stack.pop();
-            }
-          }
-        }
-      }
-    }
-
-    for (const bracket of stack) {
-      const closing = bracket.type === '{' ? '}' : bracket.type === '[' ? ']' : ')';
-      errors.push({
-        type: 'UNCLOSED_BRACKET',
-        message: `Unclosed ${bracket.type} - missing closing ${closing}`,
-        line: bracket.line,
-        column: bracket.column,
-        severity: 'error',
-        codeSnippet: getLineOfCode(code, bracket.line),
-        context: getContextWithCaret(code, bracket.line, bracket.column)
-      });
-    }
-  };
-
-  // ============ 2. UNCLOSED STRINGS/TEMPLATE LITERALS ============
-  const checkStrings = () => {
-    let inString = false;
-    let stringChar = '';
-    let stringStart = 0;
-
-    for (let i = 0; i < code.length; i++) {
-      const char = code[i];
-      const prevChar = i > 0 ? code[i - 1] : '';
-
-      if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
-        if (!inString) {
-          inString = true;
-          stringChar = char;
-          stringStart = i;
-        } else if (char === stringChar) {
-          inString = false;
-        }
-      }
-    }
-
-    if (inString) {
-      const { line, column } = getLineColumn(code, stringStart);
-      errors.push({
-        type: 'UNCLOSED_STRING',
-        message: `Unclosed string starting with ${stringChar}`,
-        line,
-        column,
-        severity: 'error',
-        codeSnippet: getLineOfCode(code, line),
-        context: getContextWithCaret(code, line, column)
-      });
-    }
-  };
-
-  // ============ 3. MISSING COMMAS IN ARRAYS/OBJECTS ============
-  const checkMissingCommas = () => {
-    let inString = false;
-    let stringChar = '';
-    let lastStringEnd = -1;
-    let consecutiveStrings = 0;
-
-    for (let i = 0; i < code.length; i++) {
-      const char = code[i];
-      const prevChar = i > 0 ? code[i - 1] : '';
-
-      if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
-        if (!inString) {
-          inString = true;
-          stringChar = char;
-          
-          // Check if this string immediately follows another (after whitespace)
-          const textBetween = code.substring(lastStringEnd, i).trim();
-          if (lastStringEnd !== -1 && textBetween === '' && consecutiveStrings > 0) {
-            const { line, column } = getLineColumn(code, i);
-            warnings.push({
-              type: 'MISSING_COMMA',
-              message: `Possible missing comma between array/object elements`,
-              line,
-              column,
-              severity: 'warning',
-              codeSnippet: getLineOfCode(code, line),
-              context: getContextWithCaret(code, line, column)
-            });
-          }
-          consecutiveStrings++;
-        } else if (char === stringChar) {
-          inString = false;
-          lastStringEnd = i + 1;
-        }
-      } else if (!inString && char !== ' ' && char !== '\n' && char !== '\t' && char !== ',') {
-        consecutiveStrings = 0;
-      }
-    }
-  };
-
-  // ============ 4. FUNCTION SYNTAX VALIDATION ============
-  const checkFunctionSyntax = () => {
-    try {
-      new Function(code);
-    } catch (err: any) {
-      const message = err.message;
-      let lineNum = 1;
-      const lineMatch = message.match(/line (\d+)/);
-      if (lineMatch) {
-        lineNum = parseInt(lineMatch[1]);
-      }
-      
-      errors.push({
-        type: 'SYNTAX_ERROR',
-        message: `${message}`,
-        line: lineNum,
-        column: 1,
-        severity: 'error',
-        codeSnippet: getLineOfCode(code, lineNum),
-        context: getContextWithCaret(code, lineNum, 1)
-      });
-    }
-  };
-
-  // ============ 5. COMMON TYPOS & PATTERNS ============
+  // ============ COMMON TYPOS & PATTERNS ============
   const checkCommonErrors = () => {
     lines.forEach((line, idx) => {
       const lineNum = idx + 1;
@@ -627,7 +649,7 @@ export const validateScriptSyntax = (code: string, isModifierScript = false, hoo
     });
   };
 
-  // ============ 6. AID SCRIPTING API VALIDATION ============
+  // ============ AID SCRIPTING API VALIDATION ============
   // Flag member access on globals that don't exist in the documented AID API,
   // and warn when a modifier script never returns an object with `text`.
   const checkAidApi = () => {
@@ -688,28 +710,10 @@ export const validateScriptSyntax = (code: string, isModifierScript = false, hoo
     }
   };
 
-  // Determine whether the code is syntactically valid JS up front. If it parses,
-  // its brackets/strings ARE balanced — so we skip the heuristic bracket/string/
-  // comma scanners, which mis-handle regex literals like /foo\/bar/g and produce
-  // false "unclosed bracket/string" errors. When it doesn't parse, we run those
-  // scanners to give better line-level diagnostics than the raw parser message.
-  let parses = true;
-  try {
-    new Function(code);
-  } catch {
-    parses = false;
-  }
+  const syntaxError = diagnoseSyntax(code);
+  if (syntaxError) errors.push(syntaxError);
 
-  if (parses) {
-    checkFunctionSyntax(); // no-op on valid code, but harmless and future-proof
-  } else {
-    checkBracketBalance();
-    checkStrings();
-    checkMissingCommas();
-    checkFunctionSyntax();
-  }
-
-  // Semantic checks run regardless — they don't depend on regex tokenization.
+  // Semantic checks run regardless — they don't depend on the code parsing.
   checkCommonErrors();
   checkAidApi();
 

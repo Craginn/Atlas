@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { WorldState, Script, StoryCard, SentinelReport, SimulationMode, KnowledgeBase, LastSimData, HistoryEntry } from '@/types';
 import { INITIAL_WORLD_STATE, DEFAULT_SCRIPTS } from '@/constants';
 import AILogicEditor from '@/components/atlas/AILogicEditor';
@@ -518,7 +518,13 @@ const Index: React.FC = () => {
     setIsAnalyzing(false);
   }, [scripts]);
 
+  // A run's line numbers only describe the code that ran, so an error stops
+  // marking a script as soon as that script is edited.
+  const ranCode = useRef<{ run: unknown; code: Record<string, string> }>({ run: null, code: {} });
   const runtimeErrorsByScriptId = useMemo(() => {
+    if (ranCode.current.run !== lastSimData) {
+      ranCode.current = { run: lastSimData, code: Object.fromEntries(scripts.map(s => [s.id, s.code])) };
+    }
     const map: Record<string, { line: number; message: string }[]> = {};
     (lastSimData as LastSimData | undefined)?.stateTrace?.forEach(entry => {
       if (entry.logs) {
@@ -527,7 +533,7 @@ const Index: React.FC = () => {
           if (m) {
             const [, hook, line, message] = m;
             const script = scripts.find(s => s.name === hook);
-            if (script) {
+            if (script && script.code === ranCode.current.code[script.id]) {
               if (!map[script.id]) map[script.id] = [];
               map[script.id].push({ line: line ? Number(line) : 0, message });
             }

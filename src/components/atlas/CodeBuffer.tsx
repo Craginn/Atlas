@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import {
@@ -89,14 +89,15 @@ const runtimeErrorField = StateField.define<{ line: number; message: string }[]>
 function buildDecoSet(view: EditorView, errors: { line: number; message: string }[]): RangeSet<Decoration> {
   if (!errors.length) return RangeSet.empty;
   return RangeSet.of(
-    errors.flatMap(e => {
-      if (e.line < 1 || e.line > view.state.doc.lines) return [];
-      const lineHandle = view.state.doc.line(e.line);
+    [...new Set(errors.map(e => e.line))].flatMap(line => {
+      if (line < 1 || line > view.state.doc.lines) return [];
+      const lineHandle = view.state.doc.line(line);
       return [
-        Decoration.line({ class: 'cm-runtime-error-line' }).range(lineHandle.from, lineHandle.to),
-        Decoration.widget({ widget: new GutterErrorWidget(e.line), side: 1 }).range(lineHandle.from),
+        Decoration.line({ class: 'cm-runtime-error-line' }).range(lineHandle.from),
+        Decoration.widget({ widget: new GutterErrorWidget(line), side: 1 }).range(lineHandle.from),
       ];
-    })
+    }),
+    true,
   );
 }
 
@@ -116,9 +117,9 @@ const errorDecorationPlugin = ViewPlugin.fromClass(class {
 class GutterErrorWidget extends WidgetType {
   constructor(private line: number) { super(); }
   toDOM() {
-    const el = document.createElement('div');
+    const el = document.createElement('span');
     el.className = 'cm-gutter-error-dot';
-    el.title = `Runtime error at line ${this.line}`;
+    el.title = `Error on line ${this.line}`;
     el.textContent = '●';
     return el;
   }
@@ -128,14 +129,16 @@ class GutterErrorWidget extends WidgetType {
 const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadOnly = false, isActive, color, findRequest, runtimeErrors }) => {
   const safeValue = value || '';
   const cmRef = useRef<ReactCodeMirrorRef>(null);
+  // The view is created after the first effects run, so anything dispatched on mount must wait for it.
+  const [editorReady, setEditorReady] = useState(false);
 
   // ── Validation (drives the red bar) ────────────────────────────────────────
   const validation = useMemo(
     () => validateScriptSyntax(safeValue, title !== 'Library'),
     [safeValue, title]
   );
-  const errorCount = validation.errors.length;
-  const hasErrors = errorCount > 0;
+  const firstError = validation.errors[0];
+  const hasErrors = Boolean(firstError);
 
   // Editor plumbing. Everything runs through CodeMirror's own viewport, so the
   // extension set is static — no per-keystroke measurement or re-highlight of
@@ -184,11 +187,19 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findRequest?.nonce]);
 
+  const jumpToLine = useCallback((line: number) => {
+    const view = cmRef.current?.view;
+    if (!view || line < 1 || line > view.state.doc.lines) return;
+    const pos = view.state.doc.line(line).to;
+    view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+    view.focus();
+  }, []);
+
   useEffect(() => {
     const view = cmRef.current?.view;
     if (!view) return;
-    view.dispatch({ effects: setRuntimeErrors.of(runtimeErrors ?? []) });
-  }, [runtimeErrors]);
+    view.dispatch({ effects: setRuntimeErrors.of([...(runtimeErrors ?? []), ...validation.errors]) });
+  }, [runtimeErrors, validation, editorReady]);
 
   if (!isActive) return null;
 
@@ -199,20 +210,26 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
           hasErrors ? 'bg-red-950/50 border-red-500/50' : 'bg-zinc-950/40 border-zinc-800/40'
         }`}
       >
-        <div className="flex items-center space-x-2">
-          <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-tighter">
+        <div className="flex items-center space-x-2 min-w-0">
+          <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-tighter shrink-0">
             {isReadOnly ? 'PROTECTED_BUNDLE' : 'EDITABLE_JS_MODULE'}
           </span>
-          <div className="w-1 h-1 rounded-full bg-zinc-800" />
-          <span className={`text-[9px] font-mono uppercase font-bold ${hasErrors ? 'text-red-400' : color}`}>{title}</span>
-          {hasErrors && (
-            <span className="flex items-center gap-1 text-[9px] font-mono font-bold uppercase text-red-400">
-              <AlertCircle size={11} />
-              {errorCount} error{errorCount > 1 ? 's' : ''} · line {validation.errors[0].line}
-            </span>
+          <div className="w-1 h-1 rounded-full bg-zinc-800 shrink-0" />
+          <span className={`text-[9px] font-mono uppercase font-bold shrink-0 ${hasErrors ? 'text-red-400' : color}`}>{title}</span>
+          {firstError && (
+            <button
+              onClick={() => jumpToLine(firstError.line)}
+              title={firstError.message}
+              className="flex items-center gap-1 min-w-0 text-left text-[10px] font-mono font-bold text-red-300 hover:text-red-100 transition-colors"
+            >
+              <AlertCircle size={11} className="shrink-0" />
+              <span className="truncate">
+                {firstError.line > 0 ? `Line ${firstError.line}: ` : ''}{firstError.message}
+              </span>
+            </button>
           )}
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 shrink-0 pl-3">
           <button
             onClick={openFind}
             className="flex items-center space-x-1.5 text-zinc-600 hover:text-zinc-400 transition-colors"
@@ -233,6 +250,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
       <div className="flex-1 min-h-0 overflow-hidden">
         <CodeMirror
           ref={cmRef}
+          onCreateEditor={() => setEditorReady(true)}
           value={safeValue}
           onChange={handleChange}
           extensions={extensions}

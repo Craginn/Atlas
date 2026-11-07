@@ -33,6 +33,8 @@ const RESULT_PREFIX = '[DEBUG] Modified Text: ';
 const isErrorLine = (line: string) =>
   /\[ERROR\]|\[DEBUG\] EXECUTION ERROR|Worker Error|ERROR:/.test(line);
 
+const UNDEFINED_RE = /^(.*?)(\s+\[undefined at hook line \d+.*\])$/;
+
 const toLine = (log: unknown): string =>
   typeof log === 'object' && log !== null ? JSON.stringify(log, null, 2) : String(log);
 
@@ -79,16 +81,24 @@ const HookSection: React.FC<{ entry: TraceEntry; index: number }> = ({ entry, in
             <p className="text-[10px] font-mono text-zinc-600 italic">(no output)</p>
           ) : (
             <div className="space-y-1">
-              {body.map((line, i) => (
-                <pre
-                  key={i}
-                  className={`whitespace-pre-wrap break-words font-mono text-[11px] leading-snug ${
-                    isErrorLine(line) ? 'text-red-300' : 'text-zinc-400'
-                  }`}
-                >
-                  {line}
-                </pre>
-              ))}
+              {body.map((line, i) => {
+                const udm = UNDEFINED_RE.exec(line);
+                return (
+                  <pre
+                    key={i}
+                    className={`whitespace-pre-wrap break-words font-mono text-[11px] leading-snug ${
+                      isErrorLine(line) ? 'text-red-300' : 'text-zinc-400'
+                    }`}
+                  >
+                    {udm ? (
+                      <>
+                        <span>{udm[1]}</span>
+                        <span className="text-amber-400/90 bg-amber-500/10 rounded px-0.5">{udm[2]}</span>
+                      </>
+                    ) : line}
+                  </pre>
+                );
+              })}
             </div>
           )}
 
