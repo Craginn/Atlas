@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, AlertTriangle, ArrowRightToLine } from 'lucide-react';
+import type { UndefinedNote } from '@/types';
+import WhyUndefined from './WhyUndefined';
+import type { GoTo } from './ProblemCard';
 
 // One turn, shown as one execution.
 //
@@ -15,6 +18,8 @@ export interface TraceEntry {
   scriptName: string;
   logs?: unknown[];
   stateChanged?: boolean;
+  /** log() calls that printed undefined, explained. */
+  undefinedNotes?: UndefinedNote[];
 }
 
 /**
@@ -33,12 +38,12 @@ const RESULT_PREFIX = '[DEBUG] Modified Text: ';
 const isErrorLine = (line: string) =>
   /\[ERROR\]|\[DEBUG\] EXECUTION ERROR|Worker Error|ERROR:/.test(line);
 
-const UNDEFINED_RE = /^(.*?)(\s+\[undefined at hook line \d+.*\])$/;
+const UNDEFINED_RE = /^(.*?)(\s+\[undefined at .+? line \d+.*\])$/;
 
 const toLine = (log: unknown): string =>
   typeof log === 'object' && log !== null ? JSON.stringify(log, null, 2) : String(log);
 
-const HookSection: React.FC<{ entry: TraceEntry; index: number }> = ({ entry, index }) => {
+const HookSection: React.FC<{ entry: TraceEntry; index: number; onGoTo?: GoTo }> = ({ entry, index, onGoTo }) => {
   const [collapsed, setCollapsed] = useState(false);
 
   const all = (entry.logs ?? []).map(toLine);
@@ -102,6 +107,11 @@ const HookSection: React.FC<{ entry: TraceEntry; index: number }> = ({ entry, in
             </div>
           )}
 
+          {/* For every log() that printed undefined: why it was undefined. */}
+          {(entry.undefinedNotes ?? []).map((note, n) =>
+            note.explanations.map((why, k) => <WhyUndefined key={`${n}-${k}`} why={why} onGoTo={onGoTo} />),
+          )}
+
           {result !== undefined && (
             // What this hook handed to the next stage — the thing you actually
             // trace when text seems to vanish between hooks.
@@ -118,7 +128,7 @@ const HookSection: React.FC<{ entry: TraceEntry; index: number }> = ({ entry, in
   );
 };
 
-const ExecutionTrace: React.FC<{ trace: TraceEntry[]; className?: string }> = ({ trace, className = '' }) => {
+const ExecutionTrace: React.FC<{ trace: TraceEntry[]; className?: string; onGoTo?: GoTo }> = ({ trace, className = '', onGoTo }) => {
   if (trace.length === 0) {
     return (
       <div className={`flex items-center justify-center p-6 text-center ${className}`}>
@@ -133,7 +143,7 @@ const ExecutionTrace: React.FC<{ trace: TraceEntry[]; className?: string }> = ({
         Pipeline · {trace.length} hook{trace.length === 1 ? '' : 's'} in fire order
       </p>
       {trace.map((entry, i) => (
-        <HookSection key={`${entry.scriptName}-${i}`} entry={entry} index={i} />
+        <HookSection key={`${entry.scriptName}-${i}`} entry={entry} index={i} onGoTo={onGoTo} />
       ))}
     </div>
   );

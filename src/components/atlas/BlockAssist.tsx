@@ -5,6 +5,8 @@ import type { BlockRunResult, HookRunResult, StoryCardChanges } from '@/services
 import type { Problem } from '@/services/errors/problems';
 import type { Delta } from '@/services/stateDiff';
 import ProblemCard, { RichText, type GoTo } from './ProblemCard';
+import WhyUndefined from './WhyUndefined';
+import type { UndefinedNote } from '@/types';
 
 // Side panels for the block canvas: what to add next (Suggestions) and what a
 // run did (Run console).
@@ -121,11 +123,13 @@ const CardChanges: React.FC<{ cards: StoryCardChanges; onApply: () => void; appl
   </div>
 );
 
-const Logs: React.FC<{ logs: string[] }> = ({ logs }) =>
+const Logs: React.FC<{ logs: string[]; notes?: UndefinedNote[]; onGoTo?: GoTo }> = ({ logs, notes = [], onGoTo }) =>
   logs.length === 0 ? null : (
     <div className="rounded border border-zinc-800 bg-black/40 p-2 space-y-0.5">
       <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Log</div>
       {logs.map((l, i) => <div key={i} className="font-mono text-[11px] text-zinc-300 whitespace-pre-wrap break-words">{l}</div>)}
+      {/* A log that printed undefined: say why. */}
+      {notes.map((n, i) => n.explanations.map((why, k) => <WhyUndefined key={`${i}-${k}`} why={why} onGoTo={onGoTo} compact />))}
     </div>
   );
 
@@ -190,7 +194,7 @@ export const RunConsole: React.FC<{
               )}
               <StateChanges changes={hook.stateChanges} />
               {hook.storyCards && <CardChanges cards={hook.storyCards} onApply={onApply} applied={applied} />}
-              <Logs logs={hook.logs} />
+              <Logs logs={hook.logs} notes={hook.undefinedNotes} onGoTo={onGoTo} />
               {!hook.stateChanges.length && !hook.storyCards && !hook.logs.length && !hook.message && hook.textOut === hook.textIn && (
                 <p className="text-zinc-500 italic">Ran clean, but nothing changed for this input. Try an input your script reacts to.</p>
               )}
@@ -201,7 +205,7 @@ export const RunConsole: React.FC<{
             <>
               <StateChanges changes={selection.stateChanges} />
               {selection.storyCards && <CardChanges cards={selection.storyCards} onApply={onApply} applied={applied} />}
-              <Logs logs={selection.logs} />
+              <Logs logs={selection.logs} notes={selection.undefinedNotes} onGoTo={onGoTo} />
               {!selection.error && selection.logs.length === 0 && !selection.storyCards && !selection.stateChanges.length && (
                 selection.inertReason
                   ? <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2 text-amber-300/90 leading-snug">{selection.inertReason}</div>

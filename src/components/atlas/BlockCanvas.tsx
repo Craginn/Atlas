@@ -15,6 +15,7 @@ import { adviseScript, type Suggestion } from '@/services/blocks/guide';
 import { ancestorIds, blockAtLine, rootOf } from '@/services/blocks/locate';
 import { problemsFromRun, type Problem } from '@/services/errors/problems';
 import type { CaughtInWorker } from '@/services/offlineSimulationService';
+import type { Triangulation } from '@/services/errors/triangulate';
 import BlockNodeView from './BlockNodeView';
 import BlockOutline from './BlockOutline';
 import { RunConsole, SuggestionsPanel } from './BlockAssist';
@@ -54,10 +55,11 @@ interface BlockCanvasProps {
 const FOCUS_ABOVE = 25;
 
 /** Caught errors from a test run, in the pipeline's shape so problemsFromRun can explain them. */
-const caughtAsScriptErrors = (hook: string, caught: CaughtInWorker[]) =>
-  caught.map(c => ({
+const caughtAsScriptErrors = (hook: string, caught: CaughtInWorker[], why: (Triangulation | undefined)[] = []) =>
+  caught.map((c, i) => ({
     hook, scriptId: '', script: c.script, line: c.line ? String(c.line) : 'unknown',
     column: c.column ?? undefined, sourceLine: c.sourceLine || undefined, message: c.message,
+    ...(why[i] ? { triangulation: why[i] } : {}),
   }));
 
 /** Vertical gap between stacked root blocks when we lay a parsed script out. */
@@ -558,13 +560,13 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
   const consoleProblems = useMemo<Problem[]>(() => {
     if (hookResult) {
       return problemsFromRun(
-        { executionError: hookResult.error, scriptErrors: caughtAsScriptErrors(hookResult.hook, hookResult.caught) },
+        { executionError: hookResult.error, scriptErrors: caughtAsScriptErrors(hookResult.hook, hookResult.caught, hookResult.caughtWhy) },
         scripts,
       );
     }
     if (runResult) {
       return problemsFromRun(
-        { executionError: runResult.error, scriptErrors: caughtAsScriptErrors('Block Canvas', runResult.caught) },
+        { executionError: runResult.error, scriptErrors: caughtAsScriptErrors('Block Canvas', runResult.caught, runResult.caughtWhy) },
         scripts,
       );
     }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AlertOctagon, AlertTriangle, ArrowUpRight, CornerDownRight, Lightbulb } from 'lucide-react';
 import type { Problem } from '@/services/errors/problems';
 import type { ScriptLocation } from '@/types';
+import WhyUndefined from './WhyUndefined';
 
 // One problem, explained and located, the same everywhere it appears
 // (Heimdall's banner, the Sentinel debugger, the block canvas console).
@@ -93,15 +94,17 @@ const ProblemCard: React.FC<{ problem: Problem; onGoTo?: GoTo; compact?: boolean
             )}
           </div>
           <SourceLine line={p.line} text={p.sourceLine} column={p.column} />
-          {!compact && p.explanation.explanation && (
+          {/* A traced answer beats the generic "it may be misspelled or not set" guess. */}
+          {!compact && !p.triangulation && p.explanation.explanation && (
             <p className="mt-1.5 text-zinc-300 leading-snug"><RichText text={p.explanation.explanation} /></p>
           )}
-          {p.explanation.fix && (
+          {p.explanation.fix && !p.triangulation?.suggestion && !p.triangulation?.reason && (
             <p className="mt-1.5 flex items-start gap-1.5 text-zinc-200 leading-snug">
               <Lightbulb size={12} className="mt-0.5 shrink-0 text-yellow-300" />
               <RichText text={p.explanation.fix} />
             </p>
           )}
+          {p.triangulation && <WhyUndefined why={p.triangulation} onGoTo={onGoTo} compact={compact} />}
           {p.calledFrom && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-zinc-400">
               <CornerDownRight size={11} />

@@ -1,5 +1,6 @@
 import { parse as acornParse, tokenizer, tokTypes as tt, type Token } from 'acorn';
 import { WorldState, HistoryEntry, ExecutionError } from '../types';
+import type { RuntimeSnapshot } from './errors/triangulate';
 
 /** An error the script caught and console.error'd, located by the worker. */
 export interface CaughtInWorker {
@@ -8,6 +9,18 @@ export interface CaughtInWorker {
   line: number | null;
   column: number | null;
   sourceLine: string;
+  /** Runtime values at that moment, for undefined/null-type errors. */
+  snapshot?: RuntimeSnapshot;
+}
+
+/** A log() call that printed undefined: where, which arguments, and the runtime values then. */
+export interface UndefinedLogInWorker {
+  script: string;
+  line: number;
+  column: number;
+  sourceLine: string;
+  args: number[];
+  snapshot?: RuntimeSnapshot;
 }
 
 /**
@@ -140,6 +153,8 @@ export const runOfflineSimulation = async (
   error?: ExecutionError | null;
   /** Errors the script caught and reported with console.error, located. */
   caught: CaughtInWorker[];
+  /** log() calls that printed undefined, located, with a runtime snapshot. */
+  undefinedLogs?: UndefinedLogInWorker[];
 }> => {
   const rejected = (script: string, line: number, message: string, details: string, column?: number, source?: string) => ({
     newState: worldState,
@@ -226,21 +241,44 @@ export const runOfflineSimulation = async (
       // (scriptingService snapshots it either side of the run and the State Editor
       // renders the delta), so dumping it here only buried the script's own output.
 
-      const _locateUndefined = (args) => {
-        if (!args.some(a => a === undefined)) return '';
+      // ── Runtime evidence for "why is it undefined?" ──────────────────────
+      // A copy of the real globals at the moment something came out undefined,
+      // so the host can check each step of e.g. state.player.inventory. The
+      // globals are created inside the try block below; these refs point at them.
+      var _g = { state: null, info: null, storyCards: null, history: null };
+      const SNAPSHOT_LIMIT = 2000000; // characters of JSON; a bigger state is skipped
+      const _snapshot = () => {
         try {
-          const stack = new Error().stack || '';
-          const re = /userscript\\.js:(\\d+)/g;
-          let fm;
-          while ((fm = re.exec(stack)) !== null) {
-            const rel = Number(fm[1]) - hookLineOffset;
-            if (rel >= 1) {
-              const src = (execCode.split(String.fromCharCode(10))[rel - 1] || '').trim();
-              return '  [undefined at hook line ' + rel + (src ? ': ' + src.substring(0, 120) : '') + ']';
-            }
+          const stateJson = JSON.stringify(_g.state);
+          return {
+            state: stateJson && stateJson.length <= SNAPSHOT_LIMIT ? JSON.parse(stateJson) : undefined,
+            info: _g.info ? JSON.parse(JSON.stringify(_g.info)) : undefined,
+            storyCards: Array.isArray(_g.storyCards)
+              ? _g.storyCards.map(c => ({ title: c && c.title, keys: c && c.keys, type: c && c.type }))
+              : undefined,
+            historyLength: Array.isArray(_g.history) ? _g.history.length : undefined,
+          };
+        } catch (e) {
+          return undefined;
+        }
+      };
+      const _isUndefinedKind = (message) => /undefined|null|not a function|not iterable/.test(String(message || ''));
+      // log() calls that printed undefined: where, which arguments, and a snapshot.
+      const undefinedLogs = [];
+      const _locateUndefined = (args) => {
+        const which = [];
+        args.forEach((a, i) => { if (a === undefined) which.push(i); });
+        if (!which.length) return '';
+        try {
+          const at = _frames(new Error().stack)[0];
+          if (!at) return '';
+          if (undefinedLogs.length < 5) {
+            undefinedLogs.push({ script: at.script, line: at.line, column: at.column, sourceLine: at.sourceLine.trim(), args: which, snapshot: _snapshot() });
           }
-        } catch(e) {}
-        return '';
+          return '  [undefined at ' + at.script + ' line ' + at.line + ': ' + at.sourceLine.trim().substring(0, 120) + ']';
+        } catch (e) {
+          return '';
+        }
       };
       const console = {
         log: (...args) => {
@@ -257,12 +295,14 @@ export const runOfflineSimulation = async (
           const errArg = args.find(a => a instanceof Error);
           const frames = _frames((errArg && errArg.stack) || new Error().stack);
           const at = frames[0] || null;
+          const caughtMessage = errArg ? (errArg.name + ': ' + errArg.message) : formatted.join(' ');
           caught.push({
-            message: errArg ? (errArg.name + ': ' + errArg.message) : formatted.join(' '),
+            message: caughtMessage,
             script: at ? at.script : hookName,
             line: at ? at.line : null,
             column: at ? at.column : null,
             sourceLine: at ? at.sourceLine.trim() : '',
+            snapshot: _isUndefinedKind(caughtMessage) ? _snapshot() : undefined,
           });
         }
       };
@@ -291,6 +331,7 @@ export const runOfflineSimulation = async (
           infoExtra || {}
         );
         const storyCards = Array.isArray(worldState.storyCards) ? worldState.storyCards : (worldState.storyCards = []);
+        _g = { state, info, storyCards, history };
         const memory = worldState.memory || (state.memory = state.memory || {});
         let stop = false;
         const log = (...args) => console.log(...args);
@@ -364,7 +405,7 @@ export const runOfflineSimulation = async (
           logs.push('[DEBUG] stop flag: ' + result.stop);
         }
         
-        self.postMessage({ status: 'success', newState: worldState, logs, result, caught });
+        self.postMessage({ status: 'success', newState: worldState, logs, result, caught, undefinedLogs });
       } catch (err) {
         const message = (err && err.message) || String(err);
         // The innermost frame in the user's code is where it actually broke —
@@ -380,7 +421,7 @@ export const runOfflineSimulation = async (
         const where = at ? at.script + ', line ' + at.line : hookName;
         logs.push('[ERROR] ' + where + ': ' + message);
         self.postMessage({
-          status: 'error', logs, result: null, caught,
+          status: 'error', logs, result: null, caught, undefinedLogs,
           error: {
             hook: hookName,
             script: at ? at.script : hookName,
@@ -390,6 +431,7 @@ export const runOfflineSimulation = async (
             calledFrom,
             message,
             kind: 'runtime',
+            snapshot: _isUndefinedKind(message) ? _snapshot() : undefined,
             details: at ? at.line + ' | ' + at.sourceLine.trim() : undefined,
           },
         });
@@ -446,7 +488,7 @@ export const runOfflineSimulation = async (
       }
 
       clearTimeout(timeout);
-      const { status, newState, logs, result, error, caught } = e.data;
+      const { status, newState, logs, result, error, caught, undefinedLogs } = e.data;
       let located: ExecutionError | null = status === 'error'
         ? (error ?? { hook: hookName, script: hookName, line: 'unknown', message: 'Execution error', kind: 'runtime' })
         : null;
@@ -461,6 +503,7 @@ export const runOfflineSimulation = async (
         result,
         error: located,
         caught: Array.isArray(caught) ? caught : [],
+        undefinedLogs: Array.isArray(undefinedLogs) ? undefinedLogs : [],
       });
       worker.terminate();
       URL.revokeObjectURL(url);

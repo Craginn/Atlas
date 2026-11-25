@@ -2,7 +2,7 @@
   "name": "aid-atlas",
   "productName": "Aid Atlas",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Desktop dev environment for running and debugging AI Dungeon scripts",
   "type": "module",
   "main": "electron/main.mjs",

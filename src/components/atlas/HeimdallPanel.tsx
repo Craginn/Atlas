@@ -217,7 +217,7 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
           </div>
         )}
 
-        {activeTab === 'trace' && <ExecutionTrace trace={trace} className="flex-1 min-h-0" />}
+        {activeTab === 'trace' && <ExecutionTrace trace={trace} className="flex-1 min-h-0" onGoTo={onGoTo} />}
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import type { RuntimeSnapshot, Triangulation } from './services/errors/triangulate';
 // The app runs offline only: scripts execute locally and the model's reply is
 // the user-authored stand-in from the Director's AI Call box. There is no remote
 // generation, so `local` is the only mode. Kept as a named type (rather than
@@ -114,6 +115,8 @@ export interface ScriptStateTrace {
   after: WorldState;
   stateChanged: boolean;
   logs?: string[];
+  /** log() calls in this hook that printed undefined, explained. */
+  undefinedNotes?: UndefinedNote[];
 }
 
 // The simulated AI call that sits between the Context and Output hooks. No text is
@@ -185,6 +188,10 @@ export interface ExecutionError {
   sourceLine?: string;
   calledFrom?: ScriptLocation;
   kind?: 'syntax' | 'runtime' | 'timeout';
+  /** Runtime values when it failed (undefined/null-type errors). Consumed by the pipeline. */
+  snapshot?: RuntimeSnapshot;
+  /** Why the value was undefined, traced through the code and the runtime values. */
+  triangulation?: Triangulation;
 }
 
 /** An error a script caught and reported with console.error instead of throwing. */
@@ -196,6 +203,15 @@ export interface CaughtScriptError {
   script?: string;
   column?: number;
   sourceLine?: string;
+  triangulation?: Triangulation;
+}
+
+/** A log() call that printed undefined, with why each undefined argument was undefined. */
+export interface UndefinedNote {
+  script: string;
+  line: number;
+  sourceLine: string;
+  explanations: Triangulation[];
 }
 
 export interface SimulationResult {

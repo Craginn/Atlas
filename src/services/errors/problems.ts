@@ -11,6 +11,7 @@
 import type { CaughtScriptError, ExecutionError, Script, ScriptLocation } from '@/types';
 import { validateScriptSyntax } from '../offlineSimulationService';
 import { declaredNames, explainError, type Explanation } from './explain';
+import type { Triangulation } from './triangulate';
 
 export type ProblemSource = 'run' | 'caught' | 'check';
 
@@ -34,6 +35,8 @@ export interface Problem {
   calledFrom?: ScriptLocation;
   /** The script was edited since the run, so the line may have moved. */
   stale?: boolean;
+  /** Why the value was undefined, traced through the code and runtime values. */
+  triangulation?: Triangulation;
 }
 
 const knownNamesOf = (scripts: Script[]) => scripts.flatMap(s => declaredNames(s.code ?? ''));
@@ -76,6 +79,7 @@ export function problemsFromRun(
       hook: e.hook,
       calledFrom: e.calledFrom,
       stale: isStale(scriptId),
+      triangulation: e.triangulation,
     });
   }
 
@@ -97,6 +101,7 @@ export function problemsFromRun(
       explanation: explainError(engine, { sourceLine, column: c.column, knownNames: known }),
       hook: c.hook,
       stale: isStale(scriptId),
+      triangulation: c.triangulation,
     });
   });
   return out;

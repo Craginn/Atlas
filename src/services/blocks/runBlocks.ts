@@ -3,7 +3,9 @@ import { generateCode } from './generate';
 import { runOfflineSimulation, type CaughtInWorker } from '../offlineSimulationService';
 import { toAidStoryCard, fromAidStoryCard, normalizeModifierResult } from '../scriptingService';
 import { diff, type Delta } from '../stateDiff';
-import type { ExecutionError, KnowledgeBase, StoryCard, WorldState } from '../../types';
+import { explainRun } from '../errors/explainRun';
+import type { Triangulation } from '../errors/triangulate';
+import type { ExecutionError, KnowledgeBase, StoryCard, UndefinedNote, WorldState } from '../../types';
 
 /** The AID-shaped story card the sandbox actually sees. */
 type AidCard = ReturnType<typeof toAidStoryCard>;
@@ -81,6 +83,10 @@ export interface BlockRunResult {
   error: ExecutionError | null;
   /** Errors the code caught and console.error'd, located. */
   caught: CaughtInWorker[];
+  /** Why each caught error's value was undefined (same order as caught). */
+  caughtWhy?: (Triangulation | undefined)[];
+  /** log() calls that printed undefined, with why. */
+  undefinedNotes?: UndefinedNote[];
   /** Whatever the selection returned, if anything. */
   result: unknown;
   ms: number;
@@ -152,12 +158,18 @@ export async function runBlocks(
 
   const logs = cleanLogs(run.logs ?? []);
   const after = (run.newState?.storyCards ?? []) as AidCard[];
+  const explained = explainRun({
+    scripts: [...(hasLibrary ? [{ name: 'Library', code: libraryCode }] : []), { name: 'Block Canvas', code }],
+    hook: 'Block Canvas', error: run.error, caught: run.caught, undefinedLogs: run.undefinedLogs,
+  });
 
   return {
     code,
     logs,
-    error: run.error ?? null,
+    error: explained.error,
     caught: run.caught ?? [],
+    caughtWhy: explained.caught,
+    undefinedNotes: explained.undefinedNotes,
     result: run.result,
     ms: Math.round(performance.now() - started),
     inertReason: !run.error && logs.length === 0 ? describeInertness(blocks) : undefined,
@@ -176,6 +188,9 @@ export interface HookRunResult {
   logs: string[];
   error: ExecutionError | null;
   caught: CaughtInWorker[];
+  caughtWhy?: (Triangulation | undefined)[];
+  /** log() calls that printed undefined, with why. */
+  undefinedNotes?: UndefinedNote[];
   stateChanges: Delta[];
   storyCards?: StoryCardChanges;
   /** state.message, if the hook set one. */
@@ -206,6 +221,10 @@ export async function runScriptAsHook(
     seeded, input, !isLibrary, hook.name, [], hook.code, 0, 'Library',
   );
   const { text, stop } = isLibrary ? { text: undefined, stop: false } : normalizeModifierResult(run.result);
+  const explained = explainRun({
+    scripts: [...(hasLibrary ? [{ name: 'Library', code: libraryCode }] : []), { name: hook.name, code: hook.code }],
+    hook: hook.name, error: run.error, caught: run.caught, undefinedLogs: run.undefinedLogs,
+  });
   const after = (run.newState?.storyCards ?? []) as AidCard[];
   const stateAfter = stateOf(run.newState);
   const message = typeof stateAfter.message === 'string' && stateAfter.message !== stateBefore.message
@@ -218,8 +237,10 @@ export async function runScriptAsHook(
     textOut: typeof text === 'string' ? text : undefined,
     stopped: Boolean(stop),
     logs: cleanLogs(run.logs ?? []).filter(l => !l.startsWith('[DEBUG]') && !l.startsWith('[ERROR]')),
-    error: run.error ?? null,
+    error: explained.error,
     caught: run.caught ?? [],
+    caughtWhy: explained.caught,
+    undefinedNotes: explained.undefinedNotes,
     stateChanges: run.error ? [] : diff(stateBefore, stateAfter),
     storyCards: run.error ? undefined : diffStoryCards(before, after),
     message,

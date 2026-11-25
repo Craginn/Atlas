@@ -1,4 +1,5 @@
 import { runOfflineSimulation } from './offlineSimulationService';
+import { explainRun } from './errors/explainRun';
 import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry, TextTransform, CARD_TYPES, ExecutionError, CaughtScriptError } from '../types';
 import { matchStoryCards } from '@/services/storyCardService';
 
@@ -584,11 +585,21 @@ const simulateStep = async (
         // The Library's lines shift every reported error line; pass the count so the
         // runner maps error lines back onto the hook's own script — what the editor shows.
         const libraryLineCount = hasLibrary ? libraryCode.split('\n').length : 0;
-        const { newState, logs: scriptLogs, result, error, caught } = await runOfflineSimulation(
+        const { newState, logs: scriptLogs, result, error: rawError, caught, undefinedLogs } = await runOfflineSimulation(
           codeToExecute, currentState, currentInput, true, script.name, currentHistory, script.code, libraryLineCount, 'Library',
           // Per the scripting docs, memoryLength is an onModelContext-only field.
           script.name === 'Context Modifier' ? { memoryLength } : {},
         );
+        // Turn the run's runtime snapshots into "why is it undefined?" answers,
+        // traced through every script that took part (Library + this hook).
+        const explained = explainRun({
+          scripts: [...(hasLibrary && libraryScript ? [{ name: 'Library', code: libraryCode }] : []), { name: script.name, code: script.code }],
+          hook: script.name,
+          error: rawError,
+          caught: Array.isArray(caught) ? caught : [],
+          undefinedLogs,
+        });
+        const error = explained.error;
         // Make the "Library ran first" step visible in the trace/Code Logs.
         if (hasLibrary && Array.isArray(scriptLogs)) {
           scriptLogs.unshift(`[DEBUG] Library concatenated and executed before the ${script.name} hook.`);
@@ -600,7 +611,7 @@ const simulateStep = async (
         // Error's own throw site when one was passed), so these carry a real
         // script + line the editor can jump to.
         if (Array.isArray(caught)) {
-          for (const c of caught) {
+          for (const [ci, c] of caught.entries()) {
             const inLibrary = c.script !== script.name;
             scriptErrors.push({
               hook: script.name,
@@ -610,6 +621,7 @@ const simulateStep = async (
               column: c.column ?? undefined,
               sourceLine: c.sourceLine || undefined,
               message: c.message,
+              ...(explained.caught[ci] ? { triangulation: explained.caught[ci] } : {}),
             });
           }
         } else if (Array.isArray(scriptLogs)) {
@@ -633,6 +645,7 @@ const simulateStep = async (
             after: stateAfter,
             logs: scriptLogs,
             stateChanged,
+            ...(explained.undefinedNotes.length ? { undefinedNotes: explained.undefinedNotes } : {}),
         });
 
         // Attribute a state.message write to the script that made it, so the UI can
