@@ -1,0 +1,232 @@
+# help.aidungeon.com mirror
+
+Scraped 2026-11-25 from https://help.aidungeon.com (132 pages). Raw source for updating
+`src/components/atlas/AID-Docs/` — not bundled into the app.
+
+- [About the AI](about-the-ai.md) — https://help.aidungeon.com/about-the-ai
+- [Account Questions](account-questions.md) — https://help.aidungeon.com/account-questions
+- [Adventure Awaits](advanced.md) — https://help.aidungeon.com/advanced
+- [Adventure Awaits](advanced/adventure-awaits.md) — https://help.aidungeon.com/advanced/adventure-awaits
+- [Aether Tools](aether-tools.md) — https://help.aidungeon.com/aether-tools
+- [AI Dungeon 101](ai-dungeon-101.md) — https://help.aidungeon.com/ai-dungeon-101
+- [AI Dungeon 101](ai-dungeon-101/ai-dungeon-101.md) — https://help.aidungeon.com/ai-dungeon-101/ai-dungeon-101
+- [AI Dungeon Discord Bot Privacy Notice](ai-dungeon-discord-bot-privacy-notice.md) — https://help.aidungeon.com/ai-dungeon-discord-bot-privacy-notice
+- [AI Model Differences](ai-model-differences.md) — https://help.aidungeon.com/ai-model-differences
+- [Can I play AI Dungeon for free?](can-i-play-ai-dungeon-for-free.md) — https://help.aidungeon.com/can-i-play-ai-dungeon-for-free
+- [Community](community.md) — https://help.aidungeon.com/community
+- [Community Guidelines](community-guidelines.md) — https://help.aidungeon.com/community-guidelines
+- [Dataset Publication FAQ](dataset-publication-faq.md) — https://help.aidungeon.com/dataset-publication-faq
+- [Apply for a Discord Role](discord-roles.md) — https://help.aidungeon.com/discord-roles
+- [Fables, Odes, Overtures, Lore, & Serenades](fables-odes-overtures-lore-serenades.md) — https://help.aidungeon.com/fables-odes-overtures-lore-serenades
+- [FAQ](faq.md) — https://help.aidungeon.com/faq
+- [2021 API Vulnerability](faq/2021-api-vulnerability.md) — https://help.aidungeon.com/faq/2021-api-vulnerability
+- [About Our Premium Trial Period](faq/about-premium-benefits-and-our-free-trial.md) — https://help.aidungeon.com/faq/about-premium-benefits-and-our-free-trial
+- [About Shadow Tiers](faq/about-shadow-tiers.md) — https://help.aidungeon.com/faq/about-shadow-tiers
+- [AI Dungeon System Support & Technical Requirements](faq/ai-dungeon-system-support-technical-requirements.md) — https://help.aidungeon.com/faq/ai-dungeon-system-support-technical-requirements
+- [What is AI Instructions?](faq/ai-instructions.md) — https://help.aidungeon.com/faq/ai-instructions
+- [AI Rating Instructions](faq/ai-rating-instructions.md) — https://help.aidungeon.com/faq/ai-rating-instructions
+- [What happened to Banned Words?](faq/banned-words.md) — https://help.aidungeon.com/faq/banned-words
+- [Can I be part of the AI Dungeon community if I don't publish my content?](faq/can-i-be-part-of-the-ai-dungeon-community-even-if-i-dont-publish-my-content.md) — https://help.aidungeon.com/faq/can-i-be-part-of-the-ai-dungeon-community-even-if-i-dont-publish-my-content
+- [Can I play AI Dungeon offline?](faq/can-i-play-ai-dungeon-offline.md) — https://help.aidungeon.com/faq/can-i-play-ai-dungeon-offline
+- [Can I play AI Dungeon on my phone?](faq/can-i-play-ai-dungeon-on-my-phone.md) — https://help.aidungeon.com/faq/can-i-play-ai-dungeon-on-my-phone
+- [Can I search for content on AI Dungeon?](faq/can-i-search-for-content-on-ai-dungeon.md) — https://help.aidungeon.com/faq/can-i-search-for-content-on-ai-dungeon
+- [Can you help me cancel my membership or get a refund?](faq/can-you-help-me-with-a-cancelation-or-refund.md) — https://help.aidungeon.com/faq/can-you-help-me-with-a-cancelation-or-refund
+- [What is the Do mode and how do I use it?](faq/do-mode.md) — https://help.aidungeon.com/faq/do-mode
+- [Do you support Multiplayer?](faq/do-you-support-multiplayer.md) — https://help.aidungeon.com/faq/do-you-support-multiplayer
+- [Help! I can’t access my subscription!](faq/help-i-cant-access-my-subscription.md) — https://help.aidungeon.com/faq/help-i-cant-access-my-subscription
+- [How are AI responses generated?](faq/how-are-ai-responses-generated.md) — https://help.aidungeon.com/faq/how-are-ai-responses-generated
+- [How can players spend Scales?](faq/how-can-players-spend-scales.md) — https://help.aidungeon.com/faq/how-can-players-spend-scales
+- [How do I change my password?](faq/how-do-i-change-my-password.md) — https://help.aidungeon.com/faq/how-do-i-change-my-password
+- [How do I change the AI model I’m using?](faq/how-do-i-change-the-ai-model-im-using.md) — https://help.aidungeon.com/faq/how-do-i-change-the-ai-model-im-using
+- [How do I contact the AI Dungeon team?](faq/how-do-i-contact-the-ai-dungeon-team.md) — https://help.aidungeon.com/faq/how-do-i-contact-the-ai-dungeon-team
+- [How do I create pictures in AI Dungeon?](faq/how-do-i-create-pictures-in-ai-dungeon.md) — https://help.aidungeon.com/faq/how-do-i-create-pictures-in-ai-dungeon
+- [How do I know what everything means in AI Dungeon?](faq/how-do-i-know-what-everything-means-in-ai-dungeon.md) — https://help.aidungeon.com/faq/how-do-i-know-what-everything-means-in-ai-dungeon
+- [How do I report a bug?](faq/how-do-i-report-a-bug.md) — https://help.aidungeon.com/faq/how-do-i-report-a-bug
+- [How do I verify my email?](faq/how-do-i-verify-my-email.md) — https://help.aidungeon.com/faq/how-do-i-verify-my-email
+- [How do I use Scripting in AI Dungeon?](faq/how-do-i-write-scripts-and-use-scripting.md) — https://help.aidungeon.com/faq/how-do-i-write-scripts-and-use-scripting
+- [Creating Multiple Choice Scenarios](faq/how-do-scenario-options-work.md) — https://help.aidungeon.com/faq/how-do-scenario-options-work
+- [How does AI Dungeon encrypt player data?](faq/how-does-ai-dungeon-encrypt-player-data.md) — https://help.aidungeon.com/faq/how-does-ai-dungeon-encrypt-player-data
+- [How does AI Dungeon even work?](faq/how-does-ai-dungeon-even-work.md) — https://help.aidungeon.com/faq/how-does-ai-dungeon-even-work
+- [How does content moderation work?](faq/how-does-content-moderation-work.md) — https://help.aidungeon.com/faq/how-does-content-moderation-work
+- [How does the Trending category work?](faq/how-does-the-trending-category-work.md) — https://help.aidungeon.com/faq/how-does-the-trending-category-work
+- [How to avoid/fix repetition in my story?](faq/how-to-avoidfix-repetition-in-my-story.md) — https://help.aidungeon.com/faq/how-to-avoidfix-repetition-in-my-story
+- [How do I test Beta features?](faq/how-to-enable-beta-features.md) — https://help.aidungeon.com/faq/how-to-enable-beta-features
+- [How do I play AI Dungeon?](faq/how-to-play.md) — https://help.aidungeon.com/faq/how-to-play
+- [How to Upload Custom Images](faq/how-to-upload-custom-images.md) — https://help.aidungeon.com/faq/how-to-upload-custom-images
+- [I don’t know what email is associated with my account](faq/i-dont-know-what-email-is-associated-with-my-account.md) — https://help.aidungeon.com/faq/i-dont-know-what-email-is-associated-with-my-account
+- [I have an idea for a feature in AI Dungeon!](faq/i-have-an-idea-for-a-feature-in-ai-dungeon-can-i-share-it-with-the-developers.md) — https://help.aidungeon.com/faq/i-have-an-idea-for-a-feature-in-ai-dungeon-can-i-share-it-with-the-developers
+- [Is AI Dungeon on social media?](faq/is-ai-dungeon-on-social-media.md) — https://help.aidungeon.com/faq/is-ai-dungeon-on-social-media
+- [Is AI Dungeon only available in English?](faq/is-ai-dungeon-only-available-in-english.md) — https://help.aidungeon.com/faq/is-ai-dungeon-only-available-in-english
+- [Is there an AI Dungeon Discord server?](faq/is-there-an-ai-dungeon-discord-server.md) — https://help.aidungeon.com/faq/is-there-an-ai-dungeon-discord-server
+- [Managing content safety in AI Dungeon](faq/managing-content-safety-in-ai-dungeon.md) — https://help.aidungeon.com/faq/managing-content-safety-in-ai-dungeon
+- [Where do I find my old Adventures or Scenarios?](faq/my-stuff.md) — https://help.aidungeon.com/faq/my-stuff
+- [Next Steps to Address Recent Slowness and Outages (Dec 2024)](faq/next-steps-to-address-recent-slowness-and-outages-dec-2024.md) — https://help.aidungeon.com/faq/next-steps-to-address-recent-slowness-and-outages-dec-2024
+- [OpenAI and Filters](faq/openai-and-filters.md) — https://help.aidungeon.com/faq/openai-and-filters
+- [What are Plot Components?](faq/plot-components.md) — https://help.aidungeon.com/faq/plot-components
+- [What is Plot Essentials?](faq/plot-essentials.md) — https://help.aidungeon.com/faq/plot-essentials
+- [Unauthorized Access of S3 Buckets on August 15, 2022](faq/s3-buckets-15aug22.md) — https://help.aidungeon.com/faq/s3-buckets-15aug22
+- [What is the Say mode and how do I use it?](faq/say-mode.md) — https://help.aidungeon.com/faq/say-mode
+- [What is the See mode and how do I use it?](faq/see-mode.md) — https://help.aidungeon.com/faq/see-mode
+- [What are Story Cards?](faq/story-cards.md) — https://help.aidungeon.com/faq/story-cards
+- [What is the Story mode and how do I use it?](faq/story-mode.md) — https://help.aidungeon.com/faq/story-mode
+- [Taskup Data Incident](faq/taskup-data-incident.md) — https://help.aidungeon.com/faq/taskup-data-incident
+- [_TEMPLATES](faq/templates.md) — https://help.aidungeon.com/faq/templates
+- [Why isn’t the AI generating anything?](faq/the-ai-isnt-generating-anything-why-is-that.md) — https://help.aidungeon.com/faq/the-ai-isnt-generating-anything-why-is-that
+- [What are the basics of AI Dungeon?](faq/the-basics.md) — https://help.aidungeon.com/faq/the-basics
+- [What is the Memory System?](faq/the-memory-system.md) — https://help.aidungeon.com/faq/the-memory-system
+- [What is Private, Unlisted, and Published Content?](faq/visibility.md) — https://help.aidungeon.com/faq/visibility
+- [Voyage Community Guidelines](faq/voyage-community-guidelines.md) — https://help.aidungeon.com/faq/voyage-community-guidelines
+- [What are AI Model Settings?](faq/what-are-advanced-settings.md) — https://help.aidungeon.com/faq/what-are-advanced-settings
+- [What are Adventures?](faq/what-are-adventures.md) — https://help.aidungeon.com/faq/what-are-adventures
+- [What are Credits?](faq/what-are-image-credits.md) — https://help.aidungeon.com/faq/what-are-image-credits
+- [What are Scenarios?](faq/what-are-scenarios.md) — https://help.aidungeon.com/faq/what-are-scenarios
+- [What are the AI Safety Settings?](faq/what-are-the-ai-safety-settings.md) — https://help.aidungeon.com/faq/what-are-the-ai-safety-settings
+- [What are tokens?](faq/what-are-tokens.md) — https://help.aidungeon.com/faq/what-are-tokens
+- [What content is not allowed on AI Dungeon?](faq/what-content-is-not-allowed-on-ai-dungeon.md) — https://help.aidungeon.com/faq/what-content-is-not-allowed-on-ai-dungeon
+- [What does excessive usage mean?](faq/what-does-excessive-usage-mean.md) — https://help.aidungeon.com/faq/what-does-excessive-usage-mean
+- [What goes into the Context sent to the AI?](faq/what-goes-into-the-context-sent-to-the-ai.md) — https://help.aidungeon.com/faq/what-goes-into-the-context-sent-to-the-ai
+- [What happened to Steam and the Traveler tier?](faq/what-happened-to-the-travelers-tier.md) — https://help.aidungeon.com/faq/what-happened-to-the-travelers-tier
+- [What happened to “Undo to Here”?](faq/what-happened-to-undo-to-here.md) — https://help.aidungeon.com/faq/what-happened-to-undo-to-here
+- [What is “Erase to Here”?](faq/what-is-erase-to-here.md) — https://help.aidungeon.com/faq/what-is-erase-to-here
+- [What is “Improve the AI”?](faq/what-is-improve-the-ai-mode.md) — https://help.aidungeon.com/faq/what-is-improve-the-ai-mode
+- [What is Author’s Note?](faq/what-is-the-authors-note.md) — https://help.aidungeon.com/faq/what-is-the-authors-note
+- [What is the “Initial Prompt” of an Adventure?](faq/what-is-the-initial-prompt-of-an-adventure.md) — https://help.aidungeon.com/faq/what-is-the-initial-prompt-of-an-adventure
+- [What things should I know?](faq/what-things-should-i-know.md) — https://help.aidungeon.com/faq/what-things-should-i-know
+- [What triggers the AI filter?](faq/what-triggers-the-ai-filter.md) — https://help.aidungeon.com/faq/what-triggers-the-ai-filter
+- [Creating Character Creator Scenarios](faq/whats-the-difference-between-scenarios-and-worlds.md) — https://help.aidungeon.com/faq/whats-the-difference-between-scenarios-and-worlds
+- [When do I receive my Credits for a membership?](faq/when-do-i-receive-my-credits-for-a-membership.md) — https://help.aidungeon.com/faq/when-do-i-receive-my-credits-for-a-membership
+- [Where can I read about recent AI Dungeon updates?](faq/where-can-i-read-about-recent-ai-dungeon-updates.md) — https://help.aidungeon.com/faq/where-can-i-read-about-recent-ai-dungeon-updates
+- [Where can I watch others playing AI Dungeon?](faq/where-can-i-watch-others-playing-ai-dungeon.md) — https://help.aidungeon.com/faq/where-can-i-watch-others-playing-ai-dungeon
+- [Why are there Hamsters everywhere?](faq/why-are-there-hamsters-everywhere.md) — https://help.aidungeon.com/faq/why-are-there-hamsters-everywhere
+- [Why can’t I log in using my username?](faq/why-cant-i-log-in-using-my-username.md) — https://help.aidungeon.com/faq/why-cant-i-log-in-using-my-username
+- [Why did my account get banned?](faq/why-did-my-account-get-banned.md) — https://help.aidungeon.com/faq/why-did-my-account-get-banned
+- [Why do I need an account to play?](faq/why-do-i-need-an-account-to-play.md) — https://help.aidungeon.com/faq/why-do-i-need-an-account-to-play
+- [Why does the AI forget or mix things up?](faq/why-does-the-ai-forget-or-mix-things-up.md) — https://help.aidungeon.com/faq/why-does-the-ai-forget-or-mix-things-up
+- [Why isn’t the app working?](faq/why-isnt-the-app-working.md) — https://help.aidungeon.com/faq/why-isnt-the-app-working
+- [Feedback & Bugs](feature-requests.md) — https://help.aidungeon.com/feature-requests
+- [AID Bugs — Triage issues export (full text + comments)](feature-requests/aid-bugs-triage-issues-export-full-text-comments.md) — https://help.aidungeon.com/feature-requests/aid-bugs-triage-issues-export-full-text-comments
+- [How do you submit Feedback IDs?](feedback-ids.md) — https://help.aidungeon.com/feedback-ids
+- [Getting Started](getting-started.md) — https://help.aidungeon.com/getting-started
+- [Reference Glossary](glossary.md) — https://help.aidungeon.com/glossary
+- [How do I manage my Context?](how-do-i-manage-context.md) — https://help.aidungeon.com/how-do-i-manage-context
+- [AI Dungeon Guidebook](index.md) — https://help.aidungeon.com/
+- [LatiBot Discord Bot Privacy Notice](latibot-discord-bot-privacy-notice.md) — https://help.aidungeon.com/latibot-discord-bot-privacy-notice
+- [What is your Privacy Policy?](latitude-privacy-policy.md) — https://help.aidungeon.com/latitude-privacy-policy
+- [Memberships & Benefits](memberships-benefits.md) — https://help.aidungeon.com/memberships-benefits
+- [New Player Guide](new-player-guide.md) — https://help.aidungeon.com/new-player-guide
+- [Other Questions](other-questions.md) — https://help.aidungeon.com/other-questions
+- [Privacy & Security](privacy.md) — https://help.aidungeon.com/privacy
+- [Do you share my personal information with third parties?](privacy/do-you-share-any-of-my-personal-information-with-third-parties.md) — https://help.aidungeon.com/privacy/do-you-share-any-of-my-personal-information-with-third-parties
+- [Does the team behind AI Dungeon read my unpublished content?](privacy/does-the-team-behind-ai-dungeon-read-my-unpublished-scenarios.md) — https://help.aidungeon.com/privacy/does-the-team-behind-ai-dungeon-read-my-unpublished-scenarios
+- [Do you store any of my personal information?](privacy/tldr-do-you-store-any-of-my-personal-information.md) — https://help.aidungeon.com/privacy/tldr-do-you-store-any-of-my-personal-information
+- [What kind of information does the AI gather?](privacy/what-kind-of-information-does-the-ai-gather.md) — https://help.aidungeon.com/privacy/what-kind-of-information-does-the-ai-gather
+- [The See Mode](prompt-guide.md) — https://help.aidungeon.com/prompt-guide
+- [Quick start](quick-start-1.md) — https://help.aidungeon.com/quick-start-1
+- [Scripting](scripting.md) — https://help.aidungeon.com/scripting
+- [Status](status.md) — https://help.aidungeon.com/status
+- [Story Cards Import and Export](story-cards-import-and-export.md) — https://help.aidungeon.com/story-cards-import-and-export
+- [Table of Contents](table-of-contents.md) — https://help.aidungeon.com/table-of-contents
+- [Tala Discord Bot Privacy Notice](tala-discord-bot-privacy-notice.md) — https://help.aidungeon.com/tala-discord-bot-privacy-notice
+- [Terms of Service](terms-of-service.md) — https://help.aidungeon.com/terms-of-service
+- [The Do Mode](the-do-mode.md) — https://help.aidungeon.com/the-do-mode
+- [The Say Mode](the-say-mode.md) — https://help.aidungeon.com/the-say-mode
+- [The Story Mode](the-story-mode.md) — https://help.aidungeon.com/the-story-mode
+- [Understanding AI Dungeon System Settings](understanding-settings.md) — https://help.aidungeon.com/understanding-settings
+- [How do I play Voyage?](voyage-access.md) — https://help.aidungeon.com/voyage-access
+- [Voyage in ChatGPT Privacy Policy](voyage-in-chatgpt-privacy-policy.md) — https://help.aidungeon.com/voyage-in-chatgpt-privacy-policy
+- [What are Scripts and how do you install them?](what-are-scripts-and-how-do-you-install-them.md) — https://help.aidungeon.com/what-are-scripts-and-how-do-you-install-them
+
+## Failed
+
+- https://help.aidungeon.com/ai-dungeon-101/can-i-play-ai-dungeon-offline — HTTP 404
+- https://help.aidungeon.com/ai-dungeon-101/can-i-search-for-content-on-ai-dungeon — HTTP 404
+- https://help.aidungeon.com/ai-dungeon-101/how-does-ai-dungeon-even-work — HTTP 404
+- https://help.aidungeon.com/ai-dungeon-101/image-prompt-guide — HTTP 404
+- https://help.aidungeon.com/ai-dungeon-101/image-settings — HTTP 404
+- https://help.aidungeon.com/ai-dungeon-101/learn-more-about-do-here — HTTP 404
+- https://help.aidungeon.com/ai-dungeon-101/prompt-settings — HTTP 404
+- https://help.aidungeon.com/ai-dungeon-101/what-are-ai-dungeon-memberships — HTTP 404
+- https://help.aidungeon.com/discord-server-rules — HTTP 404
+- https://help.aidungeon.com/faq/all-about-world-info — HTTP 404
+- https://help.aidungeon.com/faq/can-i-play-ai-dungeon-for-free — HTTP 404
+- https://help.aidungeon.com/faq/can-i-play-ai-dungeon-in-russia — HTTP 404
+- https://help.aidungeon.com/faq/can-i-subscribe-to-ai-dungeon-on-steam — HTTP 404
+- https://help.aidungeon.com/faq/can-we-get-speed-boosts-for-dragon-with-scales — HTTP 404
+- https://help.aidungeon.com/faq/context-engineering-wording — HTTP 404
+- https://help.aidungeon.com/faq/default-faq-template — HTTP 404
+- https://help.aidungeon.com/faq/draft-coon — HTTP 404
+- https://help.aidungeon.com/faq/draft-one — HTTP 404
+- https://help.aidungeon.com/faq/draft-two — HTTP 404
+- https://help.aidungeon.com/faq/editing-content — HTTP 404
+- https://help.aidungeon.com/faq/how-can-i-keep-the-ai-focused-on-topic-writing-well — HTTP 404
+- https://help.aidungeon.com/faq/how-can-i-submit-a-feature-request — HTTP 404
+- https://help.aidungeon.com/faq/how-can-you-remove-ads-if-ai-costs-so-much — HTTP 404
+- https://help.aidungeon.com/faq/how-do-i-activate-the-free-premium-access-in-steam-for-players-who-purchased-steam-prior-to-unchained — HTTP 404
+- https://help.aidungeon.com/faq/how-do-i-find-content-by-other-users — HTTP 404
+- https://help.aidungeon.com/faq/how-do-i-get-ads-to-work — HTTP 404
+- https://help.aidungeon.com/faq/how-do-i-get-credits — HTTP 404
+- https://help.aidungeon.com/faq/how-do-i-get-the-ai-to-write-about-characters-with-unusual-traits — HTTP 404
+- https://help.aidungeon.com/faq/how-do-i-purchase-the-traveler-tier-in-steam — HTTP 404
+- https://help.aidungeon.com/faq/how-to-get-actions — HTTP 404
+- https://help.aidungeon.com/faq/how-to-get-scales — HTTP 404
+- https://help.aidungeon.com/faq/how-to-store-up-actions — HTTP 404
+- https://help.aidungeon.com/faq/how-to-use-actions — HTTP 404
+- https://help.aidungeon.com/faq/membership-plan-overview — HTTP 404
+- https://help.aidungeon.com/faq/model-updates — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/adventure-dragon-20 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/adventure-griffin-12 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/adventure-wyvern-12 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/adventure-wyvern-13 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/adventure-wyvern-14 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/ai-version-database — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/adventure-wyvern-v141 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/adventure-wyvern-v143 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs/text-generation-cost-analysis — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs/text-generation-cost-analysis/ai21 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs/text-generation-cost-analysis/ai21-token — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs/text-generation-cost-analysis/ai21-wrong — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs/text-generation-cost-analysis/core-60 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs/text-generation-cost-analysis/coreweave — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/public-ai-version/ai-costs/text-generation-cost-analysis/forefront — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/test-2 — HTTP 404
+- https://help.aidungeon.com/faq/model-updates/test-3 — HTTP 404
+- https://help.aidungeon.com/faq/our-view-on-the-audible-lawsuit — HTTP 404
+- https://help.aidungeon.com/faq/recent-guidebook-updates — HTTP 404
+- https://help.aidungeon.com/faq/steam-login — HTTP 404
+- https://help.aidungeon.com/faq/the-ai-said-something-hateful-offensive-or-factually-wrong — HTTP 404
+- https://help.aidungeon.com/faq/the-ai-says-the-story-is-over-or-that-i-need-to-pay-to-continue-what-should-i-do — HTTP 404
+- https://help.aidungeon.com/faq/what-are-credits — HTTP 404
+- https://help.aidungeon.com/faq/what-are-scales-used-for — HTTP 404
+- https://help.aidungeon.com/faq/what-are-worlds — HTTP 404
+- https://help.aidungeon.com/faq/what-can-i-use-scales-for — HTTP 404
+- https://help.aidungeon.com/faq/what-happened-to-the-silver-plan — HTTP 404
+- https://help.aidungeon.com/faq/what-happens-to-all-the-actions-i-earned — HTTP 404
+- https://help.aidungeon.com/faq/what-is-dragon — HTTP 404
+- https://help.aidungeon.com/faq/what-is-griffin — HTTP 404
+- https://help.aidungeon.com/faq/what-is-the-expanded-library-for-ai-dungeon-2d — HTTP 404
+- https://help.aidungeon.com/faq/what-is-the-travelers-in-app-purchase — HTTP 404
+- https://help.aidungeon.com/faq/what-is-world-info-1 — HTTP 404
+- https://help.aidungeon.com/faq/what-will-people-who-paid-for-steam-prior-to-unchained-get — HTTP 404
+- https://help.aidungeon.com/faq/whats-included-in-the-steam-version — HTTP 404
+- https://help.aidungeon.com/faq/why-and-how-scales-have-changed-in-sept-2022 — HTTP 404
+- https://help.aidungeon.com/faq/why-are-old-plans-being-migrated-instead-of-grandfathered — HTTP 404
+- https://help.aidungeon.com/faq/why-do-we-need-all-the-different-resources — HTTP 404
+- https://help.aidungeon.com/faq/why-does-the-free-version-of-ai-dungeon-use-ads — HTTP 404
+- https://help.aidungeon.com/faq/why-doesnt-the-hero-tier-get-unlimited-dragon — HTTP 404
+- https://help.aidungeon.com/faq/why-doesnt-the-hero-tier-get-unlimited-dragon-original — HTTP 404
+- https://help.aidungeon.com/faq/why-is-the-ai-generating-gibberishrepeating-itself — HTTP 404
+- https://help.aidungeon.com/faq/why-wasnt-steam-free-to-begin-with — HTTP 404
+- https://help.aidungeon.com/faq/why-werent-images-cheaper-to-start — HTTP 404
+- https://help.aidungeon.com/faq/will-you-use-ads-anywhere-else-on-ai-dungeon — HTTP 404
+- https://help.aidungeon.com/privacy/unauthorized-access-of-s3-buckets-on-august-15-2022 — HTTP 404
+- https://help.aidungeon.com/privacy/why-did-my-account-get-banned — HTTP 404
+- https://help.aidungeon.com/quick-start — HTTP 404
+- https://help.aidungeon.com/quick-start/account-questions — HTTP 404
+- https://help.aidungeon.com/quick-start/blocks — HTTP 404
+- https://help.aidungeon.com/quick-start/community — HTTP 404
+- https://help.aidungeon.com/quick-start/getting-started — HTTP 404
+- https://help.aidungeon.com/quick-start/using-aether — HTTP 404
+- https://help.aidungeon.com/shadow-clan-benefit — HTTP 404
+- https://help.aidungeon.com/tablet-sign-in-workaround — HTTP 404
