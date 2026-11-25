@@ -1,45 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { WorldState, ScriptStateTrace, HistoryEntry, TextTransform } from '@/types';
-import { Database, Code, GitCommit, ArrowRight, Plus, Minus, FileJson, Hash, Archive, Info, Upload, ChevronDown, ChevronRight, History, EyeOff } from 'lucide-react';
-import EditorDefault from 'react-simple-code-editor';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-json';
-import '@/styles/prism-custom-theme.css';
+import { Database, Code, GitCommit, ArrowRight, Plus, Minus, FileJson, Hash, Archive, Info, Upload, ChevronDown, ChevronRight, History, EyeOff, LayoutGrid } from 'lucide-react';
 import TabButton from '@/components/ui/TabButton';
+import JsonEditor from './JsonEditor';
+import StateSections from './StateSections';
 
-// Normalize the default export: under some bundler interop paths the CJS default
-// arrives as a namespace object ({ default: Editor }) rather than the component,
-// which triggers React's "Element type is invalid" crash. Unwrap defensively.
-const Editor = ((EditorDefault as unknown as { default?: typeof EditorDefault })?.default
-  ?? EditorDefault) as typeof EditorDefault;
-
-interface Delta {
-  path: string;
-  from: any;
-  to: any;
-  type: 'modified' | 'added' | 'removed';
-  scriptId?: string;
-  scriptName?: string;
-}
-
-const isPlainObject = (v: any) => v !== null && typeof v === 'object' && !Array.isArray(v);
-
-// Deep-diff guard: state is user-authored and may be deeply nested or, once
-// structured-cloned through the worker, wider than is useful to walk.
-const MAX_DEPTH = 10;
-
-// An added/removed container arrives whole (there is nothing on the other side
-// to walk against), so it's emitted as a single delta and rendered as one box —
-// the whole object/array pretty-printed by ValueRenderer, rather than split into
-// a box per leaf field. `depth`/`MAX_DEPTH` are kept for signature parity with
-// diff() and to leave room for a future depth cap.
-const explode = (v: any, path: string, type: 'added' | 'removed', _depth: number): Delta[] => {
-  return [type === 'added'
-    ? { path, from: undefined, to: v, type }
-    : { path, from: v, to: undefined, type }];
-};
+// The diff lives in a plain service so the block runner can share it;
+// re-exported here for existing importers.
+import { diff, type Delta } from '@/services/stateDiff';
+export { diff, type Delta };
 
 // The documented AID memory limit: 16 MB in bytes.
 export const MEMORY_LIMIT_BYTES = 16 * 1024 * 1024; // 16777216 bytes
@@ -79,31 +48,6 @@ export const formatMemoryUsage = (bytes: number): string => {
   }
 };
 
-// Diffs any two values without knowledge of their shape, emitting dotted paths
-// (`stats.hp`, `party.0.name`). State has no fixed schema — scripts invent keys.
-export const diff = (a: any, b: any, path = '', depth = 0): Delta[] => {
-  if (JSON.stringify(a) === JSON.stringify(b)) return [];
-
-  if (depth < MAX_DEPTH && isPlainObject(a) && isPlainObject(b)) {
-    return Object.keys({ ...a, ...b }).flatMap(k => {
-      const next = path ? `${path}.${k}` : k;
-      if (!(k in a)) return explode(b[k], next, 'added', depth + 1);
-      if (!(k in b)) return explode(a[k], next, 'removed', depth + 1);
-      return diff(a[k], b[k], next, depth + 1);
-    });
-  }
-
-  if (depth < MAX_DEPTH && Array.isArray(a) && Array.isArray(b)) {
-    return Array.from({ length: Math.max(a.length, b.length) }).flatMap((_, i) => {
-      const next = `${path}.${i}`;
-      if (i >= a.length) return explode(b[i], next, 'added', depth + 1);
-      if (i >= b.length) return explode(a[i], next, 'removed', depth + 1);
-      return diff(a[i], b[i], next, depth + 1);
-    });
-  }
-
-  return [{ path: path || '(root)', from: a, to: b, type: 'modified' }];
-};
 
 const ValueRenderer = ({ value }: { value: any }) => {
   if (value === null || value === undefined) return <span className="text-zinc-600 italic">null</span>;
@@ -120,7 +64,7 @@ const DeltaItem: React.FC<{ delta: Delta; showPrevious?: boolean }> = ({ delta, 
   // schema meaning we could key an icon off.
   const v = delta.to ?? delta.from;
   const icon = Array.isArray(v) ? <Archive size={12} />
-    : isPlainObject(v) ? <FileJson size={12} />
+    : v !== null && typeof v === 'object' ? <FileJson size={12} />
     : typeof v === 'number' ? <Hash size={12} />
     : <Info size={12} />;
 
@@ -462,7 +406,23 @@ interface EditorProps {
 const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previousWorldState, stateTrace, hasError, history = [], textTransforms }) => {
   const [localText, setLocalText] = useState(JSON.stringify(worldState, null, 2));
   const [isValid, setIsValid] = useState(true);
-  const [activeTab, setActiveTab] = useState<'raw' | 'delta' | 'history'>('raw');
+  const [activeTab, setActiveTab] = useState<'sections' | 'raw' | 'delta' | 'history'>('sections');
+
+  // What the last turn changed, for the Sections jump list. The per-hook trace
+  // brackets the whole turn (first hook's `before` → last hook's `after`), and
+  // unlike previousWorldState it isn't overwritten by a manual edit afterwards.
+  const { turnChanges, changeSource } = useMemo(() => {
+    if (stateTrace && stateTrace.length > 0) {
+      return {
+        turnChanges: diff(stateTrace[0].before ?? {}, stateTrace[stateTrace.length - 1].after ?? {}),
+        changeSource: 'turn' as const,
+      };
+    }
+    if (previousWorldState) {
+      return { turnChanges: diff(previousWorldState, worldState), changeSource: 'edit' as const };
+    }
+    return { turnChanges: [] as Delta[], changeSource: null };
+  }, [stateTrace, previousWorldState, worldState]);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -510,20 +470,11 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
     event.target.value = '';
   };
 
-  const lineCount = localText.split('\n').length;
-
-  // Calculate current memory usage and percentage of 16MB limit.
-  const memoryUsageBytes = estimateMemoryUsage(worldState);
+  // Current memory usage vs the 16MB limit. One serialization, memoized — this
+  // used to stringify the whole state twice per render.
+  const memoryUsageBytes = useMemo(() => estimateMemoryUsage(worldState), [worldState]);
   const memoryUsageFormatted = formatMemoryUsage(memoryUsageBytes);
-  const memoryPercentage = calculateMemoryPercentage(worldState).toFixed(2);
-
-  // Keep the line-number gutter locked to the editor's vertical scroll. The gutter
-  // and the code live in separate scroll boxes, so without this the numbers stay
-  // put while the code moves — they must track 1:1.
-  const gutterRef = useRef<HTMLDivElement>(null);
-  const handleRawScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
-  };
+  const memoryPercentage = ((memoryUsageBytes / MEMORY_LIMIT_BYTES) * 100).toFixed(2);
 
   return (
     <div className="flex flex-col h-full bg-[#09090b] border-r border-zinc-800/50 overflow-hidden font-sans select-none">
@@ -568,29 +519,22 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
       </div>
 
       <div className="flex border-b border-zinc-800 bg-black/20">
+        <TabButton label="Sections" icon={LayoutGrid} active={activeTab === 'sections'} onClick={() => setActiveTab('sections')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'sections' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
         <TabButton label="Raw State" icon={Code} active={activeTab === 'raw'} onClick={() => setActiveTab('raw')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'raw' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
         <TabButton label="State Deltas" icon={GitCommit} active={activeTab === 'delta'} onClick={() => setActiveTab('delta')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'delta' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
         <TabButton label={`History${history.length ? ` (${history.length})` : ''}`} icon={History} active={activeTab === 'history'} onClick={() => setActiveTab('history')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'history' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
       </div>
 
-      {activeTab === 'raw' ? (
-        <div className="flex-1 relative overflow-hidden flex bg-black/40">
-          <div
-            ref={gutterRef}
-            className="w-10 shrink-0 bg-zinc-900/30 text-right pr-2 pt-2.5 text-white text-sm font-mono select-none overflow-hidden"
-          >
-            {Array.from({ length: lineCount }, (_, i) => <div key={i} className="leading-5 h-5">{i + 1}</div>)}
-          </div>
-          <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }} onScroll={handleRawScroll}>
-            <Editor
-              value={localText}
-              onValueChange={handleStateChange}
-              highlight={code => (Prism.languages.json ? Prism.highlight(code, Prism.languages.json, 'json') : code)}
-              padding={10}
-              className="text-sm font-mono leading-5 focus:outline-none min-h-full"
-              style={{ fontFamily: '"Fira Code", monospace' }}
-            />
-          </div>
+      {activeTab === 'sections' ? (
+        <StateSections
+          state={worldState}
+          setState={setWorldState}
+          changes={turnChanges}
+          changeSource={changeSource}
+        />
+      ) : activeTab === 'raw' ? (
+        <div className="flex-1 min-h-0 overflow-hidden bg-black/40 select-text">
+          <JsonEditor value={localText} onChange={handleStateChange} />
         </div>
       ) : activeTab === 'delta' ? (
         <DeltaView oldState={previousWorldState} newState={worldState} stateTrace={stateTrace} hasError={hasError} textTransforms={textTransforms} />

@@ -5,7 +5,7 @@ import path from 'node:path';
 // Coverage for rollRarity / applyStatRolls and the WorldLootPlayer fixes
 // (shared-template mutation, category weight fallthrough).
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const src = fs.readFileSync(path.join(DIR, 'Library.js'), 'utf8');
 
 function loadFixture() {

@@ -8,7 +8,7 @@ import path from 'node:path';
 // `info` and `history` supplied as parameters, and return the internals we
 // want to drive directly.
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const src = fs.readFileSync(path.join(DIR, 'Library.js'), 'utf8');
 
 // Build a fresh sandbox (and fresh `state`) per test. The factory runs

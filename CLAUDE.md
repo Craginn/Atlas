@@ -28,7 +28,7 @@ semantics, standard library, normal tooling) — only for AID-platform specifics
 
 ## How scripts execute (important context)
 
-- **The fixture** under `Mock Script Test/` (`Library.js`, `Input.js`, `Context.js`,
+- **The fixture** under `RPG ENGINE/` (`Library.js`, `Input.js`, `Context.js`,
   `Output.js`) is a backend test fixture — an AID scenario's script suite, not app
   code. `Library.js` is shared code concatenated ahead of each hook.
 - **Execution** runs in a Web Worker via `eval` (`src/services/offlineSimulationService.ts`)
@@ -50,6 +50,29 @@ semantics, standard library, normal tooling) — only for AID-platform specifics
   cards and updates changed ones, but leaves untouched cards as the user hand-edited
   them. (A script that updates an existing card — e.g. `updateStoryCard` / a
   `> setting: value` write — relies on this to show up.)
+
+## Error locations
+
+- The worker locates a failure from the **innermost** `userscript.js` stack frame,
+  so a throw inside a Library function reports `script: 'Library'` + its line/column,
+  with `calledFrom` = the hook line that called it. `hook` is only *which hook was
+  running*. Don't reintroduce "skip Library frames" — it sends users to the wrong file.
+- Every error surface (Heimdall, Sentinel, editor, Block Canvas) goes through
+  `src/services/errors/problems.ts` (`Problem`: located + `explainError` text) and
+  `ProblemCard`. Add new error sources there, not as ad-hoc strings.
+- `src/test/nodeWorker.ts` runs the real worker under Vitest; use it to test
+  anything about lines/columns.
+
+## Context assembly
+
+- `assembleContext` (`src/services/scriptingService.ts`) follows Latitude's
+  published template (help.aidungeon.com/faq/what-goes-into-the-context-sent-to-the-ai);
+  AI Instructions are the system prompt, not part of `text`. Its tests assert the
+  exact string — change both together, and only on evidence from the official site
+  or a Context Lab capture.
+- `AID Probe/` is a script suite meant to run **inside real AI Dungeon** (not a
+  fixture for Atlas). Keep it to conservative JS (no `?.`/`??`), never let it change
+  `text` or throw. `src/services/contextLab.test.ts` runs it end to end.
 
 ## App shell (Electron)
 

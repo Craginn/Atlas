@@ -47,7 +47,7 @@ Dynamic Elements share approximately 30% of context (the space remaining after R
 - If >500 tokens available for Story Cards: (available_tokens / 100) actions evaluated
 - Example: 900 tokens available → 9 actions evaluated
 
-**Format in Context**: Each entry is prefaced with "World Lore:"
+**Format in Context**: Triggered entries appear together under one "World Lore:" header line, separated by blank lines
 
 **Behavior**:
 - Only triggered cards enter context

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import CodeBuffer from './CodeBuffer';
+import CodeBuffer, { type MarkedError } from './CodeBuffer';
 import { Script } from '@/types';
 import { FileJson, ChevronLeft, Search, X } from 'lucide-react';
 import { validateScriptSyntax } from '@/services/offlineSimulationService';
@@ -24,7 +24,9 @@ interface AILogicEditorProps {
   setScripts: (scripts: Script[]) => void;
   activeScriptId: string;
   setActiveScriptId: (id: string) => void;
-  runtimeErrorsByScriptId?: Record<string, { line: number; message: string }[]>;
+  runtimeErrorsByScriptId?: Record<string, MarkedError[]>;
+  /** A "go to line" from a debugger panel, for the active script. */
+  jumpRequest?: { scriptId: string; line: number; column?: number; nonce: number } | null;
 }
 
 const AILogicEditor: React.FC<AILogicEditorProps> = ({
@@ -32,7 +34,8 @@ const AILogicEditor: React.FC<AILogicEditorProps> = ({
   setScripts,
   activeScriptId,
   setActiveScriptId,
-  runtimeErrorsByScriptId = {}
+  runtimeErrorsByScriptId = {},
+  jumpRequest = null,
 }) => {
   const handleCodeChange = (scriptId: string, newCode: string) => {
     setScripts(scripts.map(s => (s.id === scriptId ? { ...s, code: newCode } : s)));
@@ -179,6 +182,7 @@ const AILogicEditor: React.FC<AILogicEditorProps> = ({
                 isActive={true}
                 findRequest={findRequest}
                 runtimeErrors={runtimeErrorsByScriptId[activeScript?.id] ?? []}
+                jumpRequest={jumpRequest && jumpRequest.scriptId === activeScript?.id ? jumpRequest : null}
               />
             </div>
           </>

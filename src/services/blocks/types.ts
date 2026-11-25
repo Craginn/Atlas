@@ -64,6 +64,12 @@ export interface BlockNode {
    * are laid out by their parent and ignore this.
    */
   pos?: { x: number; y: number };
+  /**
+   * The source lines (1-based, inclusive) this block came from when it was
+   * parsed. Lets an error's line be traced to the block that holds it. Absent
+   * on blocks created in the canvas.
+   */
+  loc?: { start: number; end: number };
 }
 
 /** A parsed script: root blocks plus anything we couldn't parse at all. */

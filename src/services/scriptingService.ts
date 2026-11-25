@@ -1,5 +1,5 @@
 import { runOfflineSimulation } from './offlineSimulationService';
-import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry, TextTransform, CARD_TYPES } from '../types';
+import { WorldState, Script, SimulationMode, SimulationResult, KnowledgeBase, ScriptStateTrace, AiCallTrace, StoryCard, HistoryEntry, TextTransform, CARD_TYPES, ExecutionError, CaughtScriptError } from '../types';
 import { matchStoryCards } from '@/services/storyCardService';
 
 // The sandbox's `storyCards` global follows AID's script-facing schema (keys as a
@@ -142,6 +142,26 @@ export interface MemoryContext {
 /** Coerce a possibly-non-string memory/KB field to a trimmed-safe string. */
 const asText = (v: unknown): string => (typeof v === 'string' ? v : '');
 
+/** Labels for the parts of an assembled context, in the order they appear. */
+export type ContextSectionId =
+  | 'plotEssentials' | 'worldLore' | 'storySummary' | 'memories'
+  | 'recentStory' | 'authorsNote' | 'lastAction' | 'frontMemory';
+
+export interface AssembledContext {
+  /** The `text` the Context Modifier receives. */
+  context: string;
+  /**
+   * AI Instructions. Per Latitude these are "sent as a system prompt", so they
+   * are not part of `text` — kept here so traces can still show them.
+   */
+  systemPrompt: string;
+  triggeredCards: StoryCard[];
+  /** Where each section sits in `context` (for the Context Lab view). */
+  sections: { id: ContextSectionId; from: number; to: number }[];
+  /** Characters of `context` taken by Plot Essentials — AID's `info.memoryLength`. */
+  memoryLength: number;
+}
+
 /**
  * Build the context the Context Modifier receives — the thing AID "hands the model".
  *
@@ -150,50 +170,111 @@ const asText = (v: unknown): string => (typeof v === 'string' ? v : '');
  * what the AI Call trace shows as `contextSent`. It is assembled after the Input
  * hook so it can include the action that hook produced.
  *
- * Layout follows AID's documented assembly order (AID-Docs
- * 02-context/context-assembly-order.md): AI Instructions, Plot Essentials, Story
- * Cards (each prefixed "World Lore:"), Story Summary, Memory Bank, History,
- * Author's Note, Last Action, Front Memory. AID concatenates these blocks with
- * newlines rather than labelled headings — the one documented literal is the
- * "World Lore:" card prefix — so we join with blank lines and invent no section
- * headers a script might mis-parse. Empty sections drop out entirely.
+ * Layout follows the template Latitude publishes for what is actually sent
+ * (help.aidungeon.com/faq/what-goes-into-the-context-sent-to-the-ai):
+ *
+ *     {Plot Essentials}
+ *     World Lore:
+ *     {Card 1}
+ *
+ *     {Card 2}
+ *
+ *     Story Summary:
+ *     {Story Summary}
+ *
+ *     Memories:
+ *     {Memory 1}
+ *     {Memory 2}
+ *
+ *     Recent Story:
+ *     {Action 1}
+ *     > {User Input 1}
+ *     {Action 2}
+ *
+ *     [Author's note: {Author's Note}]
+ *     > {Last User Input}  /OR/  {Last Action}
+ *     {Front Memory}
+ *
+ * AI Instructions go out as the system prompt, not in `text`. Plot Essentials
+ * sits first, which is what makes `text.slice(0, info.memoryLength)` work in
+ * the official examples. Empty sections drop out, headers included. Popular
+ * community scripts (Auto-Cards) parse these same headers, so they matter.
+ *
+ * Open questions the Context Lab probe exists to settle: whether the Author's
+ * Note precedes the last player input (this template) or the last AI response
+ * (the scripting page's wording), and the exact spacing when sections are absent.
  *
  * `memory` carries the runtime `state.memory` at assembly time: `context` and
  * `authorsNote` override their UI counterparts, and `frontMemory` is the
- * script-only slot pinned to the very end, where AID gives it maximum influence.
+ * script-only slot pinned to the very end.
  */
 export const assembleContext = (
   knowledgeBase: KnowledgeBase | undefined,
   history: unknown,
   action: string,
   memory?: MemoryContext,
-): { context: string; triggeredCards: StoryCard[] } => {
+  options?: {
+    /** Use these cards as the injected World Lore instead of trigger matching. */
+    cards?: StoryCard[];
+    /** How many trailing history entries go into Recent Story (0 = all given). */
+    historyEntries?: number;
+  },
+): AssembledContext => {
   const entries: HistoryEntry[] = Array.isArray(history) ? (history as HistoryEntry[]) : [];
-  const recent = entries.slice(-CONTEXT_HISTORY_TURNS);
+  // `options` lets the Context Lab rebuild a real capture exactly: the history
+  // window and the injected cards come from the capture, not Atlas's heuristics.
+  const recent = options?.historyEntries !== undefined
+    ? entries.slice(-options.historyEntries || entries.length)
+    : entries.slice(-CONTEXT_HISTORY_TURNS);
   const recentText = [...recent.map(e => e?.text ?? ''), action].join('\n');
 
-  const triggeredCards = selectTriggeredCards(knowledgeBase?.storyCards ?? [], recentText);
+  const triggeredCards = options?.cards ?? selectTriggeredCards(knowledgeBase?.storyCards ?? [], recentText);
 
   // A script write to state.memory wins over the UI field for the same slot.
-  const plotEssentials = asText(memory?.context) || asText(knowledgeBase?.plotEssentials);
-  const authorsNote = asText(memory?.authorsNote) || asText(knowledgeBase?.authorsNote);
-  const frontMemory = asText(memory?.frontMemory);
+  const plotEssentials = (asText(memory?.context) || asText(knowledgeBase?.plotEssentials)).trim();
+  const authorsNote = (asText(memory?.authorsNote) || asText(knowledgeBase?.authorsNote)).trim();
+  const frontMemory = asText(memory?.frontMemory).trim();
+  const summary = asText(knowledgeBase?.storySummary).trim();
+  const memories = asText(knowledgeBase?.memoryBank).split('\n').map(l => l.trim()).filter(Boolean);
+  const lore = triggeredCards.map(c => asText(c.content).trim()).filter(Boolean);
 
-  const sections = [
-    asText(knowledgeBase?.aiInstructions),
-    plotEssentials,
-    triggeredCards.map(c => `World Lore: ${asText(c.content)}`).join('\n'),
-    asText(knowledgeBase?.storySummary),
-    asText(knowledgeBase?.memoryBank),
-    recent.map(e => asText(e?.text)).filter(t => t.trim()).join('\n'),
-    authorsNote,
-    action,
-    frontMemory,
-  ].filter(s => s.trim().length > 0);
+  // The last action is the player's input; on a Continue (no input) it is the
+  // newest history entry, which then moves out of Recent Story.
+  const lines = recent.map(e => asText(e?.text).trim()).filter(Boolean);
+  let lastAction = action.trim();
+  if (!lastAction && lines.length) lastAction = lines.pop()!;
+
+  const out: string[] = [];
+  const sections: AssembledContext['sections'] = [];
+  let length = 0;
+  const put = (id: ContextSectionId, body: string, sep: string) => {
+    const lead = length === 0 ? '' : sep;
+    const from = length + lead.length;
+    out.push(lead + body);
+    length = from + body.length;
+    sections.push({ id, from, to: length });
+  };
+
+  if (plotEssentials) put('plotEssentials', plotEssentials, '');
+  // World Lore follows Plot Essentials on the next line, not after a blank one.
+  if (lore.length) put('worldLore', `World Lore:\n${lore.join('\n\n')}`, '\n');
+  if (summary) put('storySummary', `Story Summary:\n${summary}`, '\n\n');
+  if (memories.length) put('memories', `Memories:\n${memories.join('\n')}`, '\n\n');
+  if (lines.length) put('recentStory', `Recent Story:\n${lines.join('\n')}`, '\n\n');
+  if (authorsNote) put('authorsNote', `[Author's note: ${authorsNote}]`, '\n\n');
+  // The last action continues the story stream: one newline after Recent Story
+  // or the Author's Note, a blank line after anything else.
+  const prev = sections[sections.length - 1]?.id;
+  const streamSep = prev === 'recentStory' || prev === 'authorsNote' ? '\n' : '\n\n';
+  if (lastAction) put('lastAction', lastAction, streamSep);
+  if (frontMemory) put('frontMemory', frontMemory, '\n');
 
   return {
-    context: sections.join('\n\n'),
+    context: out.join(''),
+    systemPrompt: asText(knowledgeBase?.aiInstructions).trim(),
     triggeredCards,
+    sections,
+    memoryLength: plotEssentials.length,
   };
 };
 
@@ -372,6 +453,9 @@ const simulateStep = async (
   let modifiedContext = '';
   let contextAssembled = false;
   let triggeredCards: StoryCard[] = [];
+  let systemPrompt = '';
+  // AID's info.memoryLength: how much of the context Plot Essentials takes.
+  let memoryLength = 0;
   let modifiedOutput = '';
 
   // Assemble the context once, on first need. Called at the Context hook and
@@ -386,15 +470,17 @@ const simulateStep = async (
       knowledgeBase, currentHistory, modifiedInput, currentState?.memory as MemoryContext,
     );
     modifiedContext = assembled.context;
+    systemPrompt = assembled.systemPrompt;
+    memoryLength = assembled.memoryLength;
     triggeredCards = assembled.triggeredCards;
     contextAssembled = true;
   };
   let stopped = false;
   // Set when a hook throws. Halts the pipeline (the engine stops) so later hooks
   // don't run against a half-applied state, and flags the run as failed for the UI.
-  let executionError: { hook: string; line: string; message: string } | null = null;
+  let executionError: ExecutionError | null = null;
   // Errors scripts reported via console.error but caught themselves (no throw).
-  const scriptErrors: { hook: string; scriptId: string; line: string; message: string }[] = [];
+  const scriptErrors: CaughtScriptError[] = [];
   let aiCall: AiCallTrace | undefined;
   let aiCallDone = false;
   // state.message is a player-facing toast, tracked separately from the AI Call
@@ -459,6 +545,7 @@ const simulateStep = async (
       ensureContext();
       aiCall = {
         contextSent: modifiedContext,
+        systemPrompt,
         simulated: simulatedAiResponse,
         final: simulatedAiResponse,
         overridden: false,
@@ -488,8 +575,6 @@ const simulateStep = async (
         }
 
         const stateBefore = JSON.parse(JSON.stringify(currentState));
-        console.log(`[ScriptingService] Executing script: ${script.name}`);
-        console.log(`[ScriptingService] State before:\n${JSON.stringify(stateBefore, null, 2)}`);
 
         // AID runs the Library ahead of every hook, in the hook's scope, so the
         // hook can call the library's functions. Concatenate it here. Skip the join
@@ -499,7 +584,11 @@ const simulateStep = async (
         // The Library's lines shift every reported error line; pass the count so the
         // runner maps error lines back onto the hook's own script — what the editor shows.
         const libraryLineCount = hasLibrary ? libraryCode.split('\n').length : 0;
-        const { newState, logs: scriptLogs, result, error } = await runOfflineSimulation(codeToExecute, currentState, currentInput, true, script.name, currentHistory, script.code, libraryLineCount);
+        const { newState, logs: scriptLogs, result, error, caught } = await runOfflineSimulation(
+          codeToExecute, currentState, currentInput, true, script.name, currentHistory, script.code, libraryLineCount, 'Library',
+          // Per the scripting docs, memoryLength is an onModelContext-only field.
+          script.name === 'Context Modifier' ? { memoryLength } : {},
+        );
         // Make the "Library ran first" step visible in the trace/Code Logs.
         if (hasLibrary && Array.isArray(scriptLogs)) {
           scriptLogs.unshift(`[DEBUG] Library concatenated and executed before the ${script.name} hook.`);
@@ -507,40 +596,35 @@ const simulateStep = async (
         // A script can catch its own exception and only console.error it (or log an
         // error and carry on). The hook doesn't throw, so executionError stays null
         // and the run looks healthy — the exact "silent crash" that hides bugs.
-        // The console shim prefixes those with "ERROR:", so collect them here and
-        // surface them as warnings.
-        if (Array.isArray(scriptLogs)) {
+        // The worker records each console.error with where it happened (the
+        // Error's own throw site when one was passed), so these carry a real
+        // script + line the editor can jump to.
+        if (Array.isArray(caught)) {
+          for (const c of caught) {
+            const inLibrary = c.script !== script.name;
+            scriptErrors.push({
+              hook: script.name,
+              scriptId: inLibrary ? (libraryScript?.id ?? script.id) : script.id,
+              script: c.script,
+              line: c.line ? String(c.line) : 'unknown',
+              column: c.column ?? undefined,
+              sourceLine: c.sourceLine || undefined,
+              message: c.message,
+            });
+          }
+        } else if (Array.isArray(scriptLogs)) {
+          // A runner without structured capture: fall back to the "ERROR:" log
+          // lines the console shim writes, so a caught error is never lost.
           for (const entry of scriptLogs) {
             if (typeof entry === 'string' && entry.startsWith('ERROR:')) {
-              const trimmed = entry.slice('ERROR:'.length).trim();
-              const errMatch = trimmed.match(/^(.+?),\s*line\s*(\S+?)\s*:\s*(.+)$/);
-              if (errMatch) {
-                scriptErrors.push({
-                  hook: errMatch[1],
-                  scriptId: script.id,
-                  line: errMatch[2],
-                  message: errMatch[3],
-                });
-              } else {
-                scriptErrors.push({
-                  hook: script.name,
-                  scriptId: script.id,
-                  line: 'unknown',
-                  message: trimmed,
-                });
-              }
+              scriptErrors.push({ hook: script.name, scriptId: script.id, line: 'unknown', message: entry.slice(6).trim() });
             }
           }
         }
+        // No full-state console dumps here: they stringified the whole state
+        // twice per hook, which on a large state was most of a turn's cost.
         const stateAfter = JSON.parse(JSON.stringify(newState));
-        
-        console.log(`[ScriptingService] State after:\n${JSON.stringify(stateAfter, null, 2)}`);
-        
         const stateChanged = JSON.stringify(stateBefore) !== JSON.stringify(stateAfter);
-        console.log(`[ScriptingService] State changed: ${stateChanged}`);
-        if (scriptLogs && scriptLogs.length > 0) {
-          console.log(`[ScriptingService] Script logs: ${scriptLogs.join(' | ')}`);
-        }
 
         heimdallLogs.push({
             scriptId: script.id,
@@ -646,6 +730,7 @@ const simulateStep = async (
       // prompt), the Output stays empty. state.message is captured separately below.
       aiCall = {
         contextSent: modifiedContext,
+        systemPrompt,
         simulated: simulatedAiResponse,
         final: stopText,
         overridden: Boolean(stopText),
@@ -666,6 +751,7 @@ const simulateStep = async (
       outputProduced = true;
       aiCall = {
         contextSent: aiCall?.contextSent ?? modifiedContext,
+        systemPrompt,
         simulated: aiCall?.simulated ?? simulatedAiResponse,
         final: outputOverride,
         overridden: true,
@@ -694,7 +780,14 @@ const simulateStep = async (
   }
 
   const outputMessage = executionError
-    ? `Execution halted: ${executionError.hook} failed at line ${executionError.line}: ${executionError.message}`
+    ? (() => {
+        // Name the script that holds the bad line — the Library when the throw
+        // happened inside one of its functions — not just the hook that ran.
+        const where = executionError.script ?? executionError.hook;
+        const at = executionError.line !== 'unknown' ? ` at line ${executionError.line}` : '';
+        const during = where !== executionError.hook ? ` (while running ${executionError.hook})` : '';
+        return `Execution halted: ${where} failed${at}${during}: ${executionError.message}`;
+      })()
     : stopped
     ? `Pipeline halted by script (stop). ${executedScriptIds.length} script(s) executed.`
     : `Local simulation complete. ${executedScriptIds.length} script(s) executed.`;

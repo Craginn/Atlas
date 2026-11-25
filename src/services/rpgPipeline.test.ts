@@ -9,7 +9,7 @@ import path from 'node:path';
 // override gate, the per-hook structured clone, hook ordering. This drives the
 // actual ScriptingService with the actual fixture to catch exactly that.
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const read = (f: string) => fs.readFileSync(path.join(DIR, f), 'utf8');
 
 // Stand in for the Web Worker: same wrapper and globals as

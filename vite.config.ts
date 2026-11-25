@@ -17,11 +17,4 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, './src'),
     },
   },
-  // Pre-bundle these CJS deps so Vite's dev-mode ESM interop is consistent.
-  // Without this, `import Editor from 'react-simple-code-editor'` could resolve
-  // to a namespace object instead of the component under dev, causing React's
-  // "Element type is invalid ... got: object" crash in the editors.
-  optimizeDeps: {
-    include: ['react-simple-code-editor', 'prismjs'],
-  },
 })

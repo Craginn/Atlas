@@ -118,11 +118,11 @@ describe('BlockCanvas', () => {
   it('drops a deleted block out of the run order', () => {
     render(<Harness initial={'log("a");\nlog("b");'} />);
     fireEvent.click(screen.getAllByLabelText('Add to run order')[0]);
-    expect(screen.getByText('Run (1)')).toBeTruthy();
+    expect(screen.getByText('Run selected (1)')).toBeTruthy();
 
     fireEvent.click(screen.getAllByLabelText('Delete block')[0]);
     // A stale id would otherwise keep the count at 1 and resolve to nothing.
-    expect(screen.getByText('Run')).toBeTruthy();
+    expect(screen.getByText('Run selected')).toBeTruthy();
   });
 
   it('offers raw JavaScript as a nestable block so slots can hold code', () => {
@@ -141,7 +141,7 @@ describe('BlockCanvas', () => {
     fireEvent.click(screen.getByText('Add Block'));
     fireEvent.click(screen.getByText('Call a Function'));
 
-    const picker = screen.getByRole('combobox') as HTMLSelectElement;
+    const picker = screen.getByRole('combobox', { name: 'Function to call' }) as HTMLSelectElement;
     expect([...picker.options].map(o => o.value)).toContain('greet');
 
     fireEvent.change(picker, { target: { value: 'greet' } });
@@ -152,7 +152,7 @@ describe('BlockCanvas', () => {
     render(<Harness initial={'function greet(name) {\n  log(name);\n}'} />);
     fireEvent.click(screen.getByText('Add Block'));
     fireEvent.click(screen.getByText('Call a Function'));
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'greet' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Function to call' }), { target: { value: 'greet' } });
     fireEvent.change(screen.getByPlaceholderText('arguments'), { target: { value: '"world"' } });
     expect(screen.getByTestId('code').textContent).toContain('greet("world");');
   });

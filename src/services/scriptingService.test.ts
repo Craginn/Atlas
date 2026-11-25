@@ -357,9 +357,8 @@ describe('the input reaching the hooks', () => {
 });
 
 describe('assembleContext', () => {
-  // The layout is still a placeholder, so nothing here asserts a section format.
-  // These cover only what is settled: the action reaches the context, and card
-  // selection works. Add format tests alongside the real layout.
+  // Format follows Latitude's published template:
+  // help.aidungeon.com/faq/what-goes-into-the-context-sent-to-the-ai
   it('puts the action in the context even when the Knowledge Base is empty', () => {
     // The regression this guards: the context used to be the Memory Bank alone,
     // so an empty Bank handed the Context hook '' and the action never shipped.
@@ -385,21 +384,74 @@ describe('assembleContext', () => {
     expect(assembleContext(undefined, undefined, 'solo').context).toContain('solo');
   });
 
-  it('lays the sections out in AID assembly order', () => {
+  it('matches the published template exactly, headers and spacing included', () => {
     const kb = emptyKB({
       aiInstructions: 'BEHAVE',
       plotEssentials: 'PLOT',
       storySummary: 'SUMMARY',
-      memoryBank: 'BANK',
+      memoryBank: 'MEM 1\nMEM 2',
       authorsNote: 'NOTE',
-      storyCards: [card({ content: 'LORE', keywords: ['goblin'] })],
+      storyCards: [
+        card({ id: 'a', content: 'LORE A', keywords: ['goblin'] }),
+        card({ id: 'b', content: 'LORE B', keywords: ['cave'] }),
+      ],
     });
-    const history = [{ text: 'PAST', type: 'start' as const, rawText: '' }];
-    const { context } = assembleContext(kb, history, 'goblin ACTION');
-    const order = ['BEHAVE', 'PLOT', 'World Lore: LORE', 'SUMMARY', 'BANK', 'PAST', 'NOTE', 'goblin ACTION'];
-    const positions = order.map(s => context.indexOf(s));
-    expect(positions.every(p => p >= 0)).toBe(true);
-    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    const history = [
+      { text: 'A goblin waits in the cave.', type: 'start' as const, rawText: '' },
+      { text: '\n> You draw your sword.\n', type: 'do' as const, rawText: '' },
+      { text: 'The goblin flinches.', type: 'continue' as const, rawText: '' },
+    ];
+    const { context, systemPrompt, memoryLength } = assembleContext(kb, history, '\n> You attack.\n', {
+      frontMemory: 'FRONT',
+    });
+    expect(context).toBe([
+      'PLOT',
+      'World Lore:',
+      'LORE A',
+      '',
+      'LORE B',
+      '',
+      'Story Summary:',
+      'SUMMARY',
+      '',
+      'Memories:',
+      'MEM 1',
+      'MEM 2',
+      '',
+      'Recent Story:',
+      'A goblin waits in the cave.',
+      '> You draw your sword.',
+      'The goblin flinches.',
+      '',
+      "[Author's note: NOTE]",
+      '> You attack.',
+      'FRONT',
+    ].join('\n'));
+    // Instructions are the system prompt, not part of `text`.
+    expect(context).not.toContain('BEHAVE');
+    expect(systemPrompt).toBe('BEHAVE');
+    // info.memoryLength: `text.slice(0, memoryLength)` is the Plot Essentials.
+    expect(context.slice(0, memoryLength)).toBe('PLOT');
+  });
+
+  it('uses the newest history entry as the last action on a Continue', () => {
+    const history = [
+      { text: 'One.', type: 'start' as const, rawText: '' },
+      { text: 'Two.', type: 'continue' as const, rawText: '' },
+    ];
+    const { context, sections } = assembleContext(emptyKB({ authorsNote: 'N' }), history, '');
+    expect(context).toBe("Recent Story:\nOne.\n\n[Author's note: N]\nTwo.");
+    expect(sections.map(s => s.id)).toEqual(['recentStory', 'authorsNote', 'lastAction']);
+  });
+
+  it('reports section ranges that slice back to each section', () => {
+    const kb = emptyKB({ plotEssentials: 'PLOT', authorsNote: 'NOTE' });
+    const { context, sections } = assembleContext(kb, [], '> act');
+    expect(sections.map(s => [s.id, context.slice(s.from, s.to)])).toEqual([
+      ['plotEssentials', 'PLOT'],
+      ['authorsNote', "[Author's note: NOTE]"],
+      ['lastAction', '> act'],
+    ]);
   });
 
   it('drops empty sections instead of leaving blank gaps', () => {

@@ -7,7 +7,7 @@ import path from 'node:path';
 // statements that touch `state`, so we eval it SLOPPY (Function constructor)
 // with the same globals the pipeline wrapper supplies, and return the internals.
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const src = fs.readFileSync(path.join(DIR, 'Library.js'), 'utf8');
 
 function loadFixture() {

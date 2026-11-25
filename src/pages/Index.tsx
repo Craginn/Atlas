@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
 import { WorldState, Script, StoryCard, SentinelReport, SimulationMode, KnowledgeBase, LastSimData, HistoryEntry } from '@/types';
 import { INITIAL_WORLD_STATE, DEFAULT_SCRIPTS } from '@/constants';
 import AILogicEditor from '@/components/atlas/AILogicEditor';
@@ -11,15 +11,18 @@ import DocsView from '@/components/atlas/DocsView';
 import StoryCardsView from '@/components/atlas/StoryCardsView';
 import TerminalView from '@/components/atlas/TerminalView';
 import BlockCanvas from '@/components/atlas/BlockCanvas';
+import ContextLab from '@/components/atlas/ContextLab';
 import {
   ExternalLink, Code2, ShieldCheck, Cpu, Database, PanelLeft,
   Activity, Terminal, Book, Settings, FlaskConical, FileText, Layers,
-  Menu, X, Blocks
+  Menu, X, Blocks, Microscope
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { refreshShellStatus } from '@/services/terminal/shellClient';
 import { ScriptingService, mergeScriptStoryCards, PlayerActionType } from '@/services/scriptingService';
-import { validateScriptSyntax } from '@/services/offlineSimulationService';
+import { problemsFromChecks, problemsFromRun } from '@/services/errors/problems';
+import type { GoTo } from '@/components/atlas/ProblemCard';
+import type { MarkedError } from '@/components/atlas/CodeBuffer';
 import { readHandle } from '@/services/fileLinkService';
 import { EMPTY_FILE_LINKING_CONFIG, EMPTY_LINKED_FILES, LinkedFiles } from '@/utils/fileLinking';
 
@@ -33,7 +36,7 @@ const INITIAL_KNOWLEDGE_BASE: KnowledgeBase = {
   authorsNote: '',
 };
 
-type ViewType = 'state' | 'logic' | 'blocks' | 'sentinel' | 'simulation' | 'plot' | 'docs' | 'cards' | 'terminal';
+type ViewType = 'state' | 'logic' | 'blocks' | 'sentinel' | 'simulation' | 'plot' | 'docs' | 'cards' | 'terminal' | 'lab';
 
 /**
  * Which file-linking slot feeds which script slot. Keyed by script *name*
@@ -59,14 +62,14 @@ const ProjectExplorer = ({ view, setView, onOpenSettings, onClose }: {
     { id: 'state' as const, icon: Database, label: 'State Editor' },
     { id: 'logic' as const, icon: Code2, label: 'JS Code Editor' },
     { id: 'blocks' as const, icon: Blocks, label: 'Block Canvas' },
-    // Terminal is hidden from the menu while the Cloud Run backend is unfinished
-    // — the shell auth gate has no test coverage yet. The view, its route, and
-    // the whole server-side bridge are left intact; restoring it means re-adding
-    // the line below plus the `SquareTerminal` icon to the lucide-react import.
+    // Terminal is hidden from the menu. The view and its Electron shell bridge
+    // (electron/shell.mjs) are intact; restoring it means re-adding the line
+    // below plus the `SquareTerminal` icon to the lucide-react import.
     // { id: 'terminal' as const, icon: SquareTerminal, label: 'Terminal' },
     { id: 'plot' as const, icon: Book, label: 'Plot Essentials' },
     { id: 'cards' as const, icon: Layers, label: 'Story Cards' },
     { id: 'docs' as const, icon: FileText, label: 'AID Docs' },
+    { id: 'lab' as const, icon: Microscope, label: 'Context Lab' },
   ];
 
   return (
@@ -191,7 +194,6 @@ const Index: React.FC = () => {
   // On mobile the explorer becomes an overlay drawer rather than a docked column.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sentinelReport, setSentinelReport] = useState<SentinelReport | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const [activeScriptId, setActiveScriptId] = useState<string>('');
   // The Director's Input box. Lifted out of SimulationEngine so the Block Canvas
@@ -299,10 +301,9 @@ const Index: React.FC = () => {
   }, [linkedFiles, fileHandles, fileLinkingConfig]);
 
   const handleSetWorldState = useCallback((newState: WorldState) => {
-    console.log('[Index.tsx] handleSetWorldState called with:', JSON.stringify(newState));
     setWorldState(ws => {
-      if (JSON.stringify(ws) !== JSON.stringify(newState)) {
-        console.log('[Index.tsx] State changed, saving previous state');
+      // Same reference means nothing changed; only compare contents otherwise.
+      if (ws !== newState && JSON.stringify(ws) !== JSON.stringify(newState)) {
         setPreviousWorldState(ws);
       }
       return newState;
@@ -486,63 +487,47 @@ const Index: React.FC = () => {
 
   // Run the offline AID-aware validator across all active scripts and surface
   // the findings in the Sentinel report.
-  const runSentinelAnalysis = useCallback(() => {
-    setIsAnalyzing(true);
-    const errors = scripts.flatMap(script => {
-      if (!script.code || !script.code.trim()) return [];
-      const isModifier = script.name !== 'Library';
-      const result = validateScriptSyntax(script.code, isModifier);
-      return [...result.errors, ...result.warnings].map(v => ({
-        file: script.name,
-        line: v.line,
-        reason: `[${v.severity}] ${v.message}`,
-        originalCode: v.codeSnippet,
-        fixedCode: '',
-      }));
-    });
+  // ── Problems: one list behind every error surface ────────────────────────
+  // Run problems come from the last run (structured, already located by the
+  // worker); check problems from the static checker. Both are explained and
+  // carry script + line + column, so every panel offers the same "go to line".
+  const runProblems = useMemo(() => {
+    // The code each script had when it ran — a problem in a script edited since
+    // is marked stale instead of pointing at a line that may have moved.
+    const executed = sentinelReport?.executedCode ?? {};
+    const ranCode = Object.fromEntries(
+      scripts.filter(s => executed[s.name] !== undefined).map(s => [s.id, executed[s.name]]),
+    );
+    return problemsFromRun(lastSimData as LastSimData | undefined, scripts, ranCode);
+  }, [lastSimData, scripts, sentinelReport?.executedCode]);
 
-    const status: SentinelReport['status'] =
-      errors.some(e => e.reason.startsWith('[error]')) ? 'error'
-      : errors.length > 0 ? 'warning'
-      : 'healthy';
+  // The static check parses every script, so it only runs while the debugger is
+  // open, and lags typing (deferred) rather than blocking it.
+  const deferredScripts = useDeferredValue(scripts);
+  const checkProblems = useMemo(
+    () => (view === 'sentinel' ? problemsFromChecks(deferredScripts) : []),
+    [view, deferredScripts],
+  );
 
-    setSentinelReport(prev => ({
-      ...(prev || {}),
-      status,
-      errors,
-      suggestions: [],
-      message: errors.length === 0
-        ? 'All scripts passed validation against the AID scripting API.'
-        : `${errors.length} finding(s) across ${scripts.filter(s => s.code?.trim()).length} script(s).`,
-    }));
-    setIsAnalyzing(false);
-  }, [scripts]);
-
-  // A run's line numbers only describe the code that ran, so an error stops
-  // marking a script as soon as that script is edited.
-  const ranCode = useRef<{ run: unknown; code: Record<string, string> }>({ run: null, code: {} });
+  /** Last run's errors, marked in the editor — only while the script is unchanged. */
   const runtimeErrorsByScriptId = useMemo(() => {
-    if (ranCode.current.run !== lastSimData) {
-      ranCode.current = { run: lastSimData, code: Object.fromEntries(scripts.map(s => [s.id, s.code])) };
+    const map: Record<string, MarkedError[]> = {};
+    for (const p of runProblems) {
+      if (!p.scriptId || p.stale || p.line < 1) continue;
+      (map[p.scriptId] ??= []).push({ line: p.line, column: p.column, message: p.message, title: p.explanation.title });
     }
-    const map: Record<string, { line: number; message: string }[]> = {};
-    (lastSimData as LastSimData | undefined)?.stateTrace?.forEach(entry => {
-      if (entry.logs) {
-        entry.logs.forEach((log: string) => {
-          const m = log.match(/^\[ERROR\]\s*(.+?)(?:,\s*line\s*(\d+))?:\s*(.+)$/);
-          if (m) {
-            const [, hook, line, message] = m;
-            const script = scripts.find(s => s.name === hook);
-            if (script && script.code === ranCode.current.code[script.id]) {
-              if (!map[script.id]) map[script.id] = [];
-              map[script.id].push({ line: line ? Number(line) : 0, message });
-            }
-          }
-        });
-      }
-    });
     return map;
-  }, [lastSimData, scripts]);
+  }, [runProblems]);
+
+  // ── Go to line ────────────────────────────────────────────────────────────
+  const [jumpRequest, setJumpRequest] = useState<{ scriptId: string; line: number; column?: number; nonce: number } | null>(null);
+  const goToLine = useCallback<GoTo>(({ script, line, column }) => {
+    const target = scripts.find(s => s.name === script) ?? scripts.find(s => s.id === script);
+    if (!target) return;
+    setActiveScriptId(target.id);
+    setView('logic');
+    setJumpRequest({ scriptId: target.id, line, column, nonce: Date.now() });
+  }, [scripts]);
 
   const renderView = () => {
     switch (view) {
@@ -553,6 +538,8 @@ const Index: React.FC = () => {
             isProcessing={lastSimData?.isProcessing ?? false}
             lastResult={lastSimData}
             report={sentinelReport}
+            problems={runProblems}
+            onGoTo={goToLine}
             input={simInput}
             setInput={setSimInput}
           />
@@ -560,7 +547,7 @@ const Index: React.FC = () => {
       case 'state':
         return <StateEditor worldState={worldState} setWorldState={handleSetWorldState} previousWorldState={previousWorldState} stateTrace={lastSimData?.stateTrace} hasError={!!lastSimData?.executionError} history={history} textTransforms={lastSimData?.textTransforms} />;
       case 'logic':
-        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} runtimeErrorsByScriptId={runtimeErrorsByScriptId} />;
+        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} runtimeErrorsByScriptId={runtimeErrorsByScriptId} jumpRequest={jumpRequest} />;
       case 'blocks':
         // Same `scripts` state as the JS Code Editor — the canvas parses that
         // code into blocks and writes generated code back, so the two views are
@@ -575,10 +562,12 @@ const Index: React.FC = () => {
             worldState={worldState}
             knowledgeBase={knowledgeBase}
             onApplyStoryCards={cards => setKnowledgeBase(kb => ({ ...kb, storyCards: cards }))}
+            problems={runProblems}
+            onGoTo={goToLine}
           />
         );
       case 'sentinel':
-        return <Sentinel report={sentinelReport} isAnalyzing={isAnalyzing} runAnalysis={runSentinelAnalysis} />;
+        return <Sentinel runProblems={runProblems} checkProblems={checkProblems} onGoTo={goToLine} hasRun={Boolean(lastSimData)} />;
       case 'plot':
         return <PlotEssentials knowledgeBase={knowledgeBase} onChange={setKnowledgeBaseField} />;
       case 'cards':
@@ -604,6 +593,8 @@ const Index: React.FC = () => {
         );
       case 'docs':
         return <DocsView />;
+      case 'lab':
+        return <ContextLab />;
       default:
         return null;
     }

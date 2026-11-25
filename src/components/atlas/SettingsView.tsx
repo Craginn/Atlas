@@ -304,7 +304,7 @@ const DebugSettings: React.FC<{
               {rpg.busy && <Loader2 size={12} className="inline ml-2 animate-spin" />}
             </span>
             <span className="block text-xs text-zinc-500">
-              Fills the script slots with the suite from <code>Mock Script Test/</code> — levels,
+              Fills the script slots with the suite from <code>RPG ENGINE/</code> — levels,
               XP, health, combat — so the engine runs against real scripts instead of empty ones.
             </span>
           </span>
@@ -312,7 +312,7 @@ const DebugSettings: React.FC<{
 
         {!rpg.available && (
           <p className="text-xs text-amber-400/80">
-            No fixture files found. Expected <code>Mock Script Test/*.js</code> in the repo.
+            No fixture files found. Expected <code>RPG ENGINE/*.js</code> in the repo.
           </p>
         )}
 

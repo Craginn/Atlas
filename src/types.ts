@@ -126,6 +126,8 @@ export interface ScriptStateTrace {
 // SimulationResult.stateMessage) and never becomes the AI Call or the Output.
 export interface AiCallTrace {
   contextSent: string;
+  /** AI Instructions, sent to the model as the system prompt (not part of `text`). */
+  systemPrompt?: string;
   simulated: string;
   final: string;
   overridden: boolean;
@@ -152,6 +154,50 @@ export interface HistoryEntry {
   turn?: number;
 }
 
+/**
+ * A position in one of the user's scripts. `script` is the script's name as it
+ * appears in the editor ('Library', 'Input Modifier', …) and `line`/`column`
+ * are 1-based positions in *that* script — exactly what the editor shows.
+ */
+export interface ScriptLocation {
+  script: string;
+  line: number;
+  column?: number;
+  /** The text of that line, for display. */
+  sourceLine?: string;
+}
+
+/**
+ * A hook that threw (or failed to parse). `hook` is the hook that was running;
+ * `script` + `line` + `column` are where the problem actually is, which differs
+ * from `hook` when the throw happened inside a Library function — then
+ * `calledFrom` is the hook line that called into the Library.
+ */
+export interface ExecutionError {
+  hook: string;
+  /** Line within `script` (or 'unknown'). Kept a string for older consumers. */
+  line: string;
+  message: string;
+  details?: string;
+  /** Which script the line belongs to. Defaults to `hook` when absent. */
+  script?: string;
+  column?: number;
+  sourceLine?: string;
+  calledFrom?: ScriptLocation;
+  kind?: 'syntax' | 'runtime' | 'timeout';
+}
+
+/** An error a script caught and reported with console.error instead of throwing. */
+export interface CaughtScriptError {
+  hook: string;
+  scriptId: string;
+  line: string;
+  message: string;
+  script?: string;
+  column?: number;
+  sourceLine?: string;
+}
+
 export interface SimulationResult {
   narration: string;
   aiCall?: AiCallTrace;
@@ -172,11 +218,11 @@ export interface SimulationResult {
   // the UI paints the log/output surface red. `details` carries the code-level
   // follow-up (the failing source line, or the validator's full suggestion
   // list) — shown only behind the Code Suggestions button, never automatically.
-  executionError?: { hook: string; line: string; message: string; details?: string } | null;
+  executionError?: ExecutionError | null;
   // Errors a script reported via console.error but caught/swallowed itself, so the
   // hook never threw. These don't halt the pipeline, but a silently-swallowed crash
   // is exactly what hides real bugs — so they're surfaced as a warning.
-  scriptErrors?: { hook: string; scriptId: string; line: string; message: string }[];
+  scriptErrors?: CaughtScriptError[];
   // Ids of Story Cards a script created or modified this turn. The Knowledge Base
   // merge uses these to reflect script updates to existing cards (e.g. a settings
   // write via updateStoryCard) without reverting cards the user hand-edited.

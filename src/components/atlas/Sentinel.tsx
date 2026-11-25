@@ -1,132 +1,157 @@
-import React from 'react';
-import {
-  Loader2, Search, CheckCircle2, Bug, ShieldCheck, Code2, Lightbulb,
-  MinusCircle, PlusCircle, Activity, Play
-} from 'lucide-react';
-import { SentinelReport, SentinelError } from '@/types';
+import React, { useMemo, useState } from 'react';
+import { ShieldCheck, CheckCircle2, Search, Play, FileCode2, ChevronDown, ChevronRight } from 'lucide-react';
+import ProblemCard, { type GoTo } from './ProblemCard';
+import type { Problem } from '@/services/errors/problems';
 
-const CodeDiff: React.FC<{ error: SentinelError }> = ({ error }) => (
-  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden mb-4">
-    <div className="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center">
-      <Code2 size={14} className="text-red-400 mr-3" />
-      <span className="text-sm font-bold text-slate-300">
-        {error.file} &bull; <span className="font-mono text-xs">Line {error.line}</span>
-      </span>
-    </div>
-    <div className="p-4 space-y-2">
-      <p className="text-xs font-semibold text-slate-400">{typeof error.reason === 'string' ? error.reason : error.reason.message}</p>
-      <div className="space-y-2 font-mono text-xs">
-        <div className="flex items-start space-x-2">
-          <MinusCircle className="text-red-500/70 mt-0.5 shrink-0" size={14} />
-          <pre className="text-red-300/70 break-all whitespace-pre-wrap">{error.originalCode}</pre>
-        </div>
-        <div className="flex items-start space-x-2">
-          <PlusCircle className="text-green-500/70 mt-0.5 shrink-0" size={14} />
-          <pre className="text-green-300 break-all whitespace-pre-wrap">{error.fixedCode}</pre>
-        </div>
-      </div>
-    </div>
-  </div>
-);
+// The debugger. Two sources, one presentation:
+//
+//   Last run    — what stopped the engine, and errors scripts caught and logged.
+//   Code check  — the static check of every script, live as you edit.
+//
+// Every finding is explained in plain language and located (script, line,
+// column); "go to line" opens it in the JS Code Editor with the cursor on it.
 
 interface SentinelProps {
-  report: SentinelReport | null;
-  isAnalyzing: boolean;
-  runAnalysis: () => void;
+  runProblems: Problem[];
+  checkProblems: Problem[];
+  onGoTo: GoTo;
+  /** Whether any turn has been run yet (for the empty state). */
+  hasRun: boolean;
 }
 
-const Sentinel: React.FC<SentinelProps> = ({ report, isAnalyzing, runAnalysis }) => (
-  <div className="flex h-full bg-slate-950 text-slate-300 overflow-hidden font-sans select-none">
-    <div className="flex-1 flex flex-col relative">
-      <div className="h-12 flex-shrink-0 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6">
-        <div className="flex items-center space-x-3">
-          <ShieldCheck size={16} className="text-red-500" />
-          <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">Sentinel</span>
-        </div>
-        {report && (
-          <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-            report.status === 'healthy' ? 'text-green-500 border-green-500/30 bg-green-500/5' :
-            report.status === 'warning' ? 'text-amber-500 border-amber-500/30 bg-amber-500/5' :
-            'text-red-500 border-red-500/30 bg-red-500/5'
-          }`}>
-            Status: {report.status}
-          </div>
+type Filter = 'all' | 'error' | 'warning';
+
+const matches = (p: Problem, q: string) => {
+  if (!q) return true;
+  const hay = `${p.script} ${p.message} ${p.explanation.title} ${p.sourceLine ?? ''}`.toLowerCase();
+  return hay.includes(q.toLowerCase());
+};
+
+const ScriptGroup: React.FC<{ script: string; problems: Problem[]; onGoTo: GoTo }> = ({ script, problems, onGoTo }) => {
+  const [open, setOpen] = useState(true);
+  const errors = problems.filter(p => p.severity === 'error').length;
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
+        {open ? <ChevronDown size={13} className="text-slate-500" /> : <ChevronRight size={13} className="text-slate-500" />}
+        <FileCode2 size={13} className="text-slate-400" />
+        <span className="text-[12px] font-bold text-slate-200">{script}</span>
+        {errors > 0 && <span className="text-[10px] px-1.5 rounded bg-red-500/15 text-red-300">{errors} error{errors > 1 ? 's' : ''}</span>}
+        {problems.length - errors > 0 && (
+          <span className="text-[10px] px-1.5 rounded bg-amber-500/15 text-amber-300">
+            {problems.length - errors} warning{problems.length - errors > 1 ? 's' : ''}
+          </span>
         )}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {problems.map(p => <ProblemCard key={p.id} problem={p} onGoTo={onGoTo} compact={p.source === 'check' && p.severity === 'warning'} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Sentinel: React.FC<SentinelProps> = ({ runProblems, checkProblems, onGoTo, hasRun }) => {
+  const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
+
+  const visibleChecks = useMemo(
+    () => checkProblems.filter(p => (filter === 'all' || p.severity === filter) && matches(p, query)),
+    [checkProblems, filter, query],
+  );
+  const byScript = useMemo(() => {
+    const m = new Map<string, Problem[]>();
+    for (const p of [...visibleChecks].sort((a, b) => a.line - b.line || (a.column ?? 0) - (b.column ?? 0))) {
+      const list = m.get(p.script);
+      if (list) list.push(p); else m.set(p.script, [p]);
+    }
+    // Scripts with errors first.
+    return [...m.entries()].sort((a, b) =>
+      Number(b[1].some(p => p.severity === 'error')) - Number(a[1].some(p => p.severity === 'error')));
+  }, [visibleChecks]);
+
+  const errorCount = checkProblems.filter(p => p.severity === 'error').length + runProblems.filter(p => p.severity === 'error').length;
+  const warningCount = checkProblems.length + runProblems.length - errorCount;
+  const status = errorCount ? 'error' : warningCount ? 'warning' : 'healthy';
+
+  return (
+    <div className="flex flex-col h-full bg-slate-950 text-slate-300 overflow-hidden font-sans">
+      <div className="h-12 flex-shrink-0 border-b border-slate-800 bg-slate-900/50 flex items-center justify-between px-6 gap-3">
+        <div className="flex items-center gap-3">
+          <ShieldCheck size={16} className="text-red-500" />
+          <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">Sentinel Debugger</span>
+        </div>
+        <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+          status === 'healthy' ? 'text-green-400 border-green-500/30 bg-green-500/5'
+            : status === 'warning' ? 'text-amber-400 border-amber-500/30 bg-amber-500/5'
+            : 'text-red-400 border-red-500/30 bg-red-500/5'
+        }`}>
+          {status === 'healthy' ? 'No problems' : `${errorCount} error${errorCount === 1 ? '' : 's'} · ${warningCount} warning${warningCount === 1 ? '' : 's'}`}
+        </div>
       </div>
 
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden p-4 gap-4">
-        <div className="flex-1 flex flex-col overflow-hidden bg-slate-900/50 border border-slate-800/50 rounded-xl">
-          <div className="flex-shrink-0 flex items-center space-x-3 p-4 border-b border-slate-800/50">
-            <Search size={16} className="text-slate-500" />
-            <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Findings</h2>
-          </div>
-          <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
-            {isAnalyzing ? (
-              <div className="h-full flex flex-col items-center justify-center space-y-4 text-slate-600">
-                <Loader2 size={32} className="animate-spin text-sky-500" />
-                <span className="text-sm font-bold uppercase tracking-widest">Analyzing Scripts...</span>
-              </div>
-            ) : report?.errors?.length ? (
-              report.errors.map((error, idx) => <CodeDiff key={idx} error={error} />)
-            ) : report?.errors?.length === 0 ? (
-              <div className="h-full flex items-center justify-center">
-                <div className="text-center space-y-4">
-                  <CheckCircle2 size={40} className="text-green-500 mx-auto" />
-                  <p className="text-lg font-bold text-slate-300">All Systems Nominal</p>
-                  <p className="text-sm text-slate-500">No errors found.</p>
-                </div>
-              </div>
-            ) : (
-              <div className="h-full flex items-center justify-center">
-                <div className="text-center text-slate-700 space-y-3">
-                  <Bug size={40} className="mx-auto" />
-                  <p className="font-bold text-slate-500">Awaiting Analysis</p>
-                  <p className="text-xs max-w-xs mx-auto">Click &quot;Run Sentinel Analysis&quot; to check all scripts.</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+        {/* ── Last run ─────────────────────────────────────────────────────── */}
+        <section className="space-y-2">
+          <h2 className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500">
+            <Play size={12} /> Last run
+          </h2>
+          {!hasRun ? (
+            <p className="text-xs text-slate-600 italic">No turn has been run yet. Run one from the Simulation Engine.</p>
+          ) : runProblems.length === 0 ? (
+            <p className="flex items-center gap-2 text-xs text-green-400/80">
+              <CheckCircle2 size={14} /> The last turn ran without errors.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {runProblems.map(p => <ProblemCard key={p.id} problem={p} onGoTo={onGoTo} />)}
+            </div>
+          )}
+        </section>
 
-        <div className="w-full md:w-80 flex-shrink-0 min-h-0 flex flex-col space-y-4">
-          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl flex-1 flex flex-col overflow-hidden">
-            <div className="flex-shrink-0 flex items-center space-x-3 p-4 border-b border-slate-800/50">
-              <Activity size={16} className="text-slate-500" />
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Summary</h2>
+        {/* ── Code check ───────────────────────────────────────────────────── */}
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-slate-500 mr-auto">
+              <Search size={12} /> Code check
+              <span className="normal-case tracking-normal font-normal text-slate-600">— updates as you edit</span>
+            </h2>
+            <div className="relative">
+              <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Filter findings…"
+                className="pl-6 pr-2 py-1 rounded-md bg-slate-900 border border-slate-800 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-sky-600/60"
+              />
             </div>
-            <div className="p-4 text-sm text-slate-400 leading-relaxed overflow-y-auto custom-scrollbar flex-1">
-              {isAnalyzing ? "Analysis in progress..." : report ? report.message : "Run an analysis to see a summary."}
-            </div>
-          </div>
-
-          <div className="bg-slate-900/50 border border-slate-800/50 rounded-xl flex flex-col overflow-hidden">
-            <div className="flex-shrink-0 flex items-center space-x-3 p-4 border-b border-slate-800/50">
-              <Lightbulb size={16} className="text-slate-500" />
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Suggestions</h2>
-            </div>
-            <div className="p-4 space-y-2">
-              {report?.suggestions?.length ? (
-                report.suggestions.map((s, i) => (
-                  <p key={i} className="text-xs text-slate-400">• {s}</p>
-                ))
-              ) : (
-                <p className="text-xs text-slate-600 italic">No suggestions yet.</p>
-              )}
-            </div>
+            {(['all', 'error', 'warning'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-widest border ${
+                  filter === f ? 'border-sky-500/50 text-sky-300 bg-sky-500/10' : 'border-slate-800 text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {f === 'all' ? 'All' : f === 'error' ? 'Errors' : 'Warnings'}
+              </button>
+            ))}
           </div>
 
-          <button
-            onClick={runAnalysis}
-            disabled={isAnalyzing}
-            className="w-full flex items-center justify-center space-x-2 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold text-sm transition-colors"
-          >
-            <Play size={16} />
-            <span>Run Sentinel Analysis</span>
-          </button>
-        </div>
+          {checkProblems.length === 0 ? (
+            <p className="flex items-center gap-2 text-xs text-green-400/80">
+              <CheckCircle2 size={14} /> Every script parses, and nothing risky was found.
+            </p>
+          ) : byScript.length === 0 ? (
+            <p className="text-xs text-slate-600 italic">No findings match the filter.</p>
+          ) : (
+            byScript.map(([script, list]) => <ScriptGroup key={script} script={script} problems={list} onGoTo={onGoTo} />)
+          )}
+        </section>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export default Sentinel;

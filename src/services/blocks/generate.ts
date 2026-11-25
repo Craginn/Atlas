@@ -73,6 +73,17 @@ function emitBody(block: BlockNode, depth: number): string {
       return `${pad}${f.declKind ?? 'let'} ${f.declarations ?? ''};`;
 
     case 'function':
+      // `const name = (params) => { … };` / `const name = function (params) { … };`
+      if (f.style === 'arrow' || f.style === 'expression') {
+        const head = f.style === 'arrow'
+          ? `${f.async === 'true' ? 'async ' : ''}(${f.params ?? ''}) =>`
+          : `${f.async === 'true' ? 'async ' : ''}function${f.generator === 'true' ? '*' : ''}(${f.params ?? ''})`;
+        return (
+          `${pad}${f.declKind ?? 'const'} ${f.name ?? ''} = ${head} {\n` +
+          emitSlot(block, 'body', depth + 1) +
+          `\n${pad}};`
+        );
+      }
       return (
         `${pad}${f.async === 'true' ? 'async ' : ''}function${f.generator === 'true' ? '*' : ''} ` +
         `${f.name ?? ''}(${f.params ?? ''}) {\n` +

@@ -10,7 +10,7 @@
 ├─────────────────────────────────────┤
 │     2. PLOT ESSENTIALS              │  ← Key story facts
 ├─────────────────────────────────────┤
-│     3. STORY CARDS (triggered)      │  ← "World Lore:" prefixed
+│     3. STORY CARDS (triggered)      │  ← under "World Lore:" header
 ├─────────────────────────────────────┤
 │     4. STORY SUMMARY                │  ← Plot overview
 ├─────────────────────────────────────┤

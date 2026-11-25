@@ -152,6 +152,8 @@ function statementToBlock(node: AcornNode, source: string): BlockNode {
   const blankBefore = /\n[ \t]*\n[ \t]*$/.test(gap);
 
   const block = buildStatement(node, source);
+  const loc = node.loc as { start: { line: number }; end: { line: number } } | undefined;
+  if (loc) block.loc = { start: loc.start.line, end: loc.end.line };
   if (leading.length) block.fields.leading = leading.join('\n');
   if (blankBefore) block.fields.blankBefore = 'true';
   return block;
@@ -161,6 +163,32 @@ function buildStatement(node: AcornNode, source: string): BlockNode {
   switch (node.type) {
     case 'VariableDeclaration': {
       const decls = (node.declarations as AcornNode[]) ?? [];
+      // `const modifier = (text) => { … }` — the shape every AID hook is written
+      // in. As a plain variable, the whole hook would be one opaque text field;
+      // as a function block its body becomes real, editable blocks.
+      if (decls.length === 1) {
+        const id = decls[0].id as AcornNode;
+        const fn = decls[0].init as AcornNode | null;
+        if (
+          id?.type === 'Identifier' && fn &&
+          (fn.type === 'ArrowFunctionExpression' || fn.type === 'FunctionExpression') &&
+          (fn.body as AcornNode)?.type === 'BlockStatement'
+        ) {
+          const params = ((fn.params as AcornNode[]) ?? []).map(p => slice(p, source)).join(', ');
+          return makeBlock(
+            'function',
+            {
+              name: String(id.name ?? ''),
+              params,
+              async: String(Boolean(fn.async)),
+              generator: String(Boolean(fn.generator)),
+              style: fn.type === 'ArrowFunctionExpression' ? 'arrow' : 'expression',
+              declKind: String(node.kind ?? 'const'),
+            },
+            { body: bodyToBlocks(fn.body, source) },
+          );
+        }
+      }
       // Keep the declarator list as one source slice so `let a = 1, b = 2`
       // survives intact instead of being split and re-joined.
       const first = decls[0];

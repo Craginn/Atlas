@@ -6,7 +6,7 @@ import path from 'node:path';
 // only), the status-effect system, and the Element creator step. Evaluated
 // SLOPPY (Function constructor) with the pipeline wrapper's globals.
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const src = fs.readFileSync(path.join(DIR, 'Library.js'), 'utf8');
 
 function loadFixture() {

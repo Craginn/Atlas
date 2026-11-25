@@ -41,7 +41,7 @@ Understanding Story Card structure helps you create effective cards. Each field 
 
 **AI Visibility**: YES - this is what the AI sees
 
-**Context Format**: Entries appear prefaced with "World Lore:" in context
+**Context Format**: Triggered entries appear together under one "World Lore:" header line, separated by blank lines
 
 **Best Practices**:
 - Write in clear, information-dense prose

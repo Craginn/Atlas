@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const read = (f: string) => fs.readFileSync(path.join(DIR, f), 'utf8');
 
 vi.mock('./offlineSimulationService', () => ({

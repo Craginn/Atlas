@@ -40,7 +40,7 @@ flowchart TD
 
 ### 1. AI Instructions
 
-**Position**: Very beginning of context
+**Position**: Sent separately as the system prompt — not part of the `text` a Context Modifier receives
 
 **Content**: Behavioral directives for the AI (writing style, content rules, perspective)
 
@@ -60,7 +60,7 @@ flowchart TD
 
 **Content**: Entries from Story Cards whose triggers matched recent text
 
-**Prefix**: Each entry is prefaced with "World Lore:"
+**Format**: Triggered entries appear together under one "World Lore:" header line, separated by blank lines
 
 **Selection**: Based on trigger recency and frequency
 
@@ -122,6 +122,38 @@ flowchart TD
 
 **Purpose**: Ensures room for the AI to generate output
 
+## Exact Text Layout
+
+Latitude publishes what the assembled text looks like ({braces} are your field contents; empty sections are left out):
+
+```none
+{Plot Essentials}
+World Lore:
+{Story Card entry 1}
+
+{Story Card entry 2}
+
+Story Summary:
+{Story Summary}
+
+Memories:
+{Memory 1}
+{Memory 2}
+
+Recent Story:
+{Action 1}
+> {User Input 1}
+{Action 2}
+
+[Author's note: {Author's Note}]
+> {Last User Input} /OR/ {Last Action}
+{Front Memory}
+```
+
+Plot Essentials comes first, which is why `text.slice(0, info.memoryLength)` returns it in a Context Modifier. Community scripts such as Auto-Cards parse the `World Lore:`, `Memories:` and `Recent Story:` headers.
+
+One point is ambiguous in the official docs: the scripting page places the Author's Note "immediately before the most recent AI response", while the template above places it before the last player input. Atlas's Context Lab and the `AID Probe/` scripts exist to check this against a live adventure.
+
 ## Positional Influence
 
 The AI's attention is not uniform across context:
@@ -161,3 +193,4 @@ Required Elements are capped at 70% of context. Dynamic Elements fill the remain
 ## Source References
 
 - https://help.aidungeon.com/faq/what-goes-into-the-context-sent-to-the-ai
+- https://help.aidungeon.com/scripting

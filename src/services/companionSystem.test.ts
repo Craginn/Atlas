@@ -13,7 +13,7 @@ import { mergeScriptStoryCards } from './scriptingService';
 // write Story Cards, so the REAL card API (createStoryCardApi — the single
 // source of truth the worker also embeds) is supplied instead of noops.
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const src = fs.readFileSync(path.join(DIR, 'Library.js'), 'utf8');
 
 function loadFixture() {

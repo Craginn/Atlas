@@ -45,7 +45,7 @@ export function useRpgDebug(
     if (!fixtureAvailable()) {
       return {
         ok: false,
-        message: 'No fixture files found — expected `Mock Script Test/*.js` in the repo.',
+        message: 'No fixture files found — expected `RPG ENGINE/*.js` in the repo.',
       };
     }
 

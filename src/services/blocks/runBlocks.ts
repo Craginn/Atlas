@@ -1,58 +1,33 @@
 import { BlockNode } from './types';
 import { generateCode } from './generate';
-import { runOfflineSimulation } from '../offlineSimulationService';
-import { toAidStoryCard, fromAidStoryCard } from '../scriptingService';
-import { KnowledgeBase, StoryCard, WorldState } from '../../types';
+import { runOfflineSimulation, type CaughtInWorker } from '../offlineSimulationService';
+import { toAidStoryCard, fromAidStoryCard, normalizeModifierResult } from '../scriptingService';
+import { diff, type Delta } from '../stateDiff';
+import type { ExecutionError, KnowledgeBase, StoryCard, WorldState } from '../../types';
 
 /** The AID-shaped story card the sandbox actually sees. */
 type AidCard = ReturnType<typeof toAidStoryCard>;
 
-// Scratch execution for the block canvas.
+// Runners for the block canvas. Two kinds:
 //
-// This is a *bench*, not the engine. The Director's Execute button runs the real
-// pipeline and commits its results; this runs a hand-picked selection of blocks
-// so you can poke at logic in isolation, and deliberately throws the resulting
-// world state away. Nothing here can move the simulation.
+//   runBlocks         — a hand-picked selection of blocks, run as one program.
+//                       For poking at a piece of logic in isolation.
+//   runScriptAsHook   — the whole script, exactly as AI Dungeon would run it:
+//                       Library first, then the hook, called with `text`.
 //
-// The selection runs as one concatenated program rather than block-by-block.
-// Blocks share scope that way, so ordering a `let n = …` block ahead of a block
-// that reads `n` does what it looks like it does — which is the whole point of
-// being able to reorder the run.
-
-/**
- * Plot Essentials reaches a real AID script as *context text*, not as globals —
- * a Context Modifier gets the whole blob as `text` and splits it apart itself
- * (with whatever helper the author wrote). A scratch run has no context to
- * split, so the Knowledge Base is injected as one `plot` object instead.
- *
- * One declaration, on one line, for two reasons: a single identifier is the
- * smallest possible collision surface against user code, and a fixed line count
- * keeps the runner's reported error lines easy to shift back onto the user's
- * own source.
- */
-const PREAMBLE_LINES = 1;
-
-function buildPreamble(kb?: KnowledgeBase): string {
-  const plot = {
-    aiInstructions: kb?.aiInstructions ?? '',
-    plotEssentials: kb?.plotEssentials ?? '',
-    storySummary: kb?.storySummary ?? '',
-    memoryBank: kb?.memoryBank ?? '',
-    recentHistory: kb?.recentHistory ?? '',
-    authorsNote: kb?.authorsNote ?? '',
-    storyCards: kb?.storyCards ?? [],
-  };
-  return `const plot = ${JSON.stringify(plot)};\n`;
-}
+// Both are benches, not the engine: the resulting world state is shown and
+// thrown away. Story card changes can be applied on request.
+//
+// Neither injects anything AI Dungeon doesn't have. (An earlier version added
+// a `plot` object for convenience; code written against it crashed in AID.)
 
 /**
  * Give the sandbox the user's real cards.
-  *
-  * The Director's pipeline seeds `worldState.storyCards` from the Knowledge Base
-  * before running a hook; without the same step here `storyCards` would be an
-  * empty array and every add/update/remove would operate on nothing — the
-  * feature would look like it worked while touching no real card.
-  */
+ *
+ * The Director's pipeline seeds `worldState.storyCards` from the Knowledge Base
+ * before running a hook; without the same step here `storyCards` would be an
+ * empty array and every add/update/remove would operate on nothing.
+ */
 function seedWorldState(worldState: WorldState, kb?: KnowledgeBase): WorldState {
   const clone: WorldState = JSON.parse(JSON.stringify(worldState ?? {}));
   if (kb?.storyCards && !clone.storyCards) {
@@ -89,16 +64,23 @@ function diffStoryCards(before: AidCard[], after: AidCard[]): StoryCardChanges |
 }
 
 /** Noise the shared runner appends for the Director's benefit, not ours. */
-const DIRECTOR_ONLY = [
-  '[DEBUG] Modified Text:',
-  '[DEBUG] stop flag:',
-];
+const DIRECTOR_ONLY = ['[DEBUG] Modified Text:', '[DEBUG] stop flag:'];
+
+const cleanLogs = (logs: unknown[]) =>
+  logs
+    .map(l => (typeof l === 'string' ? l : JSON.stringify(l)))
+    .filter(l => !DIRECTOR_ONLY.some(p => l.startsWith(p)))
+    // Caught errors are shown structured, with their line; don't repeat them raw.
+    .filter(l => !l.startsWith('ERROR:'));
 
 export interface BlockRunResult {
   /** The exact source that was executed, so the console can show its work. */
   code: string;
   logs: string[];
-  error: { line: string; message: string } | null;
+  /** The failure, located (script + line + column) — the selection's code is "Block Canvas". */
+  error: ExecutionError | null;
+  /** Errors the code caught and console.error'd, located. */
+  caught: CaughtInWorker[];
   /** Whatever the selection returned, if anything. */
   result: unknown;
   ms: number;
@@ -108,12 +90,10 @@ export interface BlockRunResult {
    * result rather than a failure, and saying so beats reporting silence.
    */
   inertReason?: string;
-  /**
-   * Story card adds/updates/removes the run performed. Present only when the
-   * deck actually changed. Nothing is persisted — this is the record of what
-   * *would* happen, which the user can then choose to apply.
-   */
+  /** Story card adds/updates/removes the run performed (not persisted). */
   storyCards?: StoryCardChanges;
+  /** What the run changed on `state` (not persisted). */
+  stateChanges: Delta[];
 }
 
 /**
@@ -131,52 +111,119 @@ function describeInertness(blocks: BlockNode[]): string | undefined {
     : 'This selection only declares a function — nothing called it.';
 }
 
+const stateOf = (ws: WorldState) => {
+  // storyCards are reported separately; keep them out of the state diff.
+  const { storyCards: _cards, ...rest } = (ws ?? {}) as Record<string, unknown>;
+  // The sandbox always provides `state.memory` (AI Dungeon does too), so an
+  // empty one appearing is not something the script did.
+  if (rest.memory && typeof rest.memory === 'object' && Object.keys(rest.memory).length === 0) delete rest.memory;
+  return rest;
+};
+
 /**
- * Run an ordered selection of blocks against the Director's input.
- *
- * `worldState` is read to populate `state`/`storyCards`/`history` so the code
- * sees a realistic world, but the mutated copy the worker returns is discarded —
- * callers get logs and nothing else.
+ * Run an ordered selection of blocks against the Director's input. When
+ * `libraryCode` is given (a hook's blocks), it runs first, as in AI Dungeon, so
+ * Library functions can be called.
  */
 export async function runBlocks(
   blocks: BlockNode[],
   input: string,
   worldState: WorldState,
   knowledgeBase?: KnowledgeBase,
+  libraryCode = '',
 ): Promise<BlockRunResult> {
   const code = generateCode({ roots: blocks });
   const started = performance.now();
 
   if (!code.trim()) {
-    return { code, logs: ['Nothing selected to run.'], error: null, result: null, ms: 0 };
+    return { code, logs: ['Nothing selected to run.'], error: null, caught: [], result: null, ms: 0, stateChanges: [] };
   }
 
   const seeded = seedWorldState(worldState, knowledgeBase);
   const before: AidCard[] = JSON.parse(JSON.stringify(seeded.storyCards ?? []));
+  const stateBefore = stateOf(seeded);
+  const hasLibrary = libraryCode.trim().length > 0;
 
   // isModifierScript: false — a scratch selection is a fragment, not a hook, so
   // it must not be held to the `modifier(text)` contract the Director enforces.
   const run = await runOfflineSimulation(
-    buildPreamble(knowledgeBase) + code, seeded, input, false, 'Block Canvas',
-    undefined, code,
+    hasLibrary ? `${libraryCode}\n${code}` : code, seeded, input, false, 'Block Canvas', [], code, 0, 'Library',
   );
 
-  const logs = (run.logs ?? [])
-    .map(l => (typeof l === 'string' ? l : JSON.stringify(l)))
-    .filter(l => !DIRECTOR_ONLY.some(p => l.startsWith(p)));
-
-  const line = run.error?.line ?? 'unknown';
-
+  const logs = cleanLogs(run.logs ?? []);
   const after = (run.newState?.storyCards ?? []) as AidCard[];
 
   return {
     code,
     logs,
-    error: run.error ? { line, message: run.error.message } : null,
+    error: run.error ?? null,
+    caught: run.caught ?? [],
     result: run.result,
     ms: Math.round(performance.now() - started),
     inertReason: !run.error && logs.length === 0 ? describeInertness(blocks) : undefined,
     storyCards: run.error ? undefined : diffStoryCards(before, after),
+    stateChanges: run.error ? [] : diff(stateBefore, stateOf(run.newState)),
+  };
+}
+
+export interface HookRunResult {
+  hook: string;
+  /** The text the hook received. */
+  textIn: string;
+  /** The text it handed back, or undefined when it returned none (text passes through). */
+  textOut?: string;
+  stopped: boolean;
+  logs: string[];
+  error: ExecutionError | null;
+  caught: CaughtInWorker[];
+  stateChanges: Delta[];
+  storyCards?: StoryCardChanges;
+  /** state.message, if the hook set one. */
+  message?: string;
+  ms: number;
+}
+
+/**
+ * Run a whole script as the hook it is — Library first, then the hook called
+ * with `text` — and report everything it did. Nothing is saved.
+ */
+export async function runScriptAsHook(
+  hook: { name: string; code: string },
+  libraryCode: string,
+  input: string,
+  worldState: WorldState,
+  knowledgeBase?: KnowledgeBase,
+): Promise<HookRunResult> {
+  const started = performance.now();
+  const seeded = seedWorldState(worldState, knowledgeBase);
+  const before: AidCard[] = JSON.parse(JSON.stringify(seeded.storyCards ?? []));
+  const stateBefore = stateOf(seeded);
+  const isLibrary = hook.name === 'Library';
+  const hasLibrary = !isLibrary && libraryCode.trim().length > 0;
+
+  const run = await runOfflineSimulation(
+    hasLibrary ? `${libraryCode}\n${hook.code}` : hook.code,
+    seeded, input, !isLibrary, hook.name, [], hook.code, 0, 'Library',
+  );
+  const { text, stop } = isLibrary ? { text: undefined, stop: false } : normalizeModifierResult(run.result);
+  const after = (run.newState?.storyCards ?? []) as AidCard[];
+  const stateAfter = stateOf(run.newState);
+  const message = typeof stateAfter.message === 'string' && stateAfter.message !== stateBefore.message
+    ? stateAfter.message
+    : undefined;
+
+  return {
+    hook: hook.name,
+    textIn: input,
+    textOut: typeof text === 'string' ? text : undefined,
+    stopped: Boolean(stop),
+    logs: cleanLogs(run.logs ?? []).filter(l => !l.startsWith('[DEBUG]') && !l.startsWith('[ERROR]')),
+    error: run.error ?? null,
+    caught: run.caught ?? [],
+    stateChanges: run.error ? [] : diff(stateBefore, stateAfter),
+    storyCards: run.error ? undefined : diffStoryCards(before, after),
+    message,
+    ms: Math.round(performance.now() - started),
   };
 }
 

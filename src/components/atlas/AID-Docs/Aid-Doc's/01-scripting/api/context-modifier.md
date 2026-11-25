@@ -53,7 +53,7 @@ The assembled context follows this order:
 
 1. AI Instructions
 2. Plot Essentials
-3. Story Cards (triggered entries, prefixed with "World Lore:")
+3. Story Cards (triggered entries, under one "World Lore:" header)
 4. Story Summary
 5. Memory Bank (retrieved memories)
 6. History (recent actions)

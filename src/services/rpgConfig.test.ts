@@ -7,7 +7,7 @@ import path from 'node:path';
 // globals the pipeline wrapper supplies — including a working addStoryCard so the
 // config card can be created/read via CommunityUtils.StoryCards.
 
-const DIR = path.resolve(__dirname, '../../Mock Script Test');
+const DIR = path.resolve(__dirname, '../../RPG ENGINE');
 const src = fs.readFileSync(path.join(DIR, 'Library.js'), 'utf8');
 
 function loadFixture() {

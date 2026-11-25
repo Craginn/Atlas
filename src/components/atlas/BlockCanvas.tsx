@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Blocks, Plus, Search, ZoomIn, ZoomOut, Maximize2, AlertTriangle, Code2, X,
-  Play, Terminal, Eraser, ChevronUp, ChevronDown,
+  Play, Terminal, Eraser, ChevronUp, ChevronDown, Zap, Lightbulb, List,
 } from 'lucide-react';
 import { KnowledgeBase, Script, StoryCard, WorldState } from '@/types';
 import { BlockNode, BlockProgram } from '@/services/blocks/types';
@@ -9,9 +9,16 @@ import { parseCode } from '@/services/blocks/parse';
 import { generateCode } from '@/services/blocks/generate';
 import { PALETTE, PALETTE_GROUPS, PaletteEntry } from '@/services/blocks/palette';
 import {
-  runBlocks, findBlock, toKnowledgeBaseCards, BlockRunResult,
+  runBlocks, runScriptAsHook, findBlock, toKnowledgeBaseCards, BlockRunResult, HookRunResult,
 } from '@/services/blocks/runBlocks';
+import { adviseScript, type Suggestion } from '@/services/blocks/guide';
+import { ancestorIds, blockAtLine, rootOf } from '@/services/blocks/locate';
+import { problemsFromRun, type Problem } from '@/services/errors/problems';
+import type { CaughtInWorker } from '@/services/offlineSimulationService';
 import BlockNodeView from './BlockNodeView';
+import BlockOutline from './BlockOutline';
+import { RunConsole, SuggestionsPanel } from './BlockAssist';
+import type { GoTo } from './ProblemCard';
 import { useLayoutMode } from '@/hooks/use-layout-mode';
 
 // The visual scripting canvas.
@@ -30,17 +37,34 @@ interface BlockCanvasProps {
   simInput: string;
   /** Read to populate `state`/`storyCards`; scratch runs never write it back. */
   worldState: WorldState;
-  /** Plot Essentials + the real Story Card deck, exposed to scratch runs as `plot`. */
+  /** The real Story Card deck, seeded into test runs. */
   knowledgeBase: KnowledgeBase;
   /**
    * Commit a scratch run's story card changes. Only ever called from the
    * console's explicit Apply button — running never persists anything.
    */
   onApplyStoryCards: (cards: StoryCard[]) => void;
+  /** The last Director run's problems — those in this script are marked on their blocks. */
+  problems?: Problem[];
+  /** Open a script line in the JS Code Editor (for problems outside this script). */
+  onGoTo?: GoTo;
 }
+
+/** Above this many top-level blocks, start with an empty canvas and let the outline open blocks. */
+const FOCUS_ABOVE = 25;
+
+/** Caught errors from a test run, in the pipeline's shape so problemsFromRun can explain them. */
+const caughtAsScriptErrors = (hook: string, caught: CaughtInWorker[]) =>
+  caught.map(c => ({
+    hook, scriptId: '', script: c.script, line: c.line ? String(c.line) : 'unknown',
+    column: c.column ?? undefined, sourceLine: c.sourceLine || undefined, message: c.message,
+  }));
 
 /** Vertical gap between stacked root blocks when we lay a parsed script out. */
 const ROW_GAP = 92;
+
+/** Space between auto-stacked root blocks on the canvas. */
+const STACK_GAP = 16;
 
 /** Zoom bounds, shared by the buttons, the wheel and the pinch gesture. */
 const MIN_ZOOM = 0.3;
@@ -97,7 +121,7 @@ const AUTO_COLLAPSE_ABOVE = 40;
 
 const BlockCanvas: React.FC<BlockCanvasProps> = ({
   scripts, setScripts, activeScriptId, setActiveScriptId, simInput, worldState,
-  knowledgeBase, onApplyStoryCards,
+  knowledgeBase, onApplyStoryCards, problems: runProblems = [], onGoTo,
 }) => {
   const activeScript = scripts.find(s => s.id === activeScriptId);
 
@@ -123,6 +147,20 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
   const [running, setRunning] = useState(false);
   const [showConsole, setShowConsole] = useState(false);
   const [applied, setApplied] = useState(false);
+  const [hookResult, setHookResult] = useState<HookRunResult | null>(null);
+  /** The blocks and code of the last selection run, to map its error lines back to blocks. */
+  const lastSelection = useRef<{ blocks: BlockNode[]; code: string } | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  /** Roots drawn on the canvas: all of them, or the ones opened from the outline. */
+  const [shown, setShown] = useState<'all' | Set<string>>('all');
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [showOutline, setShowOutline] = useState(true);
+
+  /** The Library runs ahead of every hook, in test runs as in AI Dungeon. */
+  const libraryCode = useMemo(
+    () => (activeScript?.name === 'Library' ? '' : scripts.find(s => s.name === 'Library')?.code ?? ''),
+    [scripts, activeScript?.name],
+  );
 
   // The code we last generated. Incoming code equal to this means the change
   // came from us, so re-parsing would throw away the user's canvas layout (and
@@ -168,7 +206,17 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
     });
     setProgram(parsed);
     lastEmitted.current = activeScript.code;
+    // A big script starts with an empty canvas: drawing hundreds of blocks at
+    // once is slow and overwhelming. The outline lists them all; open what you need.
+    setShown(parsed.roots.length > FOCUS_ABOVE ? new Set() : 'all');
+    setFocusId(null);
   }, [activeScript?.id, activeScript?.code]);
+
+  // Switching scripts clears the last test run — it described another script.
+  useEffect(() => {
+    setHookResult(null);
+    setRunResult(null);
+  }, [activeScript?.id]);
 
   // ---------------------------------------------------------------- blocks → code
   const commit = useCallback(
@@ -219,27 +267,46 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
       return touched ? { ...n, slots } : n;
     });
 
-  /** Append a new block into a named slot of the block with the given id. */
-  const insertInto = (nodes: BlockNode[], id: string, slot: string, block: BlockNode): BlockNode[] =>
+  /** Add blocks into a named slot of the block with the given id (at the end, or the start). */
+  const insertInto = (nodes: BlockNode[], id: string, slot: string, blocks: BlockNode[], atStart = false): BlockNode[] =>
     nodes.map(n => {
       if (n.id === id) {
-        return { ...n, slots: { ...n.slots, [slot]: [...(n.slots[slot] ?? []), block] } };
+        const list = n.slots[slot] ?? [];
+        return { ...n, collapsed: false, slots: { ...n.slots, [slot]: atStart ? [...blocks, ...list] : [...list, ...blocks] } };
       }
       const slots: Record<string, BlockNode[]> = {};
-      for (const [k, list] of Object.entries(n.slots)) slots[k] = insertInto(list, id, slot, block);
+      for (const [k, list] of Object.entries(n.slots)) slots[k] = insertInto(list, id, slot, blocks, atStart);
       return { ...n, slots };
     });
 
-  const addFromPalette = (entry: PaletteEntry) => {
-    const block = entry.make();
-    if (!paletteFor) {
-      // No target slot — drop it at the bottom of the canvas as a new root.
+  /** Show a root on the canvas (no-op when all are shown). */
+  const reveal = (rootId: string) =>
+    setShown(s => (s === 'all' || s.has(rootId) ? s : new Set([...s, rootId])));
+
+  /**
+   * Insert blocks — into a slot when `target` is given, otherwise as new roots
+   * at the bottom — then reveal and point at the first one.
+   */
+  const insertBlocks = (blocks: BlockNode[], target?: { blockId: string; slot: string; atStart?: boolean }) => {
+    if (!blocks.length) return;
+    let roots: BlockNode[];
+    if (!target) {
       const maxY = program.roots.reduce((m, r) => Math.max(m, r.pos?.y ?? 0), 0);
-      block.pos = { x: 0, y: maxY + ROW_GAP };
-      commit({ ...program, roots: [...program.roots, block] });
+      blocks.forEach((b, i) => { b.pos = { x: 0, y: maxY + ROW_GAP * (i + 1) }; });
+      roots = [...program.roots, ...blocks];
+      setShown(s => (s === 'all' ? s : new Set([...s, ...blocks.map(b => b.id)])));
     } else {
-      commit({ ...program, roots: insertInto(program.roots, paletteFor.blockId, paletteFor.slot, block) });
+      roots = insertInto(program.roots, target.blockId, target.slot, blocks, target.atStart);
+      const root = rootOf(roots, target.blockId);
+      if (root) reveal(root.id);
     }
+    commit({ ...program, roots });
+    setFocusId(blocks[0].id);
+  };
+
+  const addFromPalette = (entry: PaletteEntry) => {
+    const blocks = entry.makeMany ? entry.makeMany() : [entry.make()];
+    insertBlocks(blocks, paletteFor ?? undefined);
     // Close on pick. The panel sits behind a full-screen scrim, so leaving it
     // open after a choice left the canvas visible but unclickable.
     setPaletteOpen(false);
@@ -433,9 +500,28 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
     if (!picked.length) return;
     setRunning(true);
     setShowConsole(true);
+    setShowHelp(false);
     setApplied(false);
+    setHookResult(null);
     try {
-      setRunResult(await runBlocks(picked, simInput, worldState, knowledgeBase));
+      const result = await runBlocks(picked, simInput, worldState, knowledgeBase, libraryCode);
+      lastSelection.current = { blocks: picked, code: result.code };
+      setRunResult(result);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  /** Run the whole script as its hook, the way AI Dungeon would. */
+  const doRunHook = async () => {
+    if (!activeScript) return;
+    setRunning(true);
+    setShowConsole(true);
+    setShowHelp(false);
+    setApplied(false);
+    setRunResult(null);
+    try {
+      setHookResult(await runScriptAsHook(activeScript, libraryCode, simInput, worldState, knowledgeBase));
     } finally {
       setRunning(false);
     }
@@ -443,10 +529,172 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
 
   /** Opt-in: push this run's card changes into the real deck. */
   const applyStoryCards = () => {
-    if (!runResult?.storyCards) return;
-    onApplyStoryCards(toKnowledgeBaseCards(runResult.storyCards.after));
+    const changes = hookResult?.storyCards ?? runResult?.storyCards;
+    if (!changes) return;
+    onApplyStoryCards(toKnowledgeBaseCards(changes.after));
     setApplied(true);
   };
+
+  // ---------------------------------------------------------------- errors → blocks
+  /** The deepest block holding `line` of this script (as it is now). */
+  const blockForLine = useCallback(
+    (line: number) => (activeScript ? blockAtLine(orderedRoots, activeScript.code ?? '', line) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeScript?.code, program.roots],
+  );
+
+  /** Problems from the last test run, explained. */
+  const consoleProblems = useMemo<Problem[]>(() => {
+    if (hookResult) {
+      return problemsFromRun(
+        { executionError: hookResult.error, scriptErrors: caughtAsScriptErrors(hookResult.hook, hookResult.caught) },
+        scripts,
+      );
+    }
+    if (runResult) {
+      return problemsFromRun(
+        { executionError: runResult.error, scriptErrors: caughtAsScriptErrors('Block Canvas', runResult.caught) },
+        scripts,
+      );
+    }
+    return [];
+  }, [hookResult, runResult, scripts]);
+
+  /** Every located problem in this script, by block id — outlined red on the canvas. */
+  const blockProblems = useMemo(() => {
+    const map = new Map<string, Problem>();
+    if (!activeScript) return map;
+    for (const p of [...consoleProblems, ...runProblems]) {
+      if (p.line < 1 || p.stale) continue;
+      let id: string | null = null;
+      if (p.script === 'Block Canvas' && lastSelection.current) {
+        id = blockAtLine(lastSelection.current.blocks, lastSelection.current.code, p.line);
+      } else if (p.script === activeScript.name) {
+        id = blockForLine(p.line);
+      }
+      if (id && !map.has(id)) map.set(id, p);
+      // A failure inside the Library: mark the step in this script that called it.
+      if (p.calledFrom && p.calledFrom.script === activeScript.name) {
+        const callId = blockForLine(p.calledFrom.line);
+        if (callId && !map.has(callId)) {
+          map.set(callId, {
+            ...p,
+            explanation: { ...p.explanation, title: `This step called into the ${p.script}, which failed: ${p.explanation.title}` },
+          });
+        }
+      }
+    }
+    return map;
+  }, [consoleProblems, runProblems, activeScript, blockForLine]);
+
+  const problemFor = useCallback((id: string) => {
+    const p = blockProblems.get(id);
+    return p ? { title: p.explanation.title } : undefined;
+  }, [blockProblems]);
+
+  const problemRoots = useMemo(
+    () => new Set([...blockProblems.keys()].map(id => rootOf(program.roots, id)?.id).filter((x): x is string => !!x)),
+    [blockProblems, program.roots],
+  );
+
+  /** Bring a block into view: show its root, open the path down to it, pan, flash. */
+  const focusBlock = useCallback((id: string) => {
+    const root = rootOf(program.roots, id);
+    if (!root) return;
+    setShown(s => (s === 'all' || s.has(root.id) ? s : new Set([...s, root.id])));
+    setFocusId(id);
+    if (!isCompact && root.pos) setPan({ x: 40 - root.pos.x * zoom, y: 24 - root.pos.y * zoom });
+  }, [program.roots, isCompact, zoom]);
+
+  // Paths to problem blocks and the focused block stay open.
+  const forceOpen = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of blockProblems.keys()) ancestorIds(program.roots, id).forEach(a => ids.add(a));
+    if (focusId) ancestorIds(program.roots, focusId).forEach(a => ids.add(a));
+    return ids;
+  }, [blockProblems, focusId, program.roots]);
+
+  // After a test run fails, point at the failing block.
+  useEffect(() => {
+    const first = consoleProblems.find(p => p.severity === 'error') ?? consoleProblems[0];
+    if (!first) return;
+    const id = first.script === 'Block Canvas' && lastSelection.current
+      ? blockAtLine(lastSelection.current.blocks, lastSelection.current.code, first.line)
+      : activeScript && first.script === activeScript.name ? blockForLine(first.line) : null;
+    if (id) focusBlock(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [consoleProblems]);
+
+  /**
+   * "Go to line" from a problem: a line in this script, or in the selection that
+   * ran, focuses its block right here; anything else (the Library, another hook)
+   * opens in the JS Code Editor.
+   */
+  const canvasGoTo = useCallback<GoTo>((loc) => {
+    if (loc.script === 'Block Canvas' && lastSelection.current) {
+      const id = blockAtLine(lastSelection.current.blocks, lastSelection.current.code, loc.line);
+      if (id) { focusBlock(id); return; }
+    }
+    if (activeScript && loc.script === activeScript.name) {
+      const id = blockForLine(loc.line);
+      if (id) { focusBlock(id); return; }
+    }
+    onGoTo?.(loc);
+  }, [activeScript, blockForLine, focusBlock, onGoTo]);
+
+  const suggestions = useMemo<Suggestion[]>(
+    () => (activeScript ? adviseScript(program.roots, activeScript.name, libraryCode) : []),
+    [program.roots, activeScript, libraryCode],
+  );
+  const importantCount = suggestions.filter(s => s.level === 'important').length;
+
+  const isShown = (id: string) => shown === 'all' || shown.has(id);
+  const visibleRoots = program.roots.filter(r => isShown(r.id));
+
+  // ---------------------------------------------------------------- auto-stacking
+  // Roots stack top to bottom by their real rendered height, so an expanded
+  // block never sits on top of the next one. Order is untouched — vertical
+  // position *is* code order, and stacking keeps every root in its current
+  // order — so this never changes the generated code. Hidden roots take no
+  // space. A drag in progress is left alone; on release the dragged block
+  // settles into its new place in the column.
+  const rootEls = useRef(new Map<string, HTMLDivElement>());
+  const restack = useCallback(() => {
+    if (isCompact || dragState.current?.mode === 'block') return;
+    setProgram(p => {
+      const ordered = [...p.roots].sort(
+        (a, b) => (a.pos?.y ?? 0) - (b.pos?.y ?? 0) || (a.pos?.x ?? 0) - (b.pos?.x ?? 0),
+      );
+      const next = new Map<string, number>();
+      let y = 0;
+      for (const r of ordered) {
+        next.set(r.id, y);
+        const el = rootEls.current.get(r.id);
+        if (el) y += el.offsetHeight + STACK_GAP;
+      }
+      const moved = p.roots.some(r => Math.abs((r.pos?.y ?? 0) - (next.get(r.id) ?? 0)) > 1);
+      if (!moved) return p;
+      return { ...p, roots: p.roots.map(r => ({ ...r, pos: { x: r.pos?.x ?? 0, y: next.get(r.id) ?? 0 } })) };
+    });
+  }, [isCompact]);
+
+  // Re-stack after any render that could change sizes, and whenever a root resizes.
+  useLayoutEffect(() => { restack(); });
+  const resizeObserver = useMemo(
+    () => (typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => requestAnimationFrame(restack))),
+    [restack],
+  );
+  useEffect(() => () => resizeObserver?.disconnect(), [resizeObserver]);
+  const registerRoot = useCallback((id: string, el: HTMLDivElement | null) => {
+    const prev = rootEls.current.get(id);
+    if (prev && prev !== el) resizeObserver?.unobserve(prev);
+    if (el) {
+      rootEls.current.set(id, el);
+      resizeObserver?.observe(el);
+    } else {
+      rootEls.current.delete(id);
+    }
+  }, [resizeObserver]);
 
   const filteredPalette = PALETTE.filter(
     p =>
@@ -457,13 +705,21 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
 
   return (
     <div className="h-full flex flex-col md:flex-row bg-[#0a0a0c] text-zinc-300 overflow-hidden">
-      {/* Script list */}
-      <div className="w-full md:w-48 shrink-0 border-b md:border-b-0 md:border-r border-zinc-800/50 flex flex-col">
+      {/* Script list + outline */}
+      <div className={`w-full ${showOutline ? 'md:w-60' : 'md:w-48'} shrink-0 border-b md:border-b-0 md:border-r border-zinc-800/50 flex flex-col min-h-0 md:max-h-none ${showOutline ? 'max-h-[45%]' : ''}`}>
         <div className="h-10 flex items-center px-3 gap-2 border-b border-zinc-800/50 shrink-0">
           <Blocks size={13} className="text-cyan-400" />
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Scripts</span>
+          <button
+            onClick={() => setShowOutline(v => !v)}
+            className={`ml-auto p-1 rounded ${showOutline ? 'text-cyan-300' : 'text-zinc-500 hover:text-white'}`}
+            title={showOutline ? 'Hide the outline' : 'Show the outline'}
+            aria-label="Toggle outline"
+          >
+            <List size={13} />
+          </button>
         </div>
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-1.5 flex md:block gap-1.5 overflow-x-auto">
+        <div className={`${showOutline ? 'shrink-0 max-h-36' : 'flex-1'} overflow-y-auto custom-scrollbar p-1.5 flex md:block gap-1.5 overflow-x-auto`}>
           {scripts.map(s => (
             <button
               key={s.id}
@@ -478,6 +734,23 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
             </button>
           ))}
         </div>
+        {showOutline && activeScript && (
+          <div className="flex-1 min-h-0 flex flex-col border-t border-zinc-800/50">
+            <BlockOutline
+              roots={orderedRoots}
+              shown={shown}
+              onOpen={id => focusBlock(id)}
+              onHide={id => setShown(s => {
+                const next = new Set(s === 'all' ? program.roots.map(r => r.id) : s);
+                next.delete(id);
+                return next;
+              })}
+              onShowAll={() => setShown('all')}
+              onHideAll={() => setShown(new Set())}
+              problemRoots={problemRoots}
+            />
+          </div>
+        )}
       </div>
 
       {/* Canvas column */}
@@ -492,19 +765,31 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
           </button>
 
           <button
+            onClick={doRunHook}
+            disabled={running || !activeScript || !activeScript.code?.trim()}
+            title={activeScript?.name === 'Library'
+              ? 'Run the Library on its own, to check it loads'
+              : `Run ${activeScript?.name ?? 'this script'} the way AI Dungeon would — Library first, then the hook with the Director's input as text`}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-200
+              hover:bg-emerald-500/30 disabled:opacity-40 text-[11px] font-semibold transition-colors"
+          >
+            <Zap size={12} />
+            {running ? 'Running…' : activeScript?.name === 'Library' ? 'Run Library' : 'Run as hook'}
+          </button>
+          <button
             onClick={doRun}
             disabled={running || liveRunOrder.length === 0}
             title={
               liveRunOrder.length
                 ? `Run ${liveRunOrder.length} selected block(s) against the Director's input`
-                : 'Select blocks with their ▷ badge to build a run'
+                : 'Select blocks with their ▷ badge to run just those'
             }
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-300
-              hover:bg-emerald-500/25 disabled:opacity-40 disabled:hover:bg-emerald-500/15
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-300
+              hover:bg-emerald-500/20 disabled:opacity-40 disabled:hover:bg-emerald-500/10
               text-[11px] font-semibold transition-colors"
           >
             <Play size={12} />
-            {running ? 'Running…' : `Run${liveRunOrder.length ? ` (${liveRunOrder.length})` : ''}`}
+            {`Run selected${liveRunOrder.length ? ` (${liveRunOrder.length})` : ''}`}
           </button>
           {liveRunOrder.length > 0 && (
             <button
@@ -527,7 +812,16 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
             </div>
           )}
           <button
-            onClick={() => setShowConsole(v => !v)}
+            onClick={() => { setShowHelp(v => !v); setShowConsole(false); }}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] transition-colors ${
+              showHelp ? 'bg-zinc-700 text-white' : importantCount ? 'text-amber-300 hover:text-amber-200' : 'text-zinc-400 hover:text-white'
+            }`}
+            title="What to add next, and why"
+          >
+            <Lightbulb size={12} /> Help{suggestions.length ? ` (${suggestions.length})` : ''}
+          </button>
+          <button
+            onClick={() => { setShowConsole(v => !v); setShowHelp(false); }}
             className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] transition-colors ${
               showConsole ? 'bg-zinc-700 text-white' : 'text-zinc-400 hover:text-white'
             }`}
@@ -580,7 +874,12 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                   <p className="text-xs">Use “Add Block” to start building.</p>
                 </div>
               )}
-              {activeScript && orderedRoots.map((root, i) => (
+              {activeScript && orderedRoots.length > 0 && visibleRoots.length === 0 && (
+                <p className="text-sm text-zinc-500 text-center py-8">
+                  {orderedRoots.length} blocks — open one from the outline above, or Show all.
+                </p>
+              )}
+              {activeScript && orderedRoots.filter(r => isShown(r.id)).map((root, i) => (
                 <div key={root.id} className="relative">
                   <BlockNodeView
                     block={root}
@@ -592,6 +891,9 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                     runOrder={liveRunOrder}
                     onToggleRun={toggleRun}
                     functionNames={functionNames}
+                    problemFor={problemFor}
+                    focusId={focusId}
+                    forceOpen={forceOpen}
                   />
                   {/* Drag is a mouse gesture; these buttons are the touch
                       equivalent for "this block runs before that one". */}
@@ -645,6 +947,13 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                 Select a script to start building.
               </div>
             )}
+            {activeScript && program.roots.length > 0 && visibleRoots.length === 0 && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-zinc-500 pointer-events-none text-center px-6">
+                <List size={26} />
+                <p className="text-sm">This script has {program.roots.length} blocks.</p>
+                <p className="text-xs">Open the ones you want to work on from the outline — search it by name or by what the block does.</p>
+              </div>
+            )}
             {activeScript && program.roots.length === 0 && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-zinc-600 pointer-events-none">
                 <Blocks size={28} />
@@ -656,9 +965,10 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
               className="absolute top-0 left-0 origin-top-left"
               style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
             >
-              {program.roots.map(root => (
+              {visibleRoots.map(root => (
                 <div
                   key={root.id}
+                  ref={el => registerRoot(root.id, el)}
                   className="absolute w-[560px]"
                   onMouseDown={e => {
                     if (!isDragHandle(e.target)) return;
@@ -692,6 +1002,9 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                     runOrder={liveRunOrder}
                     onToggleRun={toggleRun}
                     functionNames={functionNames}
+                    problemFor={problemFor}
+                    focusId={focusId}
+                    forceOpen={forceOpen}
                   />
                 </div>
               ))}
@@ -701,13 +1014,26 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
 
           {/* Scratch console — this run's output, never the simulation's */}
           {showConsole && (
-            <ConsolePanel
-              result={runResult}
+            <RunConsole
               running={running}
+              hook={hookResult}
+              selection={runResult}
               selectedCount={liveRunOrder.length}
-              onClose={() => setShowConsole(false)}
+              problems={consoleProblems}
+              onGoTo={canvasGoTo}
               onApply={applyStoryCards}
               applied={applied}
+              onClose={() => setShowConsole(false)}
+            />
+          )}
+
+          {showHelp && activeScript && (
+            <SuggestionsPanel
+              suggestions={suggestions}
+              scriptName={activeScript.name}
+              onAdd={s => s.add && insertBlocks(s.add.blocks(), s.add.target)}
+              onFocus={focusBlock}
+              onClose={() => setShowHelp(false)}
             />
           )}
 
@@ -742,153 +1068,6 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
 };
 
 export default BlockCanvas;
-
-// ---------------------------------------------------------------- scratch console
-
-/**
- * Output from the last scratch run. Deliberately its own surface rather than the
- * Sentinel log: nothing here touched the world state, and blending the two would
- * make it look like it had.
- */
-const ConsolePanel: React.FC<{
-  result: BlockRunResult | null;
-  running: boolean;
-  selectedCount: number;
-  onClose: () => void;
-  onApply: () => void;
-  applied: boolean;
-}> = ({ result, running, selectedCount, onClose, onApply, applied }) => (
-  <div className="w-full md:w-80 md:max-w-sm shrink-0 h-2/5 md:h-auto border-t md:border-t-0
-    md:border-l border-zinc-800/50 flex flex-col bg-black/40 min-h-0">
-    <div className="h-8 shrink-0 flex items-center gap-2 px-3 border-b border-zinc-800/50">
-      <Terminal size={11} className="text-emerald-400" />
-      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-        Scratch Console
-      </span>
-      {result && !running && (
-        <span className="text-[9px] font-mono text-zinc-600 tabular-nums">{result.ms}ms</span>
-      )}
-      <button
-        onClick={onClose}
-        aria-label="Close console"
-        className="ml-auto p-0.5 text-zinc-600 hover:text-white transition-colors"
-      >
-        <X size={13} />
-      </button>
-    </div>
-
-    <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2 font-mono text-[11px]">
-      {running && <p className="text-zinc-500 italic">Running…</p>}
-
-      {!running && !result && (
-        <p className="text-zinc-600 italic leading-relaxed">
-          {selectedCount
-            ? `${selectedCount} block(s) queued. Press Run.`
-            : 'Click the ▷ badge on a block to add it to the run. Click order is run order.'}
-        </p>
-      )}
-
-      {!running && result && (
-        <>
-          {result.error && (
-            <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-red-300">
-              <div className="text-[9px] font-black uppercase tracking-widest mb-1">
-                Error{result.error.line !== 'unknown' && ` · line ${result.error.line}`}
-              </div>
-              <div className="leading-snug break-words">{result.error.message}</div>
-            </div>
-          )}
-
-          {result.logs.map((line, i) => (
-            <div key={i} className="text-zinc-300 whitespace-pre-wrap break-words leading-snug">
-              {line}
-            </div>
-          ))}
-
-          {/* A run that only touched cards logged nothing but plainly did work,
-              so the card panel speaks for it. */}
-          {!result.error && result.logs.length === 0 && !result.storyCards && (
-            result.inertReason
-              ? (
-                <div className="rounded border border-amber-500/30 bg-amber-500/5 p-2 text-amber-300/90 leading-snug">
-                  {result.inertReason}
-                </div>
-              )
-              : <p className="text-zinc-600 italic">Ran clean — no output logged.</p>
-          )}
-
-          {/* Proof that a card edit landed. Shown, never persisted, until asked. */}
-          {result.storyCards && (
-            <div className="rounded border border-cyan-500/30 bg-cyan-500/5 p-2 space-y-1.5">
-              <div className="text-[9px] font-black uppercase tracking-widest text-cyan-300">
-                Story Cards
-              </div>
-              {(['added', 'updated', 'removed'] as const).map(kind => {
-                const cards = result.storyCards![kind];
-                if (!cards.length) return null;
-                const tint = kind === 'added' ? 'text-emerald-300'
-                  : kind === 'removed' ? 'text-red-300' : 'text-amber-300';
-                return (
-                  <div key={kind}>
-                    <div className={`text-[9px] uppercase tracking-wider ${tint}`}>
-                      {kind} · {cards.length}
-                    </div>
-                    {cards.map(c => (
-                      <div key={c.id} className="text-zinc-300 leading-snug break-words pl-1.5">
-                        {c.title || c.keys || '(untitled)'}
-                        {c.entry && (
-                          <span className="text-zinc-600"> — {c.entry.slice(0, 60)}
-                            {c.entry.length > 60 ? '…' : ''}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-              <button
-                onClick={onApply}
-                disabled={applied}
-                className="w-full mt-1 px-2 py-1 rounded text-[10px] font-semibold transition-colors
-                  bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25
-                  disabled:opacity-50 disabled:hover:bg-cyan-500/15"
-              >
-                {applied ? 'Applied to Story Cards' : 'Apply these changes'}
-              </button>
-            </div>
-          )}
-
-          {result.result != null && (
-            <div className="rounded border border-zinc-800 bg-black/40 p-2">
-              <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">
-                Returned
-              </div>
-              <pre className="text-emerald-300/90 whitespace-pre-wrap break-words">
-                {typeof result.result === 'string'
-                  ? result.result
-                  : JSON.stringify(result.result, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          <details className="pt-1">
-            <summary className="text-[9px] font-black uppercase tracking-widest text-zinc-600 cursor-pointer hover:text-zinc-400">
-              Source that ran
-            </summary>
-            <pre className="mt-1 text-zinc-500 whitespace-pre-wrap break-words leading-snug">
-              {result.code}
-            </pre>
-          </details>
-
-          <p className="text-[9px] text-zinc-700 pt-1 border-t border-zinc-800/50 leading-relaxed">
-            Scratch run — nothing was saved. World state is untouched
-            {result.storyCards && !applied && ', and story cards change only if you apply them'}.
-          </p>
-        </>
-      )}
-    </div>
-  </div>
-);
 
 // ---------------------------------------------------------------- palette panel
 

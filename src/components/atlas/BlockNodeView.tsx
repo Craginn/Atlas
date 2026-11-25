@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Play } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, Play, Wand2, AlertOctagon } from 'lucide-react';
 import { BlockNode, BLOCK_META } from '@/services/blocks/types';
 import { FIELDS_FOR, SLOTS_FOR } from '@/services/blocks/palette';
+import { ACTION_RECIPES, CONDITION_RECIPES, describeBlock } from '@/services/blocks/guide';
+import RecipePicker from './RecipePicker';
+import { RichText } from './ProblemCard';
+
+/** Which fields get the "help me write this" helper, and which recipe set. */
+const HELPER_FIELDS: Record<string, 'condition' | 'action'> = {
+  'if:test': 'condition',
+  'while:test': 'condition',
+  'doWhile:test': 'condition',
+  'expression:expression': 'action',
+};
 
 // One box, rendered recursively. A block's nested slots render more boxes, which
 // is what lets blocks accept other blocks (and raw code) inside them.
@@ -78,11 +89,17 @@ export interface BlockNodeViewProps {
    * passed down the tree so a nested block matches its parent.
    */
   compact?: boolean;
+  /** The problem located in a block, if any — the block is outlined red and says why. */
+  problemFor?: (blockId: string) => { title: string } | undefined;
+  /** Scroll this block into view and flash it (set when something points at it). */
+  focusId?: string | null;
+  /** Blocks to show expanded even if collapsed — the path down to a focused block. */
+  forceOpen?: Set<string>;
 }
 
 const BlockNodeView: React.FC<BlockNodeViewProps> = ({
   block, onChange, onDelete, onRequestAdd, depth, runOrder = [], onToggleRun,
-  functionNames = [], compact = false,
+  functionNames = [], compact = false, problemFor, focusId, forceOpen,
 }) => {
   const s = compact ? SIZE.compact : SIZE.desktop;
   const runIndex = runOrder.indexOf(block.id) + 1;
@@ -90,7 +107,47 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
   const accent = ACCENT[meta.color] ?? ACCENT.zinc;
   const fields = FIELDS_FOR[block.kind] ?? [];
   const slots = SLOTS_FOR[block.kind] ?? [];
-  const collapsed = block.collapsed ?? false;
+  const collapsed = (block.collapsed ?? false) && !forceOpen?.has(block.id);
+  const problem = problemFor?.(block.id);
+  const [helperFor, setHelperFor] = useState<string | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const focused = focusId === block.id;
+
+  useEffect(() => {
+    if (focused) boxRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }, [focused]);
+
+  const helperKind = (key: string) => HELPER_FIELDS[`${block.kind}:${key}`];
+  const childProps = { runOrder, onToggleRun, functionNames, problemFor, focusId, forceOpen, onRequestAdd };
+
+  /** The ✨ button + popover for a field that has recipes. */
+  const helper = (key: string) => {
+    const kind = helperKind(key);
+    if (!kind) return null;
+    return (
+      <span className="relative shrink-0">
+        <button
+          onClick={() => setHelperFor(helperFor === key ? null : key)}
+          title={kind === 'condition' ? 'Help me write this condition' : 'Help me write this step'}
+          aria-label="Open the recipe helper"
+          className={`flex items-center justify-center rounded ${compact ? 'w-9 h-9' : 'w-5 h-5'} text-violet-300/70 hover:text-violet-200 hover:bg-violet-500/15`}
+        >
+          <Wand2 size={compact ? 16 : 11} />
+        </button>
+        {helperFor === key && (
+          <span className="absolute right-0 top-full">
+            <RecipePicker
+              recipes={kind === 'condition' ? CONDITION_RECIPES : ACTION_RECIPES}
+              current={block.fields[key] ?? ''}
+              kind={kind}
+              onInsert={code => setField(key, code)}
+              onClose={() => setHelperFor(null)}
+            />
+          </span>
+        )}
+      </span>
+    );
+  };
 
   const setField = (key: string, value: string) =>
     onChange({ ...block, fields: { ...block.fields, [key]: value } });
@@ -110,8 +167,11 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
 
   return (
     <div
-      className={`rounded-xl border bg-zinc-900/70 ${accent.ring} overflow-hidden
-        shadow-lg ${accent.glow} transition-colors`}
+      ref={boxRef}
+      data-block-id={block.id}
+      className={`rounded-xl border bg-zinc-900/70 ${problem ? 'border-red-500/70 ring-1 ring-red-500/50' : accent.ring}
+        ${focused ? 'ring-2 ring-yellow-300/80' : ''} overflow-visible
+        shadow-lg ${accent.glow} transition-shadow`}
     >
       <div className="flex items-stretch">
         <div className={`${compact ? 'w-1.5' : 'w-1'} shrink-0 ${accent.bar}`} />
@@ -158,6 +218,7 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
                 {isCall && (
                   <>
                     <select
+                      aria-label="Function to call"
                       value={callee}
                       onChange={e => setField('callee', e.target.value)}
                       className="bg-black/40 border border-zinc-800 focus:border-zinc-600 rounded px-1 py-0.5
@@ -184,25 +245,28 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
                   </>
                 )}
                 {!isRaw && !isCall && fields.map(f => (
-                  <label key={f.key} className="flex items-center gap-1 min-w-0">
-                    <span className="text-[9px] uppercase tracking-wider text-zinc-600 shrink-0">
-                      {f.label}
-                    </span>
-                    <input
-                      value={block.fields[f.key] ?? ''}
-                      onChange={e => setField(f.key, e.target.value)}
-                      spellCheck={false}
-                      // These are code, not prose. A phone keyboard otherwise
-                      // capitalizes the first letter of the field, silently
-                      // turning `console.log` into `Console.log` and `text` into
-                      // `Text` — undefined identifiers that only fail at runtime.
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      autoComplete="off"
-                      className={`bg-black/40 border border-zinc-800 focus:border-zinc-600 rounded px-1.5 py-0.5
-                        font-mono text-[11px] text-zinc-200 outline-none min-w-0 ${f.wide ? 'flex-1' : 'w-24'}`}
-                    />
-                  </label>
+                  <div key={f.key} className={`flex items-center gap-1 min-w-0 ${f.wide ? 'flex-1' : ''}`}>
+                    <label className="flex items-center gap-1 min-w-0 flex-1">
+                      <span className="text-[9px] uppercase tracking-wider text-zinc-600 shrink-0">
+                        {f.label}
+                      </span>
+                      <input
+                        value={block.fields[f.key] ?? ''}
+                        onChange={e => setField(f.key, e.target.value)}
+                        spellCheck={false}
+                        // These are code, not prose. A phone keyboard otherwise
+                        // capitalizes the first letter of the field, silently
+                        // turning `console.log` into `Console.log` and `text` into
+                        // `Text` — undefined identifiers that only fail at runtime.
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        autoComplete="off"
+                        className={`bg-black/40 border border-zinc-800 focus:border-zinc-600 rounded px-1.5 py-0.5
+                          font-mono text-[11px] text-zinc-200 outline-none min-w-0 ${f.wide ? 'flex-1' : 'w-24'}`}
+                      />
+                    </label>
+                    {helper(f.key)}
+                  </div>
                 ))}
               </div>
             )}
@@ -217,6 +281,20 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
             </button>
           </div>
 
+          {/* What this block does, in words — the line a beginner reads first. */}
+          {!isRaw && (
+            <div className={`${compact ? 'px-3 pb-1.5 text-[12px]' : 'px-2 pb-1 text-[10px]'} -mt-0.5 text-zinc-400 italic leading-snug break-words`}>
+              {describeBlock(block)}
+            </div>
+          )}
+
+          {problem && (
+            <div className={`mx-2 mb-1.5 flex items-start gap-1.5 rounded-md bg-red-500/10 border border-red-500/30 px-2 py-1 ${compact ? 'text-[12px]' : 'text-[10px]'} text-red-200`}>
+              <AlertOctagon size={compact ? 14 : 11} className="mt-px shrink-0 text-red-400" />
+              <RichText text={problem.title} />
+            </div>
+          )}
+
           {/* Compact field rows: one stacked, full-width control per field. */}
           {compact && (isCall || (!isRaw && fields.length > 0)) && (
             <div className={`${s.slotPad} space-y-2`}>
@@ -225,6 +303,7 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
                   <label className="block">
                     <span className={`${s.hint} uppercase tracking-wider text-zinc-500 block mb-1`}>Function</span>
                     <select
+                      aria-label="Function to call"
                       value={callee}
                       onChange={e => setField('callee', e.target.value)}
                       className={`w-full bg-black/40 border border-zinc-800 focus:border-zinc-600 rounded-lg
@@ -254,8 +333,9 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
               )}
               {!isCall && fields.map(f => (
                 <label key={f.key} className="block">
-                  <span className={`${s.hint} uppercase tracking-wider text-zinc-500 block mb-1`}>
+                  <span className={`${s.hint} uppercase tracking-wider text-zinc-500 mb-1 flex items-center justify-between`}>
                     {f.label}
+                    {helper(f.key)}
                   </span>
                   <input
                     value={block.fields[f.key] ?? ''}
@@ -340,10 +420,7 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
                         setSlot(slot.key, copy);
                       }}
                       onDelete={() => setSlot(slot.key, children.filter((_, j) => j !== i))}
-                      onRequestAdd={onRequestAdd}
-                      onToggleRun={onToggleRun}
-                      runOrder={runOrder}
-                      functionNames={functionNames}
+                      {...childProps}
                     />
                   ))}
                   <button

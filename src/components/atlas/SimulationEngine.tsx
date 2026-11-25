@@ -4,6 +4,8 @@ import Director, { DirectorAction } from './Director';
 import HeimdallPanel from './HeimdallPanel';
 import { LastSimData, SentinelReport } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
+import type { Problem } from '@/services/errors/problems';
+import type { GoTo } from './ProblemCard';
 
 interface SimulationEngineProps {
   onExecute: (input: string, context?: string, output?: string, action?: DirectorAction) => void;
@@ -17,10 +19,13 @@ interface SimulationEngineProps {
    */
   input: string;
   setInput: (value: string) => void;
+  /** The last run's problems, explained and located. */
+  problems?: Problem[];
+  onGoTo?: GoTo;
 }
 
 const SimulationEngine: React.FC<SimulationEngineProps> = ({
-  onExecute, isProcessing, lastResult, report, input, setInput
+  onExecute, isProcessing, lastResult, report, input, setInput, problems = [], onGoTo,
 }) => {
   const [context, setContext] = useState('');
   const [output, setOutput] = useState('');
@@ -73,7 +78,7 @@ const SimulationEngine: React.FC<SimulationEngineProps> = ({
           </button>
           {!logsCollapsed && (
             <div className="flex-1 min-h-0">
-              <HeimdallPanel lastResult={lastResult} isProcessing={isProcessing} report={report} />
+              <HeimdallPanel lastResult={lastResult} isProcessing={isProcessing} report={report} problems={problems} onGoTo={onGoTo} />
             </div>
           )}
         </div>
@@ -93,7 +98,7 @@ const SimulationEngine: React.FC<SimulationEngineProps> = ({
           <Director {...directorProps} />
         </div>
         <div className="bg-zinc-950 flex flex-col min-h-0 min-w-0">
-          <HeimdallPanel lastResult={lastResult} isProcessing={isProcessing} report={report} />
+          <HeimdallPanel lastResult={lastResult} isProcessing={isProcessing} report={report} problems={problems} onGoTo={onGoTo} />
         </div>
       </div>
     </div>

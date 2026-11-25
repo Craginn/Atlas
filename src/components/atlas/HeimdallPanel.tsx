@@ -4,11 +4,16 @@ import { SimulationResult, SentinelReport, LogType, LogEntry } from '@/types';
 import { RobustLogViewer } from './RobustLogViewer';
 import ExecutionTrace, { TraceEntry } from './ExecutionTrace';
 import TabButton from '@/components/ui/TabButton';
+import ProblemCard, { type GoTo } from './ProblemCard';
+import type { Problem } from '@/services/errors/problems';
 
 interface HeimdallPanelProps {
   lastResult: (SimulationResult & { input?: string; context?: string }) | null;
   isProcessing: boolean;
   report: SentinelReport | null;
+  /** The last run's problems (from errors/problems.ts), explained and located. */
+  problems?: Problem[];
+  onGoTo?: GoTo;
 }
 
 // One labelled channel of the run: the AI Call, the Output, or the state.message
@@ -36,7 +41,7 @@ const ChannelBox = ({ icon: Icon, label, tone, value, sub, empty }: {
   );
 };
 
-const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing, report }) => {
+const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing, report, problems = [], onGoTo }) => {
   const [activeTab, setActiveTab] = useState('logs');
   // Code suggestions are opt-in: a fresh failure always starts them collapsed,
   // so nothing code-level appears in the error area automatically.
@@ -148,55 +153,33 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
         )}
       </div>
 
-      {hasScriptErrors && (
-        <div className="flex-shrink-0 px-3 py-2 bg-amber-950/40 border-b border-amber-500/30 text-[11px] text-amber-300">
-          <span className="font-bold">CAUGHT ERROR{scriptErrors.length > 1 ? 'S' : ''}</span>
-          {' — a script logged an error but did not stop (possible silent crash):'}
-          <ul className="mt-1 space-y-0.5">
-            {scriptErrors.map((e, i) => (
-              <li key={i}>
-                <span className="text-amber-200">"{e.hook}"</span>
-                {': '}
-                <span className="text-amber-200">{e.message}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {hasExecutionError && lastResult?.executionError && (
-        <div className="flex-shrink-0 px-3 py-2 bg-red-950/40 border-b border-red-500/30 text-[11px] text-red-300">
-          <span className="font-bold">SCRIPT ERROR</span>
-          {' in '}
-          <span className="text-red-200 font-semibold">{lastResult.executionError.hook}</span>
-          {lastResult.executionError.line && lastResult.executionError.line !== 'unknown' ? (
-            <>
-              {' at '}
-              <span className="text-red-200 font-semibold">line {lastResult.executionError.line}</span>
-            </>
-          ) : null}
-          {': '}
-          <span className="text-red-100">{lastResult.executionError.message}</span>
-        </div>
-      )}
-
-      {hasExecutionError && lastResult?.executionError?.details && (
-        <div className="flex-shrink-0 px-3 py-1.5 bg-red-950/20 border-b border-red-500/30">
-          <button
-            onClick={() => setShowSuggestions(s => !s)}
-            className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:text-red-200"
-          >
-            {showSuggestions ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            Code Suggestions
-          </button>
-          {showSuggestions && (
-            <div className="mt-1.5 rounded-md border border-red-500/25 bg-black/40 overflow-hidden">
-              <div className="px-2 py-1 text-[9px] font-black uppercase tracking-widest text-red-400/80 border-b border-red-500/25">
-                Code Suggestions
-              </div>
-              <pre className="px-2 py-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-snug text-red-200/90">
-                {lastResult.executionError.details}
-              </pre>
+      {/* What went wrong, explained, with the exact line one click away. The
+          run error comes first (it stopped the engine); caught errors after. */}
+      {(hasExecutionError || hasScriptErrors) && problems.length > 0 && (
+        <div className={`flex-shrink-0 max-h-[45%] overflow-y-auto p-2 space-y-2 border-b ${
+          hasExecutionError ? 'bg-red-950/20 border-red-500/30' : 'bg-amber-950/20 border-amber-500/30'
+        }`}>
+          {hasScriptErrors && (
+            <p className="text-[10px] text-amber-300/90 font-sans px-0.5">
+              A script caught {scriptErrors.length > 1 ? 'these errors' : 'this error'} and kept going — the turn finished, but
+              something it tried to do failed:
+            </p>
+          )}
+          {problems.map(p => <ProblemCard key={p.id} problem={p} onGoTo={onGoTo} />)}
+          {hasExecutionError && lastResult?.executionError?.details && (
+            <div>
+              <button
+                onClick={() => setShowSuggestions(s => !s)}
+                className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:text-red-200"
+              >
+                {showSuggestions ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                Checker details
+              </button>
+              {showSuggestions && (
+                <pre className="mt-1.5 px-2 py-1.5 rounded-md border border-red-500/25 bg-black/40 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-snug text-red-200/90">
+                  {lastResult.executionError.details}
+                </pre>
+              )}
             </div>
           )}
         </div>

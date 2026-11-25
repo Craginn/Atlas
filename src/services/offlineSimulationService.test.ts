@@ -94,7 +94,8 @@ describe('runOfflineSimulation — rejecting code before it runs', () => {
   it('attributes a broken Library to the Library, not the hook', async () => {
     const broken = 'function helper() {\n  return 1;\n\nfunction other() {\n  return 2;\n}';
     const res = await runOfflineSimulation(`${broken}\n${hook}`, {}, '', true, 'Input Modifier', [], hook, 6);
-    expect(res.error).toMatchObject({ hook: 'Library', line: '2' });
+    // `hook` is what was running; `script` is where the problem is.
+    expect(res.error).toMatchObject({ hook: 'Input Modifier', script: 'Library', line: '2' });
   });
 
   it('maps a name declared in both files onto the hook line', async () => {

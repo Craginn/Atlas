@@ -80,7 +80,7 @@ describe('block round-trip', () => {
 });
 
 describe('block round-trip — real AID script suite', () => {
-  const fixtureDir = path.resolve(__dirname, '../../../Mock Script Test');
+  const fixtureDir = path.resolve(__dirname, '../../../RPG ENGINE');
   const files = fs.existsSync(fixtureDir)
     ? fs.readdirSync(fixtureDir).filter(f => f.endsWith('.js'))
     : [];
@@ -104,13 +104,16 @@ describe('block round-trip — real AID script suite', () => {
   }
 });
 
-/** Block ids are random per parse; drop them before structural comparison. */
+/**
+ * Block ids are random per parse, and `loc` (source line numbers) shifts when the
+ * generator re-indents; drop both before structural comparison.
+ */
 function stripIds(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripIds);
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (k === 'id') continue;
+      if (k === 'id' || k === 'loc') continue;
       out[k] = stripIds(v);
     }
     return out;

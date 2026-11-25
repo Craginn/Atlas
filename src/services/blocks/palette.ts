@@ -1,4 +1,5 @@
 import { BlockKind, BlockNode, makeBlock } from './types';
+import { hookTemplate } from './guide';
 
 // The insertable block catalogue — what "populate the sections as the user
 // requests" pulls from. Two tiers:
@@ -11,14 +12,52 @@ import { BlockKind, BlockNode, makeBlock } from './types';
 export interface PaletteEntry {
   id: string;
   label: string;
-  group: 'Actions' | 'Logic' | 'Loops' | 'Data' | 'Advanced';
+  group: 'Starters' | 'Actions' | 'Logic' | 'Loops' | 'Data' | 'Advanced';
   hint: string;
   make: () => BlockNode;
+  /** Recipes that insert several blocks at once (e.g. the hook template). */
+  makeMany?: () => BlockNode[];
 }
 
 const stmt = (expression: string) => () => makeBlock('expression', { expression });
 
 export const PALETTE: PaletteEntry[] = [
+  // --------------------------------------------------------------- Starters
+  // Whole small recipes for people who have never scripted: each is a working
+  // piece of logic to adapt, not a blank construct to figure out.
+  {
+    id: 'hookTemplate', label: 'Hook template', group: 'Starters',
+    hint: 'The skeleton every Input/Context/Output script needs: a modifier function that returns the text, and the line that runs it',
+    make: () => hookTemplate()[0],
+    makeMany: hookTemplate,
+  },
+  {
+    id: 'reactKeyword', label: 'React to a word the player types', group: 'Starters',
+    hint: 'If the text contains "sword", show a message — change the word and the message',
+    make: () => makeBlock('if', { test: 'text.toLowerCase().includes("sword")' }, {
+      then: [makeBlock('expression', { expression: 'state.message = "You reach for your sword."' })],
+      else: [],
+    }),
+  },
+  {
+    id: 'countTurns', label: 'Count the turns', group: 'Starters',
+    hint: 'Keeps a running total on state; starts from 0 the first time',
+    make: stmt('state.turns = (state.turns ?? 0) + 1'),
+  },
+  {
+    id: 'firstTurnSetup', label: 'Set things up on the first turn', group: 'Starters',
+    hint: 'Runs once at the start — create the values the rest of your script will use',
+    make: () => makeBlock('if', { test: '!state.player' }, {
+      then: [makeBlock('expression', { expression: 'state.player = { hp: 10, gold: 0 }' })],
+      else: [],
+    }),
+  },
+  {
+    id: 'appendSentence', label: 'Add a sentence to the AI’s reply', group: 'Starters',
+    hint: 'In the Output Modifier, `text` is what the AI wrote — add to it',
+    make: stmt('text = text + " The wind howls outside."'),
+  },
+
   // ---------------------------------------------------------------- Actions
   {
     id: 'log', label: 'Log a message', group: 'Actions',
@@ -56,9 +95,9 @@ export const PALETTE: PaletteEntry[] = [
     make: stmt('removeStoryCard(0)'),
   },
   {
-    id: 'readPlot', label: 'Read Plot Essentials', group: 'Data',
-    hint: 'Use your Plot Essentials text — plot.plotEssentials',
-    make: stmt('log(plot.plotEssentials)'),
+    id: 'readPlot', label: 'Read Plot Essentials (Context hook)', group: 'Data',
+    hint: 'In a Context Modifier, Plot Essentials are the first info.memoryLength characters of text',
+    make: () => makeBlock('var', { declKind: 'const', declarations: 'plotEssentials = text.slice(0, info.memoryLength || 0)' }),
   },
   {
     id: 'findCard', label: 'Find a Story Card', group: 'Data',
@@ -155,7 +194,7 @@ export const PALETTE: PaletteEntry[] = [
   },
 ];
 
-export const PALETTE_GROUPS = ['Actions', 'Logic', 'Loops', 'Data', 'Advanced'] as const;
+export const PALETTE_GROUPS = ['Starters', 'Actions', 'Logic', 'Loops', 'Data', 'Advanced'] as const;
 
 /** Which named slots a kind exposes, and how to label them in the UI. */
 export const SLOTS_FOR: Partial<Record<BlockKind, Array<{ key: string; label: string }>>> = {

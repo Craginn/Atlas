@@ -1,6 +1,6 @@
 import { Script } from '@/types';
 
-// Loading the RPG script suite from `Mock Script Test/` into the app's script
+// Loading the RPG script suite from `RPG ENGINE/` into the app's script
 // slots, as a debug harness.
 //
 // That suite is the real thing — ~8k lines of AID scripting with levels, XP,

@@ -1,5 +1,57 @@
 import { parse as acornParse, tokenizer, tokTypes as tt, type Token } from 'acorn';
-import { WorldState, HistoryEntry } from '../types';
+import { WorldState, HistoryEntry, ExecutionError } from '../types';
+
+/** An error the script caught and console.error'd, located by the worker. */
+export interface CaughtInWorker {
+  message: string;
+  script: string;
+  line: number | null;
+  column: number | null;
+  sourceLine: string;
+}
+
+/**
+ * Locate the clashing declaration behind "Identifier 'x' has already been
+ * declared". eval throws that before any stack frame exists, so it arrives
+ * without a line. Prefers the hook's declaration — the Library's is usually
+ * the one meant to stay — and reports the other one as `calledFrom`.
+ */
+export function locateRedeclaration(
+  error: ExecutionError, code: string, hookCode: string | undefined, libraryName: string,
+): ExecutionError | null {
+  const name = error.message.match(/Identifier '(.+?)' has already been declared/)?.[1];
+  if (!name) return null;
+  const esc = name.replace(/[$]/g, (c) => '\\' + c);
+  const re = new RegExp('(?:^|[^\\w$.])(?:let|const|var|function|class)\\s+' + esc + '(?![\\w$])');
+  const find = (src: string) => {
+    const hits: { line: number; column: number; text: string }[] = [];
+    src.split('\n').forEach((l, i) => {
+      const m = re.exec(l);
+      if (m) hits.push({ line: i + 1, column: m.index + (m[0].length - m[0].trimStart().length) + 1, text: l.trim() });
+    });
+    return hits;
+  };
+  const hook = hookCode ?? code;
+  const library = hookCode ? code.slice(0, code.length - hookCode.length) : '';
+  const inHook = find(hook);
+  const inLib = find(library);
+  let target: { script: string; hit: { line: number; column: number; text: string } } | null = null;
+  if (inHook.length && inLib.length) target = { script: error.hook, hit: inHook[0] };
+  else if (inHook.length > 1) target = { script: error.hook, hit: inHook[1] };
+  else if (inLib.length > 1) target = { script: libraryName, hit: inLib[1] };
+  if (!target) return null;
+  const other = target.script === libraryName ? inLib[0] : inLib[0] ?? inHook[0];
+  return {
+    ...error,
+    script: target.script,
+    line: String(target.hit.line),
+    column: target.hit.column,
+    sourceLine: target.hit.text,
+    calledFrom: other && other !== target.hit
+      ? { script: inLib[0] ? libraryName : error.hook, line: other.line, column: other.column, sourceLine: other.text }
+      : undefined,
+  };
+}
 
 // The documented AID scripting API surface (per AID-Docs 01-scripting/api),
 // plus this sandbox's own whitelisted helpers. Used by the validator to flag
@@ -65,24 +117,41 @@ export const runOfflineSimulation = async (
   hookName = 'Unknown Hook',
   history: HistoryEntry[] = [],
   hookCode?: string,
-  libraryLineCount: number = 0,
+  // Unused since errors are located from stack frames; kept for call-site compatibility.
+  _libraryLineCount: number = 0,
+  /** What to call the code ahead of the hook in error locations. */
+  libraryName = 'Library',
+  /**
+   * Hook-specific `info` fields, merged over the defaults. The Context hook gets
+   * `memoryLength` here (AID only provides it there).
+   */
+  infoExtra: Record<string, unknown> = {},
 ): Promise<{
   newState: WorldState;
   logs: unknown[];
   // AID accepts either `{ text }` or a bare string from a modifier, so the raw
   // return is passed through as-is; callers normalize via normalizeModifierResult.
   result: { text?: string; stop?: boolean } | string | null;
-  // Present only when execution threw. The caller uses this to halt the
-  // pipeline (the engine stops) and paint the error surface red. `details`
-  // carries the code-level follow-up (the failing source line, or the
-  // validator's full suggestion list) — never shown automatically.
-  error?: { hook: string; line: string; message: string; details?: string } | null;
+  // Present only when execution threw (or failed to parse). The caller uses this
+  // to halt the pipeline and paint the error surface red. `script`/`line`/
+  // `column` locate the failing line in the script the editor shows — the
+  // Library when that is where it broke — and `calledFrom` the hook line that
+  // led there.
+  error?: ExecutionError | null;
+  /** Errors the script caught and reported with console.error, located. */
+  caught: CaughtInWorker[];
 }> => {
-  const rejected = (hook: string, line: number, message: string, details: string) => ({
+  const rejected = (script: string, line: number, message: string, details: string, column?: number, source?: string) => ({
     newState: worldState,
-    logs: [`[ERROR] ${hook}${line > 0 ? `, line ${line}` : ''}: ${message}`],
+    logs: [`[ERROR] ${script}${line > 0 ? `, line ${line}` : ''}: ${message}`],
     result: null,
-    error: { hook, line: line > 0 ? String(line) : 'unknown', message, details },
+    caught: [],
+    error: {
+      hook: hookName, script, line: line > 0 ? String(line) : 'unknown', message, details,
+      column: column && column > 0 ? column : undefined,
+      sourceLine: line > 0 && source ? (source.split('\n')[line - 1] ?? '').trim() : undefined,
+      kind: 'syntax' as const,
+    },
   });
   const detailsFor = (error: ValidationError) =>
     formatValidationResults({ valid: false, errors: [error], warnings: [] });
@@ -92,30 +161,65 @@ export const runOfflineSimulation = async (
   const validation = validateScriptSyntax(hookCode || code, isModifierScript);
   if (!validation.valid) {
     const [first] = validation.errors;
-    return rejected(hookName, first.line, first.message, formatValidationResults(validation));
+    return rejected(hookName, first.line, first.message, formatValidationResults(validation), first.column, hookCode || code);
   }
   if (hookCode) {
     const libraryCode = code.slice(0, code.length - hookCode.length);
     const libraryError = libraryCode.trim() ? diagnoseSyntax(libraryCode) : null;
     if (libraryError) {
-      return rejected('Library', libraryError.line, libraryError.message, detailsFor(libraryError));
+      return rejected(libraryName, libraryError.line, libraryError.message, detailsFor(libraryError), libraryError.column, libraryCode);
     }
     const bundleError = diagnoseSyntax(code);
     if (bundleError) {
       const hookLine = bundleError.line - (libraryCode.split('\n').length - 1);
       return hookLine > 0
-        ? rejected(hookName, hookLine, bundleError.message, detailsFor(bundleError))
-        : rejected('Library', bundleError.line, bundleError.message, detailsFor(bundleError));
+        ? rejected(hookName, hookLine, bundleError.message, detailsFor(bundleError), bundleError.column, hookCode)
+        : rejected(libraryName, bundleError.line, bundleError.message, detailsFor(bundleError), bundleError.column, libraryCode);
     }
   }
 
   const workerCode = `
     self.onmessage = function(e) {
-      const { code, hookCode, worldState, input, isModifierScript, hookName, history: turnHistory, libraryLineCount = 0 } = e.data;
+      const { code, hookCode, worldState, input, isModifierScript, hookName, history: turnHistory, libraryName = 'Library', infoExtra = {} } = e.data;
       // Tell the host the script is about to run, so its watchdog can time the
       // script rather than the worker's startup (see the timeout below).
       self.postMessage({ status: 'started' });
       const logs = [];
+      // Errors the script caught itself and reported with console.error.
+      const caught = [];
+
+      // ── Mapping engine stack frames back onto the user's scripts ─────────
+      // The wrapped function is: 1 header line, then the Library (lines
+      // 2 … libraryEndAbs), then the hook (after hookLineOffset). Every frame
+      // in that function is tagged userscript.js by the sourceURL comment, so
+      // a frame's line says which script — and which line of it — ran.
+      const NL = String.fromCharCode(10);
+      var libraryPart = '', libraryEndAbs = 1, originalHook = '';
+      const _locate = (abs, col) => {
+        if (abs > hookLineOffset) {
+          const rel = abs - hookLineOffset;
+          return { script: hookName, line: rel, column: col, sourceLine: (originalHook.split(NL)[rel - 1] || '') };
+        }
+        if (abs >= 2 && abs <= libraryEndAbs) {
+          const rel = abs - 1;
+          return { script: libraryName, line: rel, column: col, sourceLine: (libraryPart.split(NL)[rel - 1] || '') };
+        }
+        return null;
+      };
+      // Innermost first, as the engine lists them. Frames outside the user's
+      // code (the Story Card API, the worker itself) are skipped.
+      const _frames = (stack) => {
+        const out = [];
+        const re = /userscript\\.js:(\\d+):(\\d+)/g;
+        let m;
+        while ((m = re.exec(String(stack || ''))) !== null) {
+          const loc = _locate(Number(m[1]), Number(m[2]));
+          if (loc) out.push(loc);
+        }
+        return out;
+      };
+      const _fmt = (a) => (a instanceof Error) ? (a.name + ': ' + a.message)
+        : (typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a));
       
       // No pre-execution state dump: AID's log shows only what the script itself
       // logs, and the before/after world state is already captured structurally
@@ -144,8 +248,22 @@ export const runOfflineSimulation = async (
           logs.push(formatted.join(' ') + _locateUndefined(args));
         },
         error: (...args) => {
-          const formatted = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a));
+          // Error objects stringify to "{}", which is how a caught crash used to
+          // show up as "ERROR: {}". Format them as "Name: message" instead.
+          const formatted = args.map(_fmt);
           logs.push(['ERROR:', ...formatted].join(' ') + _locateUndefined(args));
+          // Where it went wrong: an Error argument's own stack points at the
+          // throw; otherwise the line that called console.error.
+          const errArg = args.find(a => a instanceof Error);
+          const frames = _frames((errArg && errArg.stack) || new Error().stack);
+          const at = frames[0] || null;
+          caught.push({
+            message: errArg ? (errArg.name + ': ' + errArg.message) : formatted.join(' '),
+            script: at ? at.script : hookName,
+            line: at ? at.line : null,
+            column: at ? at.column : null,
+            sourceLine: at ? at.sourceLine.trim() : '',
+          });
         }
       };
       // Hoisted so the catch block can attribute the error: execCode is the
@@ -165,9 +283,12 @@ export const runOfflineSimulation = async (
         // (CounterUpdate-style logic), so it must grow as history does. maxChars
         // is the context budget scripts trim against; leaving it undefined turned
         // every \`ctx.length - info.maxChars\` overflow calculation into NaN.
+        // characterNames is the documented field (help.aidungeon.com/scripting);
+        // characters is kept for scripts written against the older name.
         const info = Object.assign(
-          { actionCount: (history.length || 0), characters: [], maxChars: 8192 },
-          worldState.info || {}
+          { actionCount: (history.length || 0), characterNames: [], characters: [], maxChars: 8192 },
+          worldState.info || {},
+          infoExtra || {}
         );
         const storyCards = Array.isArray(worldState.storyCards) ? worldState.storyCards : (worldState.storyCards = []);
         const memory = worldState.memory || (state.memory = state.memory || {});
@@ -200,7 +321,10 @@ export const runOfflineSimulation = async (
             execCode = execCode.replace(/modifier\\s*\\(\\s*text\\s*\\)\\s*;?\\s*$/, 'return modifier(text);');
         }
 
-        const libraryPart = hookCode ? code.slice(0, -hookCode.length) : '';
+        libraryPart = hookCode ? code.slice(0, -hookCode.length) : '';
+        // Line 1 is the wrapper header, so the Library spans lines 2 … 1 + its line count.
+        libraryEndAbs = 1 + (libraryPart ? libraryPart.split(NL).length - 1 : 0);
+        originalHook = hookCode || code;
         const wrapperHeader = '(function(worldState, input, text, state, console, history, info, storyCards, memory, stop, log, addStoryCard, updateStoryCard, removeStoryCard, addWorldEntry, updateWorldEntry, removeWorldEntry) {\\n';
         const wrappedCode = wrapperHeader + libraryPart + '\\n' + execCode + '\\n})\\n//# sourceURL=userscript.js\\n';
         // Wrapped lines before the hook's line 1. The catch block maps
@@ -240,31 +364,35 @@ export const runOfflineSimulation = async (
           logs.push('[DEBUG] stop flag: ' + result.stop);
         }
         
-        self.postMessage({ status: 'success', newState: worldState, logs, result });
+        self.postMessage({ status: 'success', newState: worldState, logs, result, caught });
       } catch (err) {
-        const message = err.message || String(err);
-        // Attribute the throw to the first userscript.js stack frame inside the
-        // hook's own code: an error thrown from a Library function lands on the
-        // hook line that called it — the line the editor can show. Frames in
-        // the Library preamble (before the hook region) are skipped; when none
-        // is in the hook, the line is reported as unknown.
-        let lineNumber = 'unknown';
-        let sourceLine = '';
-        if (err && err.stack) {
-          const frameRe = /userscript\\.js:(\\d+)/g;
-          let fm;
-          while ((fm = frameRe.exec(err.stack)) !== null) {
-            const rel = Number(fm[1]) - hookLineOffset;
-            if (rel >= 1) {
-              lineNumber = String(rel);
-              sourceLine = (execCode.split(String.fromCharCode(10))[rel - 1] || '').trim();
-              break;
-            }
-          }
-        }
-
-        logs.push('[ERROR] ' + hookName + (lineNumber !== 'unknown' ? ', line ' + lineNumber : '') + ': ' + message);
-        self.postMessage({ status: 'error', logs, result: null, error: { hook: hookName, line: lineNumber, message: message, details: sourceLine ? lineNumber + ' | ' + sourceLine : undefined } });
+        const message = (err && err.message) || String(err);
+        // The innermost frame in the user's code is where it actually broke —
+        // inside a Library function when that is where the bad line is. The
+        // hook line that led there is kept as calledFrom, so the editor can
+        // show both "the failing line" and "how we got there".
+        const frames = err && err.stack ? _frames(err.stack) : [];
+        const at = frames[0] || null;
+        const hookFrame = frames.find(f => f.script === hookName) || null;
+        const calledFrom = at && at.script !== hookName && hookFrame
+          ? { script: hookFrame.script, line: hookFrame.line, column: hookFrame.column, sourceLine: hookFrame.sourceLine.trim() }
+          : undefined;
+        const where = at ? at.script + ', line ' + at.line : hookName;
+        logs.push('[ERROR] ' + where + ': ' + message);
+        self.postMessage({
+          status: 'error', logs, result: null, caught,
+          error: {
+            hook: hookName,
+            script: at ? at.script : hookName,
+            line: at ? String(at.line) : 'unknown',
+            column: at ? at.column : undefined,
+            sourceLine: at ? at.sourceLine.trim() : undefined,
+            calledFrom,
+            message,
+            kind: 'runtime',
+            details: at ? at.line + ' | ' + at.sourceLine.trim() : undefined,
+          },
+        });
       }
     };
   `;
@@ -297,7 +425,8 @@ export const runOfflineSimulation = async (
         newState: worldState,
         logs: [`[ERROR] ${hookName}: ${message}`],
         result: null,
-        error: { hook: hookName, line: 'unknown', message },
+        caught: [],
+        error: { hook: hookName, script: hookName, line: 'unknown', message, kind: /timed out/.test(message) ? 'timeout' : 'runtime' },
       });
       URL.revokeObjectURL(url);
     };
@@ -317,12 +446,21 @@ export const runOfflineSimulation = async (
       }
 
       clearTimeout(timeout);
-      const { status, newState, logs, result, error } = e.data;
+      const { status, newState, logs, result, error, caught } = e.data;
+      let located: ExecutionError | null = status === 'error'
+        ? (error ?? { hook: hookName, script: hookName, line: 'unknown', message: 'Execution error', kind: 'runtime' })
+        : null;
+      // A redeclaration is thrown by eval itself, before any frame exists, so
+      // it arrives without a line. Find the clashing declaration ourselves.
+      if (located && located.line === 'unknown') {
+        located = locateRedeclaration(located, code, hookCode, libraryName) ?? located;
+      }
       resolve({
         newState: status === 'success' ? newState : worldState,
         logs: logs || [],
         result,
-        error: status === 'error' ? (error ?? { hook: hookName, line: 'unknown', message: 'Execution error' }) : null,
+        error: located,
+        caught: Array.isArray(caught) ? caught : [],
       });
       worker.terminate();
       URL.revokeObjectURL(url);
@@ -334,7 +472,8 @@ export const runOfflineSimulation = async (
         newState: worldState,
         logs: [`[ERROR] ${hookName}: ${e.message}`],
         result: null,
-        error: { hook: hookName, line: 'unknown', message: e.message },
+        caught: [],
+        error: { hook: hookName, script: hookName, line: 'unknown', message: e.message, kind: 'runtime' },
       });
       worker.terminate();
       URL.revokeObjectURL(url);
@@ -343,7 +482,7 @@ export const runOfflineSimulation = async (
     // Hand scripts AID's exact `{ text, type, rawText }` — `turn` is an Atlas-only
     // annotation for the State Editor and must not appear on the `history` global.
     const aidHistory = history.map(({ text, type, rawText }) => ({ text, type, rawText }));
-    worker.postMessage({ code, hookCode, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory, libraryLineCount });
+    worker.postMessage({ code, hookCode, worldState: JSON.parse(JSON.stringify(worldState)), input, isModifierScript, hookName, history: aidHistory, libraryName, infoExtra });
   });
 };
 
@@ -586,7 +725,58 @@ export const diagnoseSyntax = (code: string): ValidationError | null => {
   };
 };
 
-export const validateScriptSyntax = (code: string, isModifierScript = false, hookCode?: string): ValidationResult => {
+type AstNode = { type: string; start: number; end: number; loc?: { start: { line: number; column: number } }; [k: string]: unknown };
+
+/** Depth-first walk over every node (with its parent) in an acorn AST. */
+function walkAst(node: unknown, visit: (n: AstNode, parent: AstNode | null) => void, parent: AstNode | null = null): void {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const child of node) walkAst(child, visit, parent);
+    return;
+  }
+  const n = node as AstNode;
+  if (typeof n.type !== 'string') return;
+  visit(n, parent);
+  for (const key in n) {
+    if (key === 'loc' || key === 'start' || key === 'end' || key === 'type') continue;
+    walkAst(n[key], visit, n);
+  }
+}
+
+/** Every name a script binds: declarations, functions, classes, parameters, catch params. */
+function boundNames(ast: AstNode): Set<string> {
+  const names = new Set<string>();
+  const addPattern = (p: unknown) => {
+    if (!p || typeof p !== 'object') return;
+    const n = p as AstNode;
+    if (n.type === 'Identifier') names.add(n.name as string);
+    else if (n.type === 'ObjectPattern') (n.properties as AstNode[]).forEach(pr => addPattern(pr.type === 'RestElement' ? pr.argument : pr.value));
+    else if (n.type === 'ArrayPattern') (n.elements as AstNode[]).forEach(addPattern);
+    else if (n.type === 'AssignmentPattern') addPattern(n.left);
+    else if (n.type === 'RestElement') addPattern(n.argument);
+  };
+  walkAst(ast, n => {
+    if (n.type === 'VariableDeclarator') addPattern(n.id);
+    else if (n.type === 'FunctionDeclaration' || n.type === 'FunctionExpression' || n.type === 'ArrowFunctionExpression') {
+      if (n.id) addPattern(n.id);
+      (n.params as AstNode[]).forEach(addPattern);
+    } else if (n.type === 'ClassDeclaration' && n.id) addPattern(n.id);
+    else if (n.type === 'CatchClause' && n.param) addPattern(n.param);
+  });
+  return names;
+}
+
+/**
+ * Check a script. Errors come from the parser (the code can't run); warnings
+ * from walking the parsed syntax tree, so text inside strings and comments can
+ * never trigger them and every position is exact.
+ *
+ * `knownNames` are names defined elsewhere (the Library, for a hook) so the
+ * typo check doesn't flag them.
+ */
+export const validateScriptSyntax = (
+  code: string, isModifierScript = false, _hookCode?: string, knownNames: Iterable<string> = [],
+): ValidationResult => {
   const errors: ValidationError[] = [];
   const warnings: ValidationError[] = [];
   const lines = code.split('\n');
@@ -598,129 +788,103 @@ export const validateScriptSyntax = (code: string, isModifierScript = false, hoo
   // The JS engine (or the runtime error path) is the source of truth for
   // actual redeclaration failures, so we no longer pre-emptively flag them.
 
-  // ============ COMMON TYPOS & PATTERNS ============
-  const checkCommonErrors = () => {
-    lines.forEach((line, idx) => {
-      const lineNum = idx + 1;
+  const syntaxError = diagnoseSyntax(code);
+  if (syntaxError) errors.push(syntaxError);
 
-      // Assignment in condition
-      const assignMatch = line.match(/\bif\s*\(\s*\w+\s*=\s*[^=]/);
-      if (assignMatch) {
-        const column = line.indexOf(assignMatch[0]) + assignMatch[0].indexOf('=') + 1;
-        warnings.push({
-          type: 'ASSIGNMENT_IN_CONDITION',
-          message: `Using assignment (=) instead of comparison (===)`,
-          line: lineNum,
-          column,
-          severity: 'warning',
-          codeSnippet: line,
-          context: getContextWithCaret(code, lineNum, column)
-        });
-      }
-
-      // Loose equality
-      const looseEqMatch = line.match(/[^=!<>]==[^=]/);
-      if (looseEqMatch && !line.includes('===')) {
-        const column = line.indexOf(looseEqMatch[0]) + 1;
-        warnings.push({
-          type: 'LOOSE_EQUALITY',
-          message: `Using loose equality (==) - consider === instead`,
-          line: lineNum,
-          column,
-          severity: 'warning',
-          codeSnippet: line,
-          context: getContextWithCaret(code, lineNum, column)
-        });
-      }
-
-      // for...in on arrays
-      if (/for\s*\(\s*(?:let|const|var)\s+\w+\s+in\s+/.test(line)) {
-        const column = line.indexOf('for');
-        warnings.push({
-          type: 'LOOP_PATTERN',
-          message: `Using for...in - consider for...of for arrays`,
-          line: lineNum,
-          column,
-          severity: 'warning',
-          codeSnippet: line,
-          context: getContextWithCaret(code, lineNum, column)
-        });
-      }
+  // Offsets → 1-based line/column.
+  const lineStarts = [0];
+  for (let i = 0; i < code.length; i++) if (code[i] === '\n') lineStarts.push(i + 1);
+  const at = (offset: number) => {
+    let lo = 0, hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= offset) lo = mid; else hi = mid - 1;
+    }
+    return { line: lo + 1, column: offset - lineStarts[lo] + 1 };
+  };
+  const warn = (type: string, message: string, offset: number) => {
+    const { line, column } = at(offset);
+    warnings.push({
+      type, message, line, column, severity: 'warning',
+      codeSnippet: lines[line - 1] ?? '',
+      context: getContextWithCaret(code, line, column),
     });
   };
 
-  // ============ AID SCRIPTING API VALIDATION ============
-  // Flag member access on globals that don't exist in the documented AID API,
-  // and warn when a modifier script never returns an object with `text`.
-  const checkAidApi = () => {
-    // Collect identifiers the user declared locally so we don't flag their own
-    // variables/functions as "undocumented globals".
-    const declared = new Set<string>();
-    const declRe = /\b(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g;
-    let dm: RegExpExecArray | null;
-    while ((dm = declRe.exec(code)) !== null) declared.add(dm[1]);
+  let ast: AstNode | null = null;
+  if (!syntaxError) {
+    try {
+      ast = acornParse(code, ACORN_OPTIONS) as unknown as AstNode;
+    } catch {
+      ast = null;
+    }
+  }
 
-    const allowed = new Set(AID_GLOBALS);
-    // A member expression like `foo.bar` where `foo` looks like a top-level
-    // global (not declared locally, not an allowed global) → likely a typo of a
-    // real AID global (e.g. `stat.x` instead of `state.x`).
-    const memberRe = /(?<![.\w$])([A-Za-z_$][\w$]*)\s*\./g;
-    lines.forEach((line, idx) => {
-      // Skip comment lines cheaply.
-      const trimmed = line.trim();
-      if (trimmed.startsWith('//') || trimmed.startsWith('*')) return;
-      let m: RegExpExecArray | null;
-      memberRe.lastIndex = 0;
-      while ((m = memberRe.exec(line)) !== null) {
-        const ident = m[1];
-        // Only flag identifiers that resemble the real globals (lowercase-ish,
-        // single word) but aren't recognized or declared.
-        if (allowed.has(ident) || declared.has(ident)) continue;
-        // Ignore obviously-JS builtins/objects to avoid noise.
-        if (['this', 'Math', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'RegExp', 'console', 'window', 'globalThis'].includes(ident)) continue;
-        // Heuristic: only warn for identifiers close to a known global name
-        // (edit-distance 1) so we catch typos without flagging unrelated locals.
-        const near = AID_GLOBALS.find(g => isEditDistanceOne(g, ident));
-        if (near) {
-          const column = m.index + 1;
-          warnings.push({
-            type: 'UNDOCUMENTED_API',
-            message: `"${ident}" is not a documented AID global — did you mean "${near}"?`,
-            line: idx + 1,
-            column,
-            severity: 'warning',
-            codeSnippet: line,
-            context: getContextWithCaret(code, idx + 1, column)
-          });
+  if (ast) {
+    const declared = boundNames(ast);
+    for (const k of knownNames) declared.add(k);
+    const builtins = new Set(['this', 'Math', 'JSON', 'Object', 'Array', 'String', 'Number', 'Boolean', 'Date', 'RegExp', 'console', 'window', 'globalThis', 'Promise', 'Map', 'Set']);
+
+    walkAst(ast, (n) => {
+      // Assignment used as a condition: `if (hp = 0)` always runs the branch
+      // and overwrites hp. Double parentheses `if ((m = re.exec(s)))` are the
+      // conventional way to say it's intended, so those are left alone.
+      if ((n.type === 'IfStatement' || n.type === 'WhileStatement' || n.type === 'DoWhileStatement' || n.type === 'ForStatement')) {
+        const test = n.test as AstNode | null;
+        if (test && test.type === 'AssignmentExpression' && test.operator === '=' && code.slice(test.start - 2, test.start) !== '((') {
+          const eq = code.indexOf('=', (test.left as AstNode).end);
+          warn('ASSIGNMENT_IN_CONDITION', 'This sets a value (=) instead of comparing (===), so the condition is always the new value. Use === to compare.', eq >= 0 ? eq : test.start);
+        }
+      }
+      // Loose equality: `"1" == 1` is true. `x == null` (null or undefined) is a common, deliberate idiom.
+      if (n.type === 'BinaryExpression' && (n.operator === '==' || n.operator === '!=')) {
+        const l = n.left as AstNode, r = n.right as AstNode;
+        const isNull = (x: AstNode) => x.type === 'Literal' && x.value === null;
+        if (!isNull(l) && !isNull(r)) {
+          const op = code.indexOf(n.operator as string, l.end);
+          warn('LOOSE_EQUALITY', `${n.operator} converts types before comparing ("1" == 1 is true). Use ${n.operator}= to compare exactly.`, op >= 0 ? op : n.start);
+        }
+      }
+      // for…in walks the *keys* of an object as strings — on an array that's
+      // "0", "1", …, not the items.
+      if (n.type === 'ForInStatement') {
+        warn('LOOP_PATTERN', 'for…in loops over keys (as strings). To loop over the items of a list, use for…of.', n.start);
+      }
+      // A near-miss of an AID global used as an object: `stat.hp`, `Text.includes`.
+      if (n.type === 'MemberExpression') {
+        const obj = n.object as AstNode;
+        if (obj.type === 'Identifier') {
+          const ident = obj.name as string;
+          if (!declared.has(ident) && !builtins.has(ident) && !AID_GLOBALS.includes(ident)) {
+            const near = AID_GLOBALS.find(g => isEditDistanceOne(g, ident));
+            if (near) warn('UNDOCUMENTED_API', `"${ident}" is not defined anywhere — did you mean "${near}"?`, obj.start);
+          }
         }
       }
     });
 
-    // Modifier scripts should return an object containing `text`.
-    if (isModifierScript && !/return\s*{[^}]*\btext\b/.test(code) && !/modifier\s*\(/.test(code)) {
-      warnings.push({
-        type: 'MISSING_RETURN',
-        message: `Modifier scripts should return an object with a "text" property (e.g. "return { text };").`,
-        line: lines.length,
-        column: 1,
-        severity: 'warning',
-        codeSnippet: lines[lines.length - 1] || '',
-        context: ''
+    // Modifier scripts should hand text back: `return { text }` (or a string).
+    if (isModifierScript) {
+      let returns = false;
+      // An arrow with an expression body — `(text) => ({ text })` — returns implicitly.
+      walkAst(ast, n => {
+        if (n.type === 'ReturnStatement' || (n.type === 'ArrowFunctionExpression' && n.expression === true)) returns = true;
       });
+      if (!returns) {
+        warnings.push({
+          type: 'MISSING_RETURN',
+          message: 'This hook never returns anything. AID expects the modifier to end with "return { text };" — without it, the text passes through unchanged.',
+          line: lines.length, column: 1, severity: 'warning',
+          codeSnippet: lines[lines.length - 1] || '', context: '',
+        });
+      }
     }
-  };
-
-  const syntaxError = diagnoseSyntax(code);
-  if (syntaxError) errors.push(syntaxError);
-
-  // Semantic checks run regardless — they don't depend on the code parsing.
-  checkCommonErrors();
-  checkAidApi();
+  }
 
   return {
     valid: errors.length === 0,
     errors: errors.sort((a, b) => a.line - b.line),
-    warnings: warnings.sort((a, b) => a.line - b.line)
+    warnings: warnings.sort((a, b) => a.line - b.line || a.column - b.column),
   };
 };
 

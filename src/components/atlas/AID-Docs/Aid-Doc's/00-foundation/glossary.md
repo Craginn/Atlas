@@ -52,7 +52,7 @@ Context components with flexible allocation: Story Cards, History, and Memory Ba
 ## E
 
 ### Entry
-The main content field of a Story Card. Contains the information sent to the AI when the card is triggered. Prefaced with "World Lore:" in context. See [Card Anatomy](../04-story-cards/card-anatomy.md).
+The main content field of a Story Card. Contains the information sent to the AI when the card is triggered. In context, triggered entries appear under a single "World Lore:" header, separated by blank lines. See [Card Anatomy](../04-story-cards/card-anatomy.md).
 
 ## F
 
