@@ -51,6 +51,17 @@ semantics, standard library, normal tooling) — only for AID-platform specifics
   them. (A script that updates an existing card — e.g. `updateStoryCard` / a
   `> setting: value` write — relies on this to show up.)
 
+## App shell (Electron)
+
+- The app is an Electron desktop app. `electron/main.mjs` is the main process;
+  Vite only bundles the React renderer (`npm run dev` = Vite dev server + Electron
+  via `scripts/dev.mjs`; `npm run dist` = Windows installer via electron-builder).
+- The renderer is sandboxed (no Node). Its only host API is `window.atlasDesktop`
+  from `electron/preload.cjs`, used by `src/services/terminal/shellClient.ts` for
+  the in-app terminal; shell sessions live in `electron/shell.mjs`.
+- Renderer packages are `devDependencies` on purpose (Vite bundles them); only
+  runtime deps of the main process belong in `dependencies`.
+
 ## Testing
 
 - Tests use Vitest (`npx vitest run <path>`). Pipeline tests mock

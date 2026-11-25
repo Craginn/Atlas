@@ -99,3 +99,9 @@ Thumbs.db
 
 # REST API local data (per-project JSON store)
 data/
+
+# Electron packaging output
+release/
+
+# VS Code Local History extension
+.history/

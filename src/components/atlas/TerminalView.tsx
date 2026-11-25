@@ -6,13 +6,19 @@ import '@xterm/xterm/css/xterm.css';
 import { Script, WorldState, KnowledgeBase } from '@/types';
 import { dispatch } from '@/services/terminal/dispatch';
 import { CommandContext, OutputLine } from '@/services/terminal/types';
-import { isShellAvailable, runShellViaBridge } from '@/services/terminal/shellClient';
+import {
+  isShellAvailable,
+  openShellSession,
+  runShellViaBridge,
+  ShellMessage,
+  ShellSession,
+} from '@/services/terminal/shellClient';
 import { startTask, appendTaskLine, finishTask } from '@/services/terminal/tasks';
 import TaskPanel from './TaskPanel';
 
 // The in-app terminal.
 //
-// A real shell session over a WebSocket, rendered by xterm.js. Keystrokes go
+// A real shell session from the desktop host, rendered by xterm.js. Keystrokes go
 // straight to the shell and its bytes come straight back, so ANSI colour,
 // cursor movement and full-screen redraws all work — which is what lets an
 // interactive CLI run in here at all.
@@ -72,7 +78,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const sessionRef = useRef<ShellSession | null>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [mode, setMode] = useState<'pty' | 'pipe' | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -97,8 +103,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({
     setKnowledgeBase: next => setKnowledgeBase(next),
     runSimulation,
 
-    // Plain shell input goes to the socket session, not here — this is only for
-    // Atlas commands that shell out, which use the one-shot HTTP bridge so
+    // Plain shell input goes to the interactive session, not here — this is only for
+    // Atlas commands that shell out, which use the one-shot command bridge so
     // their output can be captured rather than painted onto the terminal.
     runShell: isShellAvailable() ? runShellViaBridge : undefined,
 
@@ -151,9 +157,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({
     if (!isShellAvailable()) {
       setStatus('unavailable');
       writeLines(term, [
-        { kind: 'err', text: 'No shell bridge running.' },
-        { kind: 'info', text: 'Start the dev server with ATLAS_ENABLE_SHELL=1 to enable it,' },
-        { kind: 'info', text: 'or use `npm run cli` for a terminal with direct shell access.' },
+        { kind: 'err', text: 'No shell available.' },
+        { kind: 'info', text: 'Run Atlas as the desktop app (npm run dev / npm start) to get a shell,' },
+        { kind: 'info', text: 'unless it was started with ATLAS_ENABLE_SHELL=0.' },
         { kind: 'info', text: '' },
         { kind: 'info', text: 'Atlas commands still work here — try /help.' },
       ]);
@@ -164,9 +170,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({
     // the wrong dimensions.
     const onResize = () => {
       fit.fit();
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      const session = sessionRef.current;
+      if (session) {
+        session.resize(term.cols, term.rows);
       }
     };
     window.addEventListener('resize', onResize);
@@ -183,35 +189,17 @@ const TerminalView: React.FC<TerminalViewProps> = ({
     };
   }, [writeLines]);
 
-  // ------------------------------------------------------------ socket
+  // ------------------------------------------------------------ shell session
 
   useEffect(() => {
     const term = termRef.current;
     if (!term || !isShellAvailable()) return;
 
     setStatus('connecting');
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // A deployed server requires a token and scopes the shell to a per-user
-    // workspace. Both are absent in local dev, where the server exempts
-    // loopback callers and uses its own cwd.
-    const params = new URLSearchParams();
-    const token = localStorage.getItem('atlas.shell.token');
-    if (token) params.set('token', token);
-    const uid = localStorage.getItem('atlas.shell.uid');
-    if (uid) params.set('uid', uid);
-    const query = params.toString();
-    const socket = new WebSocket(
-      `${proto}//${location.host}/api/shell-socket${query ? `?${query}` : ''}`,
-    );
-    socketRef.current = socket;
+    let cancelled = false;
+    let session: ShellSession | null = null;
 
-    socket.onopen = () => {
-      setStatus('open');
-      socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-    };
-
-    socket.onmessage = event => {
-      const msg = JSON.parse(event.data);
+    const onMessage = (msg: ShellMessage) => {
       if (msg.type === 'data') {
         term.write(msg.data);
       } else if (msg.type === 'ready') {
@@ -220,16 +208,31 @@ const TerminalView: React.FC<TerminalViewProps> = ({
         writeLines(term, [{ kind: 'info', text: msg.text }]);
       } else if (msg.type === 'exit') {
         writeLines(term, [{ kind: 'info', text: `\n[shell exited ${msg.exitCode}]` }]);
+        sessionRef.current = null;
         setStatus('closed');
       }
     };
 
-    socket.onerror = () => setStatus('closed');
-    socket.onclose = () => setStatus(s => (s === 'unavailable' ? s : 'closed'));
+    openShellSession(term.cols, term.rows, onMessage).then(
+      s => {
+        if (cancelled) {
+          s.close();
+          return;
+        }
+        session = s;
+        sessionRef.current = s;
+        setStatus('open');
+      },
+      e => {
+        writeLines(term, [{ kind: 'err', text: e instanceof Error ? e.message : String(e) }]);
+        setStatus('closed');
+      },
+    );
 
     return () => {
-      socket.close();
-      socketRef.current = null;
+      cancelled = true;
+      session?.close();
+      sessionRef.current = null;
     };
   }, [generation, writeLines]);
 
@@ -253,11 +256,11 @@ const TerminalView: React.FC<TerminalViewProps> = ({
         ]);
       } finally {
         atlasBusyRef.current = false;
-        const socket = socketRef.current;
-        if (socket?.readyState === WebSocket.OPEN) {
+        const session = sessionRef.current;
+        if (session) {
           // Nudge the shell to redraw its prompt, so the screen doesn't look
           // stuck after Atlas output.
-          socket.send(JSON.stringify({ type: 'input', data: '\n' }));
+          session.write('\n');
         } else {
           term.write('\x1b[35m$\x1b[0m ');
         }
@@ -267,8 +270,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({
     const disposable = term.onData(data => {
       if (atlasBusyRef.current) return;
 
-      const socket = socketRef.current;
-      const connected = socket?.readyState === WebSocket.OPEN;
+      const session = sessionRef.current;
+      const connected = session !== null;
 
       // Atlas commands are intercepted, so the line has to be tracked locally
       // to know what was typed. Everything else is forwarded raw and the shell
@@ -280,7 +283,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({
         if (line.trim().startsWith('/') && !line.trim().slice(1).split(/\s/)[0].includes('/')) {
           if (connected) {
             // Clear what the shell echoed; Atlas is answering this one.
-            socket!.send(JSON.stringify({ type: 'input', data: '\x15' }));
+            session!.write('\x15');
           }
           void runAtlasCommand(line);
           return;
@@ -292,7 +295,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({
       }
 
       if (connected) {
-        socket!.send(JSON.stringify({ type: 'input', data }));
+        session!.write(data);
         return;
       }
 
@@ -337,7 +340,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({
           {mode === 'pipe' && (
             <span
               className="flex items-center gap-1 text-amber-400/80"
-              title="node-pty is not installed, so interactive programs will not work"
+              title="node-pty did not load, so interactive programs will not work"
             >
               <AlertTriangle size={11} /> no pty
             </span>
