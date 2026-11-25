@@ -31,7 +31,7 @@ export const SuggestionsPanel: React.FC<{
   onClose: () => void;
 }> = ({ suggestions, scriptName, onAdd, onFocus, onClose }) => (
   <Panel
-    title={<><Lightbulb size={11} className="text-yellow-300" /><span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Suggestions</span></>}
+    title={<><Lightbulb size={11} className="text-yellow-300" /><span className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Suggestions</span></>}
     onClose={onClose}
   >
     <p className="text-zinc-500 leading-snug">
@@ -56,12 +56,12 @@ export const SuggestionsPanel: React.FC<{
           <p className="mt-1 text-zinc-400 leading-snug"><span className="text-zinc-500">Why: </span><RichText text={s.why} /></p>
           <div className="mt-2 flex gap-2">
             {s.add && (
-              <button onClick={() => onAdd(s)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 text-[10px] font-semibold">
+              <button onClick={() => onAdd(s)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 text-[11px] font-semibold">
                 <Plus size={11} /> Add it
               </button>
             )}
             {s.focusBlockId && (
-              <button onClick={() => onFocus(s.focusBlockId!)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-700/40 text-zinc-200 hover:bg-zinc-700/70 text-[10px] font-semibold">
+              <button onClick={() => onFocus(s.focusBlockId!)} className="flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-700/40 text-zinc-200 hover:bg-zinc-700/70 text-[11px] font-semibold">
                 <Crosshair size={11} /> Show me
               </button>
             )}
@@ -79,9 +79,9 @@ const show = (v: unknown) => (v === undefined ? '—' : typeof v === 'string' ? 
 const StateChanges: React.FC<{ changes: Delta[] }> = ({ changes }) =>
   changes.length === 0 ? null : (
     <div className="rounded border border-sky-500/30 bg-sky-500/5 p-2 space-y-1">
-      <div className="text-[9px] font-black uppercase tracking-widest text-sky-300">Saved values changed ({changes.length})</div>
+      <div className="text-[10px] font-black uppercase tracking-widest text-sky-300">Saved values changed ({changes.length})</div>
       {changes.slice(0, 50).map((d, i) => (
-        <div key={i} className="font-mono text-[10px] leading-snug break-words">
+        <div key={i} className="font-mono text-[11px] leading-snug break-words">
           <span className="text-sky-200">state.{d.path}</span>{' '}
           {d.type === 'added' ? <span className="text-emerald-300">= {show(d.to)}</span>
             : d.type === 'removed' ? <span className="text-red-300">removed (was {show(d.from)})</span>
@@ -94,14 +94,14 @@ const StateChanges: React.FC<{ changes: Delta[] }> = ({ changes }) =>
 
 const CardChanges: React.FC<{ cards: StoryCardChanges; onApply: () => void; applied: boolean }> = ({ cards, onApply, applied }) => (
   <div className="rounded border border-cyan-500/30 bg-cyan-500/5 p-2 space-y-1.5">
-    <div className="text-[9px] font-black uppercase tracking-widest text-cyan-300">Story Cards</div>
+    <div className="text-[10px] font-black uppercase tracking-widest text-cyan-300">Story Cards</div>
     {(['added', 'updated', 'removed'] as const).map(kind => {
       const list = cards[kind];
       if (!list.length) return null;
       const tint = kind === 'added' ? 'text-emerald-300' : kind === 'removed' ? 'text-red-300' : 'text-amber-300';
       return (
         <div key={kind}>
-          <div className={`text-[9px] uppercase tracking-wider ${tint}`}>{kind} · {list.length}</div>
+          <div className={`text-[10px] uppercase tracking-wider ${tint}`}>{kind} · {list.length}</div>
           {list.map(c => (
             <div key={c.id} className="text-zinc-300 leading-snug break-words pl-1.5">
               {c.title || c.keys || '(untitled)'}
@@ -114,7 +114,7 @@ const CardChanges: React.FC<{ cards: StoryCardChanges; onApply: () => void; appl
     <button
       onClick={onApply}
       disabled={applied}
-      className="w-full mt-1 px-2 py-1 rounded text-[10px] font-semibold bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 disabled:opacity-50"
+      className="w-full mt-1 px-2 py-1 rounded text-[11px] font-semibold bg-cyan-500/15 text-cyan-200 hover:bg-cyan-500/25 disabled:opacity-50"
     >
       {applied ? 'Applied to Story Cards' : 'Apply these changes'}
     </button>
@@ -124,8 +124,8 @@ const CardChanges: React.FC<{ cards: StoryCardChanges; onApply: () => void; appl
 const Logs: React.FC<{ logs: string[] }> = ({ logs }) =>
   logs.length === 0 ? null : (
     <div className="rounded border border-zinc-800 bg-black/40 p-2 space-y-0.5">
-      <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Log</div>
-      {logs.map((l, i) => <div key={i} className="font-mono text-[10px] text-zinc-300 whitespace-pre-wrap break-words">{l}</div>)}
+      <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Log</div>
+      {logs.map((l, i) => <div key={i} className="font-mono text-[11px] text-zinc-300 whitespace-pre-wrap break-words">{l}</div>)}
     </div>
   );
 
@@ -145,8 +145,8 @@ export const RunConsole: React.FC<{
     <Panel
       title={<>
         <Terminal size={11} className="text-emerald-400" />
-        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Run console</span>
-        {!running && ms !== undefined && <span className="text-[9px] font-mono text-zinc-600 tabular-nums">{ms}ms</span>}
+        <span className="text-[11px] font-black uppercase tracking-widest text-zinc-500">Run console</span>
+        {!running && ms !== undefined && <span className="text-[10px] font-mono text-zinc-600 tabular-nums">{ms}ms</span>}
       </>}
       onClose={onClose}
     >
@@ -167,10 +167,10 @@ export const RunConsole: React.FC<{
           {hook && !hook.error && (
             <>
               <div className="rounded border border-zinc-700/60 bg-zinc-900/40 p-2 space-y-1">
-                <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Text in</div>
-                <div className="font-mono text-[10px] text-zinc-300 whitespace-pre-wrap break-words">{hook.textIn || <i className="text-zinc-600">(empty)</i>}</div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Text in</div>
+                <div className="font-mono text-[11px] text-zinc-300 whitespace-pre-wrap break-words">{hook.textIn || <i className="text-zinc-600">(empty)</i>}</div>
                 <ArrowDown size={11} className="text-zinc-600" />
-                <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
+                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
                   Text out {hook.stopped && <span className="text-amber-300 normal-case tracking-normal">— and stopped the AI</span>}
                 </div>
                 {hook.hook === 'Library' ? (
@@ -180,7 +180,7 @@ export const RunConsole: React.FC<{
                 ) : hook.textOut === hook.textIn ? (
                   <div className="text-zinc-400 italic">Unchanged.</div>
                 ) : (
-                  <div className="font-mono text-[10px] text-emerald-200 whitespace-pre-wrap break-words">{hook.textOut}</div>
+                  <div className="font-mono text-[11px] text-emerald-200 whitespace-pre-wrap break-words">{hook.textOut}</div>
                 )}
               </div>
               {hook.message && (
@@ -209,19 +209,19 @@ export const RunConsole: React.FC<{
               )}
               {selection.result != null && (
                 <div className="rounded border border-zinc-800 bg-black/40 p-2">
-                  <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 mb-1">Returned</div>
-                  <pre className="text-emerald-300/90 whitespace-pre-wrap break-words font-mono text-[10px]">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 mb-1">Returned</div>
+                  <pre className="text-emerald-300/90 whitespace-pre-wrap break-words font-mono text-[11px]">
                     {typeof selection.result === 'string' ? selection.result : JSON.stringify(selection.result, null, 2)}
                   </pre>
                 </div>
               )}
               <details className="pt-1">
-                <summary className="text-[9px] font-black uppercase tracking-widest text-zinc-600 cursor-pointer hover:text-zinc-400">Code that ran</summary>
-                <pre className="mt-1 text-zinc-500 whitespace-pre-wrap break-words leading-snug font-mono text-[10px]">{selection.code}</pre>
+                <summary className="text-[10px] font-black uppercase tracking-widest text-zinc-600 cursor-pointer hover:text-zinc-400">Code that ran</summary>
+                <pre className="mt-1 text-zinc-500 whitespace-pre-wrap break-words leading-snug font-mono text-[11px]">{selection.code}</pre>
               </details>
             </>
           )}
-          <p className="text-[9px] text-zinc-700 pt-1 border-t border-zinc-800/50 leading-relaxed">
+          <p className="text-[10px] text-zinc-700 pt-1 border-t border-zinc-800/50 leading-relaxed">
             Test run — nothing was saved; world state is untouched{(hook?.storyCards || selection?.storyCards) && !applied ? ', and story cards change only if you apply them' : ''}.
           </p>
         </>

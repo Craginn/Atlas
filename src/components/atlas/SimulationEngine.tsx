@@ -4,6 +4,7 @@ import Director, { DirectorAction } from './Director';
 import HeimdallPanel from './HeimdallPanel';
 import { LastSimData, SentinelReport } from '@/types';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { usePersistentState } from '@/hooks/use-persistent-state';
 import type { Problem } from '@/services/errors/problems';
 import type { GoTo } from './ProblemCard';
 
@@ -22,14 +23,19 @@ interface SimulationEngineProps {
   /** The last run's problems, explained and located. */
   problems?: Problem[];
   onGoTo?: GoTo;
+  /** Turns played so far. */
+  turn?: number;
+  onNewAdventure?: () => void;
 }
 
 const SimulationEngine: React.FC<SimulationEngineProps> = ({
-  onExecute, isProcessing, lastResult, report, input, setInput, problems = [], onGoTo,
+  onExecute, isProcessing, lastResult, report, input, setInput, problems = [], onGoTo, turn, onNewAdventure,
 }) => {
-  const [context, setContext] = useState('');
-  const [output, setOutput] = useState('');
-  const [opening, setOpening] = useState('');
+  // Kept across view switches and restarts — these were wiped every time you
+  // left the Simulation Engine and came back.
+  const [context, setContext] = usePersistentState('atlas.director.memories', '');
+  const [output, setOutput] = usePersistentState('atlas.director.aiReply', '');
+  const [opening, setOpening] = usePersistentState('atlas.director.opening', '');
   const isMobile = useIsMobile();
   const [logsCollapsed, setLogsCollapsed] = useState(false);
   const hasIssue = Boolean(lastResult?.executionError) || (lastResult?.scriptErrors?.length ?? 0) > 0;
@@ -48,6 +54,8 @@ const SimulationEngine: React.FC<SimulationEngineProps> = ({
     setInput, setContext, setOutput,
     setOpening,
     misdirectedAnswer,
+    turn,
+    onNewAdventure,
   };
 
   if (isMobile) {

@@ -13,11 +13,15 @@ const base = {
 };
 
 describe('Director Output box', () => {
-  it('keeps the original order and appends Output last', () => {
+  it('lays the turn out as numbered steps, in the order it runs', () => {
     render(<Director {...base} result="" />);
-    const labels = screen.getAllByText(/^(Input|Context|AI Call|Output)$/).map(n => n.textContent);
-    console.log('ORDER ->', labels);
-    expect(labels).toEqual(['Input', 'Context', 'AI Call', 'Output']);
+    const titles = screen.getAllByRole('heading', { level: 3 }).map(n => n.textContent);
+    expect(titles).toEqual(['What the player does', 'Memories (optional)', "The AI's reply", 'What the player sees']);
+  });
+
+  it('previews exactly what the scripts will receive', () => {
+    render(<Director {...base} result="" input="pick up the sword" />);
+    expect(screen.getByText('> You pick up the sword.')).toBeTruthy();
   });
 
   it('shows the run result', () => {
@@ -29,8 +33,9 @@ describe('Director Output box', () => {
   it('shows a placeholder before any run, and is not an editable field', () => {
     render(<Director {...base} result="" />);
     expect(screen.getByText(/Sent to the player after the Output hook runs/)).toBeTruthy();
-    // Opening + the three input boxes are textareas — Output must not be one.
-    expect(screen.getAllByRole('textbox')).toHaveLength(4);
+    // Input + AI reply are the visible textareas (Opening and Memories fold
+    // away until used) — Output must not be one.
+    expect(screen.getAllByRole('textbox')).toHaveLength(2);
   });
 });
 
@@ -41,29 +46,29 @@ describe('Director Opening box', () => {
   it('sends the Opening as the action when Input is empty', () => {
     const onExecute = vi.fn();
     render(<Director {...base} onExecute={onExecute} result="" opening="RPG Engine Guide" output="k" />);
-    fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+    fireEvent.click(screen.getByRole('button', { name: /run turn/i }));
     expect(onExecute).toHaveBeenCalledWith('RPG Engine Guide', '', 'k', 'do');
   });
 
   it('prefers Input over Opening when both have text', () => {
     const onExecute = vi.fn();
     render(<Director {...base} onExecute={onExecute} result="" input="elf" opening="RPG Engine Guide" />);
-    fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+    fireEvent.click(screen.getByRole('button', { name: /run turn/i }));
     expect(onExecute).toHaveBeenCalledWith('elf', '', '', 'do');
   });
 
   it('says which of the two it will send', () => {
     const { unmount } = render(<Director {...base} result="" opening="RPG Engine Guide" />);
-    expect(screen.getByRole('button', { name: /execute \(opening\)/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /run turn \(opening\)/i })).toBeTruthy();
     unmount();
     render(<Director {...base} result="" input="elf" opening="RPG Engine Guide" />);
-    expect(screen.getByRole('button', { name: /^execute$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^run turn$/i })).toBeTruthy();
   });
 
   it('ignores a whitespace-only Input rather than sending it', () => {
     const onExecute = vi.fn();
     render(<Director {...base} onExecute={onExecute} result="" input="   " opening="RPG Engine Guide" />);
-    fireEvent.click(screen.getByRole('button', { name: /execute/i }));
+    fireEvent.click(screen.getByRole('button', { name: /run turn/i }));
     expect(onExecute).toHaveBeenCalledWith('RPG Engine Guide', '', '', 'do');
   });
 
@@ -72,13 +77,13 @@ describe('Director Opening box', () => {
     render(<Director {...base} onExecute={onExecute} result="" input="elf" opening="RPG Engine Guide" />);
 
     fireEvent.click(screen.getByRole('button', { name: /^say$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /^execute$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^run turn$/i }));
     expect(onExecute).toHaveBeenLastCalledWith('elf', '', '', 'say');
 
     // The "Continue" kind toggle and the "Execute (Continue)" run button have
     // distinct names, so selecting Continue then running sends no action at all.
     fireEvent.click(screen.getByRole('button', { name: /^continue$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /execute \(continue\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /run turn \(continue\)/i }));
     expect(onExecute).toHaveBeenLastCalledWith('', '', '', 'continue');
   });
 });
@@ -87,7 +92,7 @@ describe('Director misdirected-answer warning', () => {
   it('names the mix-up when the answer went into AI Call instead of Input', () => {
     render(<Director {...base} result="Invalid option. Choose: human, elf, dwarf" misdirectedAnswer />);
     expect(screen.getByText(/No action was sent/)).toBeTruthy();
-    expect(screen.getByText(/Put the action in/i)).toBeTruthy();
+    expect(screen.getByText(/Put\s+the action in/i)).toBeTruthy();
   });
 
   it('stays quiet on a normal run', () => {

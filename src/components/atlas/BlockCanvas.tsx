@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Blocks, Plus, Search, ZoomIn, ZoomOut, Maximize2, AlertTriangle, Code2, X,
   Play, Terminal, Eraser, ChevronUp, ChevronDown, Zap, Lightbulb, List,
@@ -65,6 +65,9 @@ const ROW_GAP = 92;
 
 /** Space between auto-stacked root blocks on the canvas. */
 const STACK_GAP = 16;
+
+/** Height assumed for a root block until it has been measured. */
+const ESTIMATED_ROOT_HEIGHT = 120;
 
 /** Zoom bounds, shared by the buttons, the wheel and the pinch gesture. */
 const MIN_ZOOM = 0.3;
@@ -171,6 +174,15 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
     | { mode: 'block'; id: string; startX: number; startY: number; origin: { x: number; y: number } }
     | null
   >(null);
+  /**
+   * The root being dragged, drawn at the pointer. Only the floating copy moves
+   * while dragging; the block takes its new place in the order on release.
+   */
+  const [dragPos, setDragPos] = useState<{ id: string; x: number; y: number } | null>(null);
+  const dragPosRef = useRef(dragPos);
+  dragPosRef.current = dragPos;
+  /** Set further down, once the stacked layout exists; read by the drag effect on release. */
+  const dropRootRef = useRef<(id: string, y: number) => void>(() => {});
   /** Live two-finger zoom. Held separately so a pinch can't be half a drag. */
   const pinchState = useRef<
     | {
@@ -359,18 +371,17 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
       if (d.mode === 'pan') {
         setPan({ x: d.origin.x + dx * zoom, y: d.origin.y + dy * zoom });
       } else {
-        setProgram(p => ({
-          ...p,
-          roots: p.roots.map(r =>
-            r.id === d.id ? { ...r, pos: { x: d.origin.x + dx, y: d.origin.y + dy } } : r,
-          ),
-        }));
+        setDragPos({ id: d.id, x: d.origin.x + dx, y: d.origin.y + dy });
       }
     };
     const endDrag = () => {
-      // Reordering by drag changes execution order, so re-emit on release
-      // rather than on every move event.
-      if (dragState.current?.mode === 'block') commit(program);
+      // Reordering by drag changes execution order, so it is committed once,
+      // on release, rather than on every move event.
+      if (dragState.current?.mode === 'block') {
+        const dp = dragPosRef.current;
+        if (dp) dropRootRef.current(dp.id, dp.y);
+        setDragPos(null);
+      }
       dragState.current = null;
     };
 
@@ -598,21 +609,51 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
   );
 
   /** Bring a block into view: show its root, open the path down to it, pan, flash. */
+  /**
+   * Expand the path down to a block — once. It is a real change to each block's
+   * `collapsed` flag (not an override at render time), so the arrows keep
+   * working afterwards: an earlier version pinned these blocks open, and
+   * clicking Collapse on them did nothing. `collapsed` isn't part of the code,
+   * so this doesn't touch the script.
+   */
+  const expandPathTo = useCallback((id: string) => {
+    setProgram(p => {
+      const path = new Set(ancestorIds(p.roots, id));
+      if (!path.size) return p;
+      let changed = false;
+      const open = (nodes: BlockNode[]): BlockNode[] => nodes.map(n => {
+        if (!path.has(n.id)) return n;
+        const slots: Record<string, BlockNode[]> = {};
+        for (const [k, list] of Object.entries(n.slots)) slots[k] = open(list);
+        if (n.collapsed) changed = true;
+        return { ...n, collapsed: false, slots };
+      });
+      const roots = open(p.roots);
+      return changed ? { ...p, roots } : p;
+    });
+  }, []);
+
   const focusBlock = useCallback((id: string) => {
     const root = rootOf(program.roots, id);
     if (!root) return;
     setShown(s => (s === 'all' || s.has(root.id) ? s : new Set([...s, root.id])));
+    expandPathTo(id);
     setFocusId(id);
-    if (!isCompact && root.pos) setPan({ x: 40 - root.pos.x * zoom, y: 24 - root.pos.y * zoom });
-  }, [program.roots, isCompact, zoom]);
+    setPanTo(root.id);
+  }, [program.roots, expandPathTo]);
 
-  // Paths to problem blocks and the focused block stay open.
-  const forceOpen = useMemo(() => {
-    const ids = new Set<string>();
-    for (const id of blockProblems.keys()) ancestorIds(program.roots, id).forEach(a => ids.add(a));
-    if (focusId) ancestorIds(program.roots, focusId).forEach(a => ids.add(a));
-    return ids;
-  }, [blockProblems, focusId, program.roots]);
+  // The focus ring is a brief "here it is", not a permanent state.
+  useEffect(() => {
+    if (!focusId) return;
+    const t = window.setTimeout(() => setFocusId(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [focusId]);
+
+  // Blocks with a problem open once when the problem appears; after that the
+  // arrows are the user's.
+  useEffect(() => {
+    for (const id of blockProblems.keys()) expandPathTo(id);
+  }, [blockProblems, expandPathTo]);
 
   // After a test run fails, point at the failing block.
   useEffect(() => {
@@ -651,50 +692,86 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
   const isShown = (id: string) => shown === 'all' || shown.has(id);
   const visibleRoots = program.roots.filter(r => isShown(r.id));
 
-  // ---------------------------------------------------------------- auto-stacking
-  // Roots stack top to bottom by their real rendered height, so an expanded
-  // block never sits on top of the next one. Order is untouched — vertical
-  // position *is* code order, and stacking keeps every root in its current
-  // order — so this never changes the generated code. Hidden roots take no
-  // space. A drag in progress is left alone; on release the dragged block
-  // settles into its new place in the column.
-  const rootEls = useRef(new Map<string, HTMLDivElement>());
-  const restack = useCallback(() => {
-    if (isCompact || dragState.current?.mode === 'block') return;
-    setProgram(p => {
-      const ordered = [...p.roots].sort(
-        (a, b) => (a.pos?.y ?? 0) - (b.pos?.y ?? 0) || (a.pos?.x ?? 0) - (b.pos?.x ?? 0),
-      );
-      const next = new Map<string, number>();
-      let y = 0;
-      for (const r of ordered) {
-        next.set(r.id, y);
-        const el = rootEls.current.get(r.id);
-        if (el) y += el.offsetHeight + STACK_GAP;
-      }
-      const moved = p.roots.some(r => Math.abs((r.pos?.y ?? 0) - (next.get(r.id) ?? 0)) > 1);
-      if (!moved) return p;
-      return { ...p, roots: p.roots.map(r => ({ ...r, pos: { x: r.pos?.x ?? 0, y: next.get(r.id) ?? 0 } })) };
-    });
-  }, [isCompact]);
-
-  // Re-stack after any render that could change sizes, and whenever a root resizes.
-  useLayoutEffect(() => { restack(); });
+  // ---------------------------------------------------------------- stacked layout
+  // Roots are drawn top to bottom in code order, each below the last by its
+  // real rendered height, so an expanded block never covers the next one.
+  //
+  // The layout is *computed during render* from measured heights. Heights are
+  // written only by the ResizeObserver callback — asynchronously, and only when
+  // one actually changed. (An earlier version wrote positions back into state
+  // from a layout effect; with a few hundred blocks the updates fed each other
+  // until React stopped with "Maximum update depth exceeded" and the app went
+  // blank.) `pos.y` stays purely an order key for code generation.
+  const [heights, setHeights] = useState<Record<string, number>>({});
   const resizeObserver = useMemo(
-    () => (typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => requestAnimationFrame(restack))),
-    [restack],
+    () => (typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+      setHeights(prev => {
+        let next = prev;
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const id = el.dataset.rootId;
+          if (!id) continue;
+          const h = Math.round(el.offsetHeight);
+          if (prev[id] !== h) {
+            if (next === prev) next = { ...prev };
+            next[id] = h;
+          }
+        }
+        return next;
+      });
+    })),
+    [],
   );
   useEffect(() => () => resizeObserver?.disconnect(), [resizeObserver]);
+  const rootEls = useRef(new Map<string, HTMLDivElement>());
   const registerRoot = useCallback((id: string, el: HTMLDivElement | null) => {
     const prev = rootEls.current.get(id);
     if (prev && prev !== el) resizeObserver?.unobserve(prev);
     if (el) {
+      if (prev !== el) resizeObserver?.observe(el);
       rootEls.current.set(id, el);
-      resizeObserver?.observe(el);
     } else {
       rootEls.current.delete(id);
     }
   }, [resizeObserver]);
+
+  /** Top of each visible root: stacked in code order by measured height. */
+  const stackedY = useMemo(() => {
+    const map = new Map<string, number>();
+    let y = 0;
+    for (const r of orderedRoots) {
+      if (!(shown === 'all' || shown.has(r.id))) continue;
+      map.set(r.id, y);
+      y += (heights[r.id] ?? ESTIMATED_ROOT_HEIGHT) + STACK_GAP;
+    }
+    return map;
+  }, [orderedRoots, shown, heights]);
+
+  /** Release a dragged root at canvas height `dropY`: move it to that place in the order. */
+  dropRootRef.current = (id: string, dropY: number) => {
+    const moving = orderedRoots.find(r => r.id === id);
+    if (!moving) return;
+    const rest = orderedRoots.filter(r => r.id !== id);
+    const visible = rest.filter(r => isShown(r.id));
+    // The first visible block whose middle is below the drop point goes after it.
+    const after = visible.find(r => (stackedY.get(r.id) ?? 0) + (heights[r.id] ?? ESTIMATED_ROOT_HEIGHT) / 2 > dropY);
+    const last = visible[visible.length - 1];
+    const index = after ? rest.indexOf(after) : last ? rest.indexOf(last) + 1 : rest.length;
+    const reordered = [...rest.slice(0, index), moving, ...rest.slice(index)];
+    if (reordered.every((r, i) => r.id === orderedRoots[i].id)) return; // dropped in place
+    commit({ ...program, roots: reordered.map((r, k) => ({ ...r, pos: { x: 0, y: k * ROW_GAP } })) });
+  };
+
+  // Pan to a block once it has a place in the layout (it may only just have
+  // been revealed from the outline).
+  const [panTo, setPanTo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!panTo || isCompact) return;
+    const y = stackedY.get(panTo);
+    if (y === undefined) return;
+    setPan({ x: 40, y: 24 - y * zoom });
+    setPanTo(null);
+  }, [panTo, stackedY, zoom, isCompact]);
 
   const filteredPalette = PALETTE.filter(
     p =>
@@ -709,7 +786,7 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
       <div className={`w-full ${showOutline ? 'md:w-60' : 'md:w-48'} shrink-0 border-b md:border-b-0 md:border-r border-zinc-800/50 flex flex-col min-h-0 md:max-h-none ${showOutline ? 'max-h-[45%]' : ''}`}>
         <div className="h-10 flex items-center px-3 gap-2 border-b border-zinc-800/50 shrink-0">
           <Blocks size={13} className="text-cyan-400" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Scripts</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Scripts</span>
           <button
             onClick={() => setShowOutline(v => !v)}
             className={`ml-auto p-1 rounded ${showOutline ? 'text-cyan-300' : 'text-zinc-500 hover:text-white'}`}
@@ -804,7 +881,7 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
 
           <div className="flex-1" />
           {program.parseError && (
-            <div className="flex items-center gap-1.5 text-[10px] text-amber-400" title={program.parseError.message}>
+            <div className="flex items-center gap-1.5 text-[11px] text-amber-400" title={program.parseError.message}>
               <AlertTriangle size={12} />
               <span className="hidden sm:inline">
                 Line {program.parseError.line}: shown as raw code
@@ -842,7 +919,7 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
             <button onClick={() => setZoom(z => clampZoom(z - 0.1))} aria-label="Zoom out" className="p-1 hover:text-white transition-colors">
               <ZoomOut size={13} />
             </button>
-            <span className="text-[10px] font-mono w-9 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+            <span className="text-[11px] font-mono w-9 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
             <button onClick={() => setZoom(z => clampZoom(z + 0.1))} aria-label="Zoom in" className="p-1 hover:text-white transition-colors">
               <ZoomIn size={13} />
             </button>
@@ -893,7 +970,6 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                     functionNames={functionNames}
                     problemFor={problemFor}
                     focusId={focusId}
-                    forceOpen={forceOpen}
                   />
                   {/* Drag is a mouse gesture; these buttons are the touch
                       equivalent for "this block runs before that one". */}
@@ -969,14 +1045,17 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                 <div
                   key={root.id}
                   ref={el => registerRoot(root.id, el)}
-                  className="absolute w-[560px]"
+                  data-root-id={root.id}
+                  className={`absolute w-[560px] ${dragPos?.id === root.id ? 'z-20 opacity-90 shadow-2xl' : ''}`}
                   onMouseDown={e => {
                     if (!isDragHandle(e.target)) return;
                     e.stopPropagation();
+                    // Don't start a text selection under the drag (fields are excluded above).
+                    e.preventDefault();
                     dragState.current = {
                       mode: 'block', id: root.id,
                       startX: e.clientX, startY: e.clientY,
-                      origin: { ...(root.pos ?? { x: 0, y: 0 }) },
+                      origin: { x: 0, y: stackedY.get(root.id) ?? 0 },
                     };
                   }}
                   onTouchStart={e => {
@@ -988,10 +1067,14 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                     dragState.current = {
                       mode: 'block', id: root.id,
                       startX: t.clientX, startY: t.clientY,
-                      origin: { ...(root.pos ?? { x: 0, y: 0 }) },
+                      origin: { x: 0, y: stackedY.get(root.id) ?? 0 },
                     };
                   }}
-                  style={{ left: root.pos?.x ?? 0, top: root.pos?.y ?? 0, touchAction: 'none' }}
+                  style={{
+                    left: dragPos?.id === root.id ? dragPos.x : 0,
+                    top: dragPos?.id === root.id ? dragPos.y : stackedY.get(root.id) ?? 0,
+                    touchAction: 'none',
+                  }}
                 >
                   <BlockNodeView
                     block={root}
@@ -1004,7 +1087,6 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
                     functionNames={functionNames}
                     problemFor={problemFor}
                     focusId={focusId}
-                    forceOpen={forceOpen}
                   />
                 </div>
               ))}
@@ -1041,7 +1123,7 @@ const BlockCanvas: React.FC<BlockCanvasProps> = ({
           {showCode && (
             <div className="w-full md:max-w-md shrink-0 h-2/5 md:h-auto border-t md:border-t-0
               md:border-l border-zinc-800/50 flex flex-col bg-black/40 min-h-0">
-              <div className="h-8 flex items-center px-3 border-b border-zinc-800/50 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              <div className="h-8 flex items-center px-3 border-b border-zinc-800/50 text-[11px] font-black uppercase tracking-widest text-zinc-500">
                 Generated
               </div>
               <pre className="flex-1 overflow-auto custom-scrollbar p-3 text-[11px] font-mono text-zinc-400 whitespace-pre">
@@ -1083,7 +1165,7 @@ const PalettePanel: React.FC<{
     <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
     <div className="fixed right-0 top-0 bottom-0 z-50 w-72 max-w-[85%] bg-[#0c0c0f] border-l border-zinc-800 flex flex-col shadow-2xl">
       <div className="h-12 flex items-center px-3 gap-2 border-b border-zinc-800/50 shrink-0">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+        <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">
           {target ? 'Add step inside' : 'Add block'}
         </span>
         <button onClick={onClose} aria-label="Close palette" className="ml-auto p-1 text-zinc-500 hover:text-white transition-colors">
@@ -1108,7 +1190,7 @@ const PalettePanel: React.FC<{
           if (!inGroup.length) return null;
           return (
             <div key={group}>
-              <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 px-1 mb-1">
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 px-1 mb-1">
                 {group}
               </div>
               {inGroup.map(entry => (
@@ -1118,7 +1200,7 @@ const PalettePanel: React.FC<{
                   className="w-full text-left px-2 py-2 rounded hover:bg-zinc-800/60 transition-colors group"
                 >
                   <div className="text-xs text-zinc-200 group-hover:text-white">{entry.label}</div>
-                  <div className="text-[10px] text-zinc-600 leading-snug">{entry.hint}</div>
+                  <div className="text-[11px] text-zinc-600 leading-snug">{entry.hint}</div>
                 </button>
               ))}
             </div>

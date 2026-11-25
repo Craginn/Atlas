@@ -34,7 +34,8 @@ function Harness({ name, initial }: { name: string; initial: string }) {
 const bigLibrary = Array.from({ length: 30 }, (_, i) => `function helper${i}(x) {\n  return x + ${i};\n}`).join('\n');
 
 describe('BlockCanvas for large scripts', () => {
-  it('starts a big script with an empty canvas and a searchable outline', () => {
+  // Renders 30 blocks in jsdom; under a full parallel test run that can exceed the 5 s default.
+  it('starts a big script with an empty canvas and a searchable outline', { timeout: 20_000 }, () => {
     render(<Harness name="Library" initial={bigLibrary} />);
     expect(screen.getByText('This script has 30 blocks.')).toBeTruthy();
     // Nothing drawn: no block chips on the canvas.
@@ -47,6 +48,11 @@ describe('BlockCanvas for large scripts', () => {
     fireEvent.click(screen.getByText('helper17'));
     expect(screen.getAllByText('Function')).toHaveLength(1);
     expect(screen.getByText('A reusable function helper17(x)')).toBeTruthy();
+    // The block it opened can still be collapsed (it used to be pinned open).
+    fireEvent.click(screen.getByLabelText('Collapse block'));
+    expect(screen.getByText('1 step(s) hidden')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Expand block'));
+    expect(screen.queryByText('1 step(s) hidden')).toBeNull();
   });
 });
 

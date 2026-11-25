@@ -36,9 +36,9 @@ const ScriptGroup: React.FC<{ script: string; problems: Problem[]; onGoTo: GoTo 
         {open ? <ChevronDown size={13} className="text-slate-500" /> : <ChevronRight size={13} className="text-slate-500" />}
         <FileCode2 size={13} className="text-slate-400" />
         <span className="text-[12px] font-bold text-slate-200">{script}</span>
-        {errors > 0 && <span className="text-[10px] px-1.5 rounded bg-red-500/15 text-red-300">{errors} error{errors > 1 ? 's' : ''}</span>}
+        {errors > 0 && <span className="text-[11px] px-1.5 rounded bg-red-500/15 text-red-300">{errors} error{errors > 1 ? 's' : ''}</span>}
         {problems.length - errors > 0 && (
-          <span className="text-[10px] px-1.5 rounded bg-amber-500/15 text-amber-300">
+          <span className="text-[11px] px-1.5 rounded bg-amber-500/15 text-amber-300">
             {problems.length - errors} warning{problems.length - errors > 1 ? 's' : ''}
           </span>
         )}
@@ -82,7 +82,7 @@ const Sentinel: React.FC<SentinelProps> = ({ runProblems, checkProblems, onGoTo,
           <ShieldCheck size={16} className="text-red-500" />
           <span className="text-sm font-bold text-slate-300 uppercase tracking-wider">Sentinel Debugger</span>
         </div>
-        <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+        <div className={`px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-widest border ${
           status === 'healthy' ? 'text-green-400 border-green-500/30 bg-green-500/5'
             : status === 'warning' ? 'text-amber-400 border-amber-500/30 bg-amber-500/5'
             : 'text-red-400 border-red-500/30 bg-red-500/5'
@@ -130,7 +130,7 @@ const Sentinel: React.FC<SentinelProps> = ({ runProblems, checkProblems, onGoTo,
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-2 py-1 rounded-md text-[10px] uppercase tracking-widest border ${
+                className={`px-2 py-1 rounded-md text-[11px] uppercase tracking-widest border ${
                   filter === f ? 'border-sky-500/50 text-sky-300 bg-sky-500/10' : 'border-slate-800 text-slate-500 hover:text-slate-300'
                 }`}
               >

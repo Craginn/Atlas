@@ -27,6 +27,14 @@ ipcRenderer.on('shell:done', (_event, id, code) => {
 contextBridge.exposeInMainWorld('atlasDesktop', {
   shellStatus: () => ipcRenderer.invoke('shell:status'),
 
+  /** OS-encrypted storage for the user's own secrets (e.g. their GitHub token). */
+  secrets: {
+    available: () => ipcRenderer.invoke('secret:available'),
+    get: key => ipcRenderer.invoke('secret:get', key),
+    set: (key, value) => ipcRenderer.invoke('secret:set', key, value),
+    delete: key => ipcRenderer.invoke('secret:delete', key),
+  },
+
   /** Open an interactive shell; `onMessage` gets {type:'ready'|'data'|'notice'|'exit'}. */
   async openShell(cols, rows, onMessage) {
     const id = nextId++;

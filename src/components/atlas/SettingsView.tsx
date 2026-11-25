@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  X, Link, Loader2, RefreshCw, Smartphone, Bug,
+  X, Link, Loader2, RefreshCw, Smartphone, Bug, GitBranch,
 } from 'lucide-react';
+import GitHubSyncSettings from './GitHubSyncSettings';
+import type { GitHubSync } from '@/hooks/use-github-sync';
 import { useLayoutMode, LayoutMode, LAYOUT_CHOICES } from '@/hooks/use-layout-mode';
 import { supportsFileSystemAccess, pickFile } from '@/services/fileLinkService';
 import { Script } from '@/types';
@@ -25,14 +27,20 @@ interface SettingsViewProps {
   /** Script slots, for the debug fixture toggle. */
   scripts: Script[];
   setScripts: React.Dispatch<React.SetStateAction<Script[]>>;
+  /** Linking the user's scripts to their own GitHub repository. */
+  sync: GitHubSync;
+  /** Which tab to show when opened. */
+  initialTab?: 'linking' | 'github' | 'layout' | 'debug';
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({
   isOpen, onClose, fileLinkingConfig, onSave, onReloadFromDisk,
-  scripts, setScripts,
+  scripts, setScripts, sync, initialTab = 'linking',
 }) => {
   const liveSync = supportsFileSystemAccess();
-  const [activeTab, setActiveTab] = useState('linking');
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+  // Opening Settings from a "Link GitHub" button lands on that tab.
+  useEffect(() => { if (isOpen) setActiveTab(initialTab); }, [isOpen, initialTab]);
   const [localPaths, setLocalPaths] = useState({
     library: fileLinkingConfig.library.path,
     input: fileLinkingConfig.input.path,
@@ -164,6 +172,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
               <button onClick={() => setActiveTab('linking')} className={`w-full flex items-center space-x-3 p-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'linking' ? 'bg-purple-600/20 text-purple-300' : 'text-zinc-400 hover:bg-zinc-800/50'}`}>
                 <Link size={16} /><span>File Linking</span>
               </button>
+              <button onClick={() => setActiveTab('github')} className={`w-full flex items-center space-x-3 p-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'github' ? 'bg-purple-600/20 text-purple-300' : 'text-zinc-400 hover:bg-zinc-800/50'}`}>
+                <GitBranch size={16} /><span>GitHub</span>
+              </button>
               <button onClick={() => setActiveTab('layout')} className={`w-full flex items-center space-x-3 p-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'layout' ? 'bg-purple-600/20 text-purple-300' : 'text-zinc-400 hover:bg-zinc-800/50'}`}>
                 <Smartphone size={16} /><span>Layout</span>
               </button>
@@ -174,6 +185,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
           <div className="flex-1 p-6 overflow-y-auto custom-scrollbar">
             {activeTab === 'layout' && <LayoutSettings />}
+
+            {activeTab === 'github' && <GitHubSyncSettings sync={sync} />}
 
             {activeTab === 'debug' && (
               <DebugSettings scripts={scripts} setScripts={setScripts} />

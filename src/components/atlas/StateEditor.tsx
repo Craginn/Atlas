@@ -114,8 +114,8 @@ const HiddenTextView: React.FC<{ transforms: TextTransform[] }> = ({ transforms 
       <div className="rounded-xl border border-zinc-700/40 bg-black/20 p-3">
         <div className="flex items-center gap-2 text-zinc-500">
           <EyeOff size={12} />
-          <span className="text-[9px] font-black uppercase tracking-widest">Hidden Text</span>
-          <span className="text-[9px] font-mono italic">No hooks modified text this turn</span>
+          <span className="text-[10px] font-black uppercase tracking-widest">Hidden Text</span>
+          <span className="text-[10px] font-mono italic">No hooks modified text this turn</span>
         </div>
       </div>
     );
@@ -125,8 +125,8 @@ const HiddenTextView: React.FC<{ transforms: TextTransform[] }> = ({ transforms 
     <div className="rounded-xl border border-indigo-500/30 bg-indigo-950/10 p-3 space-y-3">
       <div className="flex items-center gap-2">
         <EyeOff size={12} className="text-indigo-400" />
-        <span className="text-[9px] font-black uppercase tracking-widest text-indigo-300">Hidden Text</span>
-        <span className="text-[9px] font-mono text-zinc-500">{transforms.length} hook(s) modified text</span>
+        <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">Hidden Text</span>
+        <span className="text-[10px] font-mono text-zinc-500">{transforms.length} hook(s) modified text</span>
       </div>
       {transforms.map((t, i) => {
         const key = `ht-${i}`;
@@ -141,10 +141,10 @@ const HiddenTextView: React.FC<{ transforms: TextTransform[] }> = ({ transforms 
               {isCollapsed
                 ? <ChevronRight size={10} className="text-zinc-500 shrink-0" />
                 : <ChevronDown size={10} className="text-zinc-500 shrink-0" />}
-              <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300/80 text-[9px] font-black uppercase tracking-widest">
+              <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300/80 text-[10px] font-black uppercase tracking-widest">
                 {t.hook}
               </span>
-              <span className="text-[9px] font-mono text-zinc-500">
+              <span className="text-[10px] font-mono text-zinc-500">
                 {hasAppended ? `+${t.appended.length} chars appended` : 'text modified'}
               </span>
             </button>
@@ -152,22 +152,22 @@ const HiddenTextView: React.FC<{ transforms: TextTransform[] }> = ({ transforms 
               <div className="px-3 py-2 space-y-2 border-t border-zinc-800/40">
                 {hasAppended ? (
                   <div className="space-y-1">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400/70">Appended Text</span>
-                    <pre className="p-2 rounded-md bg-emerald-950/30 border border-emerald-500/20 text-[10px] font-mono text-emerald-200/90 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400/70">Appended Text</span>
+                    <pre className="p-2 rounded-md bg-emerald-950/30 border border-emerald-500/20 text-[11px] font-mono text-emerald-200/90 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
                       {t.appended}
                     </pre>
                   </div>
                 ) : (
                   <>
                     <div className="space-y-1">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-red-400/70">Before</span>
-                      <pre className="p-2 rounded-md bg-red-950/20 border border-red-500/20 text-[10px] font-mono text-red-200/80 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-red-400/70">Before</span>
+                      <pre className="p-2 rounded-md bg-red-950/20 border border-red-500/20 text-[11px] font-mono text-red-200/80 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                         {t.textBefore || '(empty)'}
                       </pre>
                     </div>
                     <div className="space-y-1">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400/70">After</span>
-                      <pre className="p-2 rounded-md bg-emerald-950/20 border border-emerald-500/20 text-[10px] font-mono text-emerald-200/90 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400/70">After</span>
+                      <pre className="p-2 rounded-md bg-emerald-950/20 border border-emerald-500/20 text-[11px] font-mono text-emerald-200/90 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                         {t.textAfter || '(empty)'}
                       </pre>
                     </div>
@@ -238,7 +238,7 @@ const DeltaView: React.FC<{
       <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-black/40 text-zinc-600 space-y-4">
         <Info size={32} />
         <div className="max-w-xs">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
+          <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">
             {!oldState ? 'Awaiting State Change' : 'No State Changes Detected'}
           </h3>
           <p className="text-xs italic mt-1">{!oldState ? 'No previous state to compare.' : ''}</p>
@@ -252,10 +252,10 @@ const DeltaView: React.FC<{
       <HiddenTextView transforms={transforms} />
       {total > 0 && (
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[9px] font-mono text-zinc-500/50 uppercase">Showing {total} change(s):</p>
+          <p className="text-[10px] font-mono text-zinc-500/50 uppercase">Showing {total} change(s):</p>
           <button
             onClick={toggleAll}
-            className="text-[9px] font-mono uppercase text-zinc-500/50 hover:text-zinc-300 transition-colors shrink-0"
+            className="text-[10px] font-mono uppercase text-zinc-500/50 hover:text-zinc-300 transition-colors shrink-0"
           >
             {allCollapsed ? 'Expand all' : 'Collapse all'}
           </button>
@@ -274,10 +274,10 @@ const DeltaView: React.FC<{
               {isCollapsed
                 ? <ChevronRight size={12} className="text-zinc-500 shrink-0" />
                 : <ChevronDown size={12} className="text-zinc-500 shrink-0" />}
-              <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300/80 text-[9px] font-black uppercase tracking-widest break-all">
+              <span className="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300/80 text-[10px] font-black uppercase tracking-widest break-all">
                 {group.label || 'State'}
               </span>
-              <span className="text-[9px] font-mono text-zinc-600 shrink-0">{group.deltas.length} change(s)</span>
+              <span className="text-[10px] font-mono text-zinc-600 shrink-0">{group.deltas.length} change(s)</span>
             </button>
             {!isCollapsed && (
               <div className="space-y-2 min-w-0">
@@ -293,10 +293,10 @@ const DeltaView: React.FC<{
                         {subCollapsed
                           ? <ChevronRight size={10} className="text-zinc-600 shrink-0" />
                           : <ChevronDown size={10} className="text-zinc-600 shrink-0" />}
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-800/60 text-zinc-300/90 text-[9px] font-black tracking-widest break-all">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-800/60 text-zinc-300/90 text-[10px] font-black tracking-widest break-all">
                           {topKey}
                         </span>
-                        <span className="text-[9px] font-mono text-zinc-600 shrink-0">{deltas.length} change(s)</span>
+                        <span className="text-[10px] font-mono text-zinc-600 shrink-0">{deltas.length} change(s)</span>
                       </button>
                       {!subCollapsed && (
                         <div className="space-y-2 min-w-0">
@@ -340,7 +340,7 @@ const HistoryView: React.FC<{ history: HistoryEntry[] }> = ({ history }) => {
         <div className="space-y-2">
           <History size={28} className="mx-auto text-zinc-700" />
           <p className="text-[11px] text-zinc-500 font-mono">No history yet.</p>
-          <p className="text-[10px] text-zinc-600">Run a turn and the narrative lands here, pinned to its turn.</p>
+          <p className="text-[11px] text-zinc-600">Run a turn and the narrative lands here, pinned to its turn.</p>
         </div>
       </div>
     );
@@ -363,7 +363,7 @@ const HistoryView: React.FC<{ history: HistoryEntry[] }> = ({ history }) => {
         <div key={turn} className="rounded-lg border border-zinc-800/60 bg-zinc-900/30 overflow-hidden">
           <div className="flex items-center space-x-2 px-3 py-1.5 bg-zinc-900/50 border-b border-zinc-800/60">
             <Hash size={11} className="text-zinc-500" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+            <span className="text-[11px] font-black uppercase tracking-widest text-zinc-400">
               {turn === 0 ? 'Turn —' : `Turn ${turn}`}
             </span>
           </div>
@@ -372,7 +372,7 @@ const HistoryView: React.FC<{ history: HistoryEntry[] }> = ({ history }) => {
               const style = ENTRY_STYLE[entry.type] ?? ENTRY_STYLE.do;
               return (
                 <div key={i} className="flex items-start space-x-2.5 px-3 py-2">
-                  <span className={`shrink-0 mt-0.5 text-[8px] font-black uppercase tracking-wider border rounded px-1.5 py-0.5 ${style.cls}`}>
+                  <span className={`shrink-0 mt-0.5 text-[10px] font-black uppercase tracking-wider border rounded px-1.5 py-0.5 ${style.cls}`}>
                     {style.label}
                   </span>
                   <pre className="flex-1 min-w-0 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-300 font-mono">
@@ -481,12 +481,12 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/30">
         <div className="flex items-center space-x-2">
           <Database size={14} className="text-blue-500" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Project State</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Project State</span>
         </div>
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2" title="Memory usage: JSON serialized size vs 16MB AID limit">
-            <span className="text-[9px] font-mono text-zinc-500 uppercase">Memory:</span>
-            <span className={`text-[9px] font-mono font-black ${
+            <span className="text-[10px] font-mono text-zinc-500 uppercase">Memory:</span>
+            <span className={`text-[10px] font-mono font-black ${
               parseFloat(memoryPercentage) >= 90 ? 'text-red-400' : 
               parseFloat(memoryPercentage) >= 70 ? 'text-amber-400' : 
               'text-emerald-400'
@@ -504,13 +504,13 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
               />
             </div>
           </div>
-          {!isValid && <span className="text-[9px] text-red-400 font-mono">Invalid JSON</span>}
-          {uploadError && <span className="text-[9px] text-red-400 font-mono">{uploadError}</span>}
+          {!isValid && <span className="text-[10px] text-red-400 font-mono">Invalid JSON</span>}
+          {uploadError && <span className="text-[10px] text-red-400 font-mono">{uploadError}</span>}
           <input type="file" ref={fileInputRef} onChange={handleUpload} className="hidden" accept=".json,application/json" />
           <button
             onClick={() => fileInputRef.current?.click()}
             title="Upload a JSON file to replace the world state"
-            className="flex items-center space-x-1.5 px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors"
+            className="flex items-center space-x-1.5 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors"
           >
             <Upload size={11} />
             <span>Upload JSON</span>
@@ -519,10 +519,10 @@ const StateEditor: React.FC<EditorProps> = ({ worldState, setWorldState, previou
       </div>
 
       <div className="flex border-b border-zinc-800 bg-black/20">
-        <TabButton label="Sections" icon={LayoutGrid} active={activeTab === 'sections'} onClick={() => setActiveTab('sections')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'sections' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
-        <TabButton label="Raw State" icon={Code} active={activeTab === 'raw'} onClick={() => setActiveTab('raw')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'raw' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
-        <TabButton label="State Deltas" icon={GitCommit} active={activeTab === 'delta'} onClick={() => setActiveTab('delta')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'delta' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
-        <TabButton label={`History${history.length ? ` (${history.length})` : ''}`} icon={History} active={activeTab === 'history'} onClick={() => setActiveTab('history')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'history' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
+        <TabButton label="Sections" icon={LayoutGrid} active={activeTab === 'sections'} onClick={() => setActiveTab('sections')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'sections' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
+        <TabButton label="Raw State" icon={Code} active={activeTab === 'raw'} onClick={() => setActiveTab('raw')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'raw' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
+        <TabButton label="State Deltas" icon={GitCommit} active={activeTab === 'delta'} onClick={() => setActiveTab('delta')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'delta' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
+        <TabButton label={`History${history.length ? ` (${history.length})` : ''}`} icon={History} active={activeTab === 'history'} onClick={() => setActiveTab('history')} className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest border-b-2 ${activeTab === 'history' ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800/20'}`} />
       </div>
 
       {activeTab === 'sections' ? (

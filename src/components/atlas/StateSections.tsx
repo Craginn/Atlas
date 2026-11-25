@@ -124,7 +124,7 @@ const TreeNode: React.FC<{ name: string; value: unknown; path: string; depth: nu
             <Marked text={shownText} query={ctx.query} />
           </span>
           {long && (
-            <button onClick={() => setFullString(f => !f)} className="ml-2 shrink-0 text-[9px] text-blue-400 hover:text-blue-300">
+            <button onClick={() => setFullString(f => !f)} className="ml-2 shrink-0 text-[10px] text-blue-400 hover:text-blue-300">
               {fullString ? 'less' : 'more'}
             </button>
           )}
@@ -165,7 +165,7 @@ const TreeNode: React.FC<{ name: string; value: unknown; path: string; depth: nu
             {entries.length > shown && (
               <button
                 onClick={() => setShown(s => s + PAGE)}
-                className="pl-1 py-0.5 text-[10px] text-blue-400 hover:text-blue-300"
+                className="pl-1 py-0.5 text-[11px] text-blue-400 hover:text-blue-300"
               >
                 Show {Math.min(PAGE, entries.length - shown)} more of {entries.length - shown} remaining…
               </button>
@@ -252,18 +252,18 @@ const SectionBox: React.FC<BoxProps> = memo(({
           <span className="font-mono text-[12px] font-bold text-zinc-100 truncate">
             <Marked text={section.key} query={query} />
           </span>
-          <span className="text-[9px] font-mono text-zinc-500 shrink-0">{KIND_BADGE[section.kind](section)}</span>
-          <span className="text-[9px] font-mono text-zinc-600 shrink-0">{fmtBytes(section.bytes)}</span>
+          <span className="text-[10px] font-mono text-zinc-500 shrink-0">{KIND_BADGE[section.kind](section)}</span>
+          <span className="text-[10px] font-mono text-zinc-600 shrink-0">{fmtBytes(section.bytes)}</span>
           {changedCount > 0 && (
             <span
-              className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 shrink-0"
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 shrink-0"
               title={section.changes.map(c => `${c.type}: ${c.path}`).join('\n')}
             >
               ● {section.removed ? 'removed' : `${changedCount} changed`}
             </span>
           )}
           {query && hits.length > 0 && (
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-200 shrink-0">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-200 shrink-0">
               {hits.length}{truncated ? '+' : ''} match{hits.length === 1 ? '' : 'es'}
             </span>
           )}
@@ -305,14 +305,14 @@ const SectionBox: React.FC<BoxProps> = memo(({
               <div className="flex items-center gap-2 px-3 py-1.5 border-t border-zinc-800/60">
                 <button
                   onClick={apply}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600/80 hover:bg-blue-500 text-white text-[10px] font-bold uppercase tracking-widest"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-600/80 hover:bg-blue-500 text-white text-[11px] font-bold uppercase tracking-widest"
                 >
                   <Check size={11} /> Apply
                 </button>
-                <button onClick={() => setEditing(false)} className="text-[10px] text-zinc-400 hover:text-zinc-200 uppercase tracking-widest">
+                <button onClick={() => setEditing(false)} className="text-[11px] text-zinc-400 hover:text-zinc-200 uppercase tracking-widest">
                   Cancel
                 </button>
-                {error && <span className="text-[10px] font-mono text-red-400 truncate">{error}</span>}
+                {error && <span className="text-[11px] font-mono text-red-400 truncate">{error}</span>}
               </div>
             </div>
           ) : (
@@ -435,12 +435,12 @@ const StateSections: React.FC<Props> = ({ state, setState, changes, changeSource
             </button>
           )}
         </div>
-        <label className="flex items-center gap-1 text-[10px] text-zinc-400">
+        <label className="flex items-center gap-1 text-[11px] text-zinc-400">
           <ArrowDownUp size={11} />
           <select
             value={sort}
             onChange={e => setSort(e.target.value as SortMode)}
-            className="bg-zinc-950 border border-zinc-800 rounded px-1 py-0.5 text-[10px] text-zinc-300 focus:outline-none"
+            className="bg-zinc-950 border border-zinc-800 rounded px-1 py-0.5 text-[11px] text-zinc-300 focus:outline-none"
           >
             {SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
@@ -448,7 +448,7 @@ const StateSections: React.FC<Props> = ({ state, setState, changes, changeSource
         <button
           onClick={() => setChangedOnly(v => !v)}
           disabled={!changedSections.length}
-          className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase tracking-widest border disabled:opacity-40 ${
+          className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] uppercase tracking-widest border disabled:opacity-40 ${
             changedOnly ? 'border-amber-400/60 text-amber-300 bg-amber-500/10' : 'border-zinc-800 text-zinc-400 hover:text-zinc-200'
           }`}
           title="Show only sections changed last turn"
@@ -460,7 +460,7 @@ const StateSections: React.FC<Props> = ({ state, setState, changes, changeSource
             setCollapsed(allCollapsed ? new Set() : new Set(visible.map(s => s.key)));
             setExpandAll(n => (allCollapsed ? Math.abs(n) + 1 : -(Math.abs(n) + 1)));
           }}
-          className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-zinc-400 hover:text-zinc-200"
+          className="flex items-center gap-1 text-[11px] uppercase tracking-widest text-zinc-400 hover:text-zinc-200"
         >
           {allCollapsed ? <ChevronsUpDown size={11} /> : <ChevronsDownUp size={11} />}
           {allCollapsed ? 'Expand all' : 'Collapse all'}
@@ -470,18 +470,18 @@ const StateSections: React.FC<Props> = ({ state, setState, changes, changeSource
       {/* Last-turn jump list */}
       <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-zinc-800/60 overflow-x-auto whitespace-nowrap custom-scrollbar">
         <Sparkles size={11} className="text-amber-400 shrink-0" />
-        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 shrink-0">
+        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 shrink-0">
           {changeSource === 'edit' ? 'Changed since last edit' : 'Updated last turn'}
         </span>
         {changedSections.length === 0 ? (
-          <span className="text-[10px] font-mono text-zinc-600 italic">nothing yet — run a turn</span>
+          <span className="text-[11px] font-mono text-zinc-600 italic">nothing yet — run a turn</span>
         ) : (
           <>
             {changedSections.map(s => (
               <button
                 key={s.key}
                 onClick={() => jumpTo(s.key)}
-                className="shrink-0 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[10px] font-mono hover:bg-amber-500/20"
+                className="shrink-0 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-200 text-[11px] font-mono hover:bg-amber-500/20"
                 title={s.changes.map(c => `${c.type}: ${c.path}`).join('\n')}
               >
                 {s.key} <span className="text-amber-400/70">·{s.changes.length}</span>
@@ -489,7 +489,7 @@ const StateSections: React.FC<Props> = ({ state, setState, changes, changeSource
             ))}
             <button
               onClick={nextChange}
-              className="shrink-0 ml-1 text-[10px] uppercase tracking-widest text-amber-300/80 hover:text-amber-200"
+              className="shrink-0 ml-1 text-[11px] uppercase tracking-widest text-amber-300/80 hover:text-amber-200"
               title="Jump to the next changed section"
             >
               Next ↓
@@ -499,7 +499,7 @@ const StateSections: React.FC<Props> = ({ state, setState, changes, changeSource
       </div>
 
       {query.trim() && (
-        <div className="px-4 py-1 text-[10px] font-mono text-zinc-500 border-b border-zinc-800/40">
+        <div className="px-4 py-1 text-[11px] font-mono text-zinc-500 border-b border-zinc-800/40">
           {totalHits} match{totalHits === 1 ? '' : 'es'} in {visible.length} section{visible.length === 1 ? '' : 's'}
         </div>
       )}

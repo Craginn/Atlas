@@ -51,7 +51,7 @@ const ACCENT: Record<
 const SIZE = {
   desktop: {
     pad: 'px-2 py-1.5', slotPad: 'px-2 pb-2', gap: 'gap-2',
-    label: 'text-[10px]', field: 'text-[11px]', hint: 'text-[9px]',
+    label: 'text-[11px]', field: 'text-[11px]', hint: 'text-[10px]',
     input: 'px-1.5 py-0.5', tap: '', icon: 12, chevron: 13,
     runBtn: 'w-5 h-5', slotIndent: 'pl-2', childGap: 'space-y-1.5',
   },
@@ -247,7 +247,7 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
                 {!isRaw && !isCall && fields.map(f => (
                   <div key={f.key} className={`flex items-center gap-1 min-w-0 ${f.wide ? 'flex-1' : ''}`}>
                     <label className="flex items-center gap-1 min-w-0 flex-1">
-                      <span className="text-[9px] uppercase tracking-wider text-zinc-600 shrink-0">
+                      <span className="text-[10px] uppercase tracking-wider text-zinc-600 shrink-0">
                         {f.label}
                       </span>
                       <input
@@ -283,13 +283,18 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
 
           {/* What this block does, in words — the line a beginner reads first. */}
           {!isRaw && (
-            <div className={`${compact ? 'px-3 pb-1.5 text-[12px]' : 'px-2 pb-1 text-[10px]'} -mt-0.5 text-zinc-400 italic leading-snug break-words`}>
+            // Two lines at most: a long string literal would otherwise become a
+            // wall of italic text. The full description is on hover.
+            <div
+              title={describeBlock(block)}
+              className={`${compact ? 'px-3 pb-1.5 text-[12px]' : 'px-2 pb-1 text-[11px]'} -mt-0.5 text-zinc-400 italic leading-snug break-words line-clamp-2`}
+            >
               {describeBlock(block)}
             </div>
           )}
 
           {problem && (
-            <div className={`mx-2 mb-1.5 flex items-start gap-1.5 rounded-md bg-red-500/10 border border-red-500/30 px-2 py-1 ${compact ? 'text-[12px]' : 'text-[10px]'} text-red-200`}>
+            <div className={`mx-2 mb-1.5 flex items-start gap-1.5 rounded-md bg-red-500/10 border border-red-500/30 px-2 py-1 ${compact ? 'text-[12px]' : 'text-[11px]'} text-red-200`}>
               <AlertOctagon size={compact ? 14 : 11} className="mt-px shrink-0 text-red-400" />
               <RichText text={problem.title} />
             </div>
@@ -435,7 +440,7 @@ const BlockNodeView: React.FC<BlockNodeViewProps> = ({
             );
           })}
 
-          {collapsed && (
+          {collapsed && slots.length > 0 && (
             <div className={`${s.slotPad} ${s.label} text-zinc-500 italic`}>
               {countSteps(block)} step(s) hidden
             </div>

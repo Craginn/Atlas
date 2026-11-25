@@ -68,7 +68,7 @@ const TaskRow: React.FC<{ task: Task }> = ({ task }) => {
         >
           {task.command}
         </span>
-        <span className="text-[10px] font-mono text-zinc-600 shrink-0 tabular-nums">
+        <span className="text-[11px] font-mono text-zinc-600 shrink-0 tabular-nums">
           {task.lines.length} lines · {elapsed(task)}
           {task.status === 'failed' && ` · exit ${task.exitCode}`}
         </span>
@@ -118,13 +118,13 @@ const TaskPanel: React.FC = () => {
   return (
     <div className="shrink-0 border-b border-zinc-800/50 max-h-[45%] overflow-y-auto custom-scrollbar">
       <div className="flex items-center gap-2 px-3 py-1 sticky top-0 bg-[#0a0a0c] z-10">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
+        <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500">
           Tasks
         </span>
         {finished > 0 && (
           <button
             onClick={clearFinishedTasks}
-            className="ml-auto text-[10px] font-mono text-zinc-600 hover:text-zinc-300 transition-colors"
+            className="ml-auto text-[11px] font-mono text-zinc-600 hover:text-zinc-300 transition-colors"
           >
             clear finished
           </button>

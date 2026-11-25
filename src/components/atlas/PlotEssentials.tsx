@@ -30,7 +30,7 @@ const SECTIONS: SectionMeta[] = [
     field: 'aiInstructions',
     label: 'AI Instructions',
     scriptRef: 'no script access',
-    description: 'Behavioral/system directives (perspective, tone, rules). Sent at the very start of context.',
+    description: 'Behavioral/system directives (perspective, tone, rules). Sent to the AI as its instructions (the system prompt) — scripts never see them in the context text.',
     accent: 'text-blue-400',
     focusBorder: 'focus:border-blue-500',
     locked: true,
@@ -84,18 +84,18 @@ const PlotEssentials: React.FC<PlotEssentialsProps> = ({ knowledgeBase, onChange
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0a0a0a] overflow-hidden">
       <div className="h-12 flex items-center justify-between px-6 border-b border-zinc-800/50 shrink-0">
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Plot Components</span>
+        <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Plot Components</span>
         <div className="flex items-center space-x-2">
           <button
             onClick={loadExample}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest text-purple-300 bg-purple-600/15 hover:bg-purple-600/25 transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-purple-300 bg-purple-600/15 hover:bg-purple-600/25 transition-colors"
           >
             <Sparkles size={12} />
             <span>Load Example</span>
           </button>
           <button
             onClick={clearAll}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-colors"
           >
             <Eraser size={12} />
             <span>Clear</span>
@@ -108,25 +108,25 @@ const PlotEssentials: React.FC<PlotEssentialsProps> = ({ knowledgeBase, onChange
           <div key={section.field} className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${section.accent}`}>{section.label}</span>
+                <span className={`text-[11px] font-black uppercase tracking-[0.2em] ${section.accent}`}>{section.label}</span>
                 {section.locked && (
-                  <span className="flex items-center space-x-1 text-[8px] font-mono text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
+                  <span className="flex items-center space-x-1 text-[10px] font-mono text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
                     <Lock size={9} />
                     <span>SCRIPT-LOCKED</span>
                   </span>
                 )}
                 {section.engineManaged && (
-                  <span className="flex items-center space-x-1 text-[8px] font-mono text-teal-400/80 bg-teal-500/10 border border-teal-500/20 rounded px-1.5 py-0.5">
+                  <span className="flex items-center space-x-1 text-[10px] font-mono text-teal-400/80 bg-teal-500/10 border border-teal-500/20 rounded px-1.5 py-0.5">
                     <Cpu size={9} />
                     <span>ENGINE-MANAGED</span>
                   </span>
                 )}
               </div>
-              <span className="text-[8px] font-mono text-gray-600">{section.scriptRef}</span>
+              <span className="text-[10px] font-mono text-gray-600">{section.scriptRef}</span>
             </div>
-            <p className="text-[10px] text-zinc-500 leading-relaxed">{section.description}</p>
+            <p className="text-[11px] text-zinc-500 leading-relaxed">{section.description}</p>
             {section.locked && (
-              <p className="text-[9px] text-amber-400/70 italic">
+              <p className="text-[10px] text-amber-400/70 italic">
                 Scripts cannot manipulate AI Instructions (matches AI Dungeon). Editable here, but never altered at runtime by modifiers.
               </p>
             )}

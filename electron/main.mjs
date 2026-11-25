@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, net, protocol, safeStorage, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -168,9 +168,57 @@ function registerShellIpc() {
 
 // ------------------------------------------------------------------ lifecycle
 
+// ------------------------------------------------------------------ secrets
+// Small secrets the user gives Atlas (their GitHub token for script sync),
+// encrypted with the OS (Windows DPAPI / macOS Keychain) via safeStorage and
+// kept in the user-data folder. Only the app's own window can read them.
+
+const SECRET_KEYS = new Set(['github-token']);
+const secretsFile = () => path.join(app.getPath('userData'), 'secrets.json');
+
+function readSecrets() {
+  try {
+    return JSON.parse(fs.readFileSync(secretsFile(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function registerSecretIpc() {
+  const allowed = (event, key) => isAppUrl(event.senderFrame?.url ?? '') && SECRET_KEYS.has(key);
+  ipcMain.handle('secret:available', () => safeStorage.isEncryptionAvailable());
+  ipcMain.handle('secret:get', (event, key) => {
+    if (!allowed(event, key)) return null;
+    const stored = readSecrets()[key];
+    if (!stored) return null;
+    try {
+      return safeStorage.decryptString(Buffer.from(stored, 'base64'));
+    } catch {
+      return null;
+    }
+  });
+  ipcMain.handle('secret:set', (event, key, value) => {
+    if (!allowed(event, key)) return false;
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    const all = readSecrets();
+    all[key] = safeStorage.encryptString(String(value)).toString('base64');
+    fs.mkdirSync(path.dirname(secretsFile()), { recursive: true });
+    fs.writeFileSync(secretsFile(), JSON.stringify(all), { mode: 0o600 });
+    return true;
+  });
+  ipcMain.handle('secret:delete', (event, key) => {
+    if (!allowed(event, key)) return false;
+    const all = readSecrets();
+    delete all[key];
+    fs.writeFileSync(secretsFile(), JSON.stringify(all), { mode: 0o600 });
+    return true;
+  });
+}
+
 app.whenReady().then(() => {
   protocol.handle('atlas', serveDist);
   registerShellIpc();
+  registerSecretIpc();
   createWindow();
 
   app.on('activate', () => {

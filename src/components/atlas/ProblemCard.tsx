@@ -53,11 +53,11 @@ export const SourceLine: React.FC<{ line: number; text?: string; column?: number
 
 const LocationButton: React.FC<{ loc: ScriptLocation | { script: string; line: number; column?: number }; onGoTo?: GoTo; tone: string }> = ({ loc, onGoTo, tone }) => {
   const label = `${loc.script} · line ${loc.line}${loc.column ? ` · col ${loc.column}` : ''}`;
-  if (!onGoTo || !loc.line) return <span className={`font-mono text-[10px] ${tone}`}>{loc.line ? label : loc.script}</span>;
+  if (!onGoTo || !loc.line) return <span className={`font-mono text-[11px] ${tone}`}>{loc.line ? label : loc.script}</span>;
   return (
     <button
       onClick={() => onGoTo({ script: loc.script, line: loc.line, column: loc.column })}
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[10px] hover:bg-white/10 transition-colors ${tone}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-mono text-[11px] hover:bg-white/10 transition-colors ${tone}`}
       title="Open this line in the JS Code Editor"
     >
       {label} <ArrowUpRight size={10} />
@@ -82,12 +82,12 @@ const ProblemCard: React.FC<{ problem: Problem; onGoTo?: GoTo; compact?: boolean
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <LocationButton loc={p} onGoTo={onGoTo} tone={tone} />
-            <span className="text-[9px] uppercase tracking-widest text-zinc-500">{SOURCE_LABEL[p.source]}</span>
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500">{SOURCE_LABEL[p.source]}</span>
             {p.hook && p.hook !== p.script && (
-              <span className="text-[9px] text-zinc-500">while running {p.hook}</span>
+              <span className="text-[10px] text-zinc-500">while running {p.hook}</span>
             )}
             {p.stale && (
-              <span className="text-[9px] px-1 rounded bg-zinc-700/50 text-zinc-300" title="The script changed since this run — the line may have moved. Run again to refresh.">
+              <span className="text-[10px] px-1 rounded bg-zinc-700/50 text-zinc-300" title="The script changed since this run — the line may have moved. Run again to refresh.">
                 edited since run
               </span>
             )}
@@ -107,15 +107,15 @@ const ProblemCard: React.FC<{ problem: Problem; onGoTo?: GoTo; compact?: boolean
               <CornerDownRight size={11} />
               <span>Reached from</span>
               <LocationButton loc={p.calledFrom} onGoTo={onGoTo} tone="border-zinc-600 text-zinc-300" />
-              {p.calledFrom.sourceLine && <code className="font-mono text-[10px] text-zinc-500 truncate">{p.calledFrom.sourceLine}</code>}
+              {p.calledFrom.sourceLine && <code className="font-mono text-[11px] text-zinc-500 truncate">{p.calledFrom.sourceLine}</code>}
             </div>
           )}
           {p.message !== p.explanation.title && (
-            <button onClick={() => setRaw(r => !r)} className="mt-1.5 text-[9px] uppercase tracking-widest text-zinc-500 hover:text-zinc-300">
+            <button onClick={() => setRaw(r => !r)} className="mt-1.5 text-[10px] uppercase tracking-widest text-zinc-500 hover:text-zinc-300">
               {raw ? 'Hide' : 'Show'} original message
             </button>
           )}
-          {raw && <pre className="mt-1 text-[10px] font-mono text-zinc-400 whitespace-pre-wrap break-words">{p.message}</pre>}
+          {raw && <pre className="mt-1 text-[11px] font-mono text-zinc-400 whitespace-pre-wrap break-words">{p.message}</pre>}
         </div>
       </div>
     </div>

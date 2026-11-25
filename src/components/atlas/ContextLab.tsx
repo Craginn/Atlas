@@ -32,7 +32,7 @@ const SEG_CLASS: Record<SegmentId, string> = {
 };
 
 const Chip: React.FC<{ label: string; value: React.ReactNode; title?: string }> = ({ label, value, title }) => (
-  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] font-mono" title={title}>
+  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[11px] font-mono" title={title}>
     <span className="text-zinc-500">{label}</span>
     <span className="text-zinc-200">{value}</span>
   </span>
@@ -50,7 +50,7 @@ const CopyProbeButton: React.FC<{ file: string }> = ({ file }) => {
         setDone(true);
         setTimeout(() => setDone(false), 1200);
       }}
-      className="flex items-center gap-1 px-2 py-1 rounded border border-zinc-700 text-[10px] font-mono text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+      className="flex items-center gap-1 px-2 py-1 rounded border border-zinc-700 text-[11px] font-mono text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
     >
       {done ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />} {file}
     </button>
@@ -87,7 +87,7 @@ const DiffView: React.FC<{ ops: DiffOp[] }> = ({ ops }) => {
           <button
             key={b.start}
             onClick={() => setOpen(prev => new Set(prev).add(b.start))}
-            className="w-full text-left px-3 py-0.5 bg-zinc-900/60 text-zinc-500 hover:text-zinc-300 text-[10px]"
+            className="w-full text-left px-3 py-0.5 bg-zinc-900/60 text-zinc-500 hover:text-zinc-300 text-[11px]"
           >
             … {b.ops.length} identical lines (show)
           </button>
@@ -160,17 +160,17 @@ const ContextLab: React.FC = () => {
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/30">
         <div className="flex items-center gap-2">
           <Microscope size={14} className="text-emerald-400" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Context Lab</span>
-          <span className="text-[10px] text-zinc-600">real AID context vs Atlas</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Context Lab</span>
+          <span className="text-[11px] text-zinc-600">real AID context vs Atlas</span>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => setSetupOpen(o => !o)} className="text-[10px] uppercase tracking-widest text-zinc-400 hover:text-zinc-200">
+          <button onClick={() => setSetupOpen(o => !o)} className="text-[11px] uppercase tracking-widest text-zinc-400 hover:text-zinc-200">
             How to capture
           </button>
           <input ref={fileRef} type="file" accept=".json,application/json" className="hidden" onChange={onFile} />
           <button
             onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-800/60 hover:bg-zinc-700/60"
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-black uppercase tracking-widest text-zinc-300 bg-zinc-800/60 hover:bg-zinc-700/60"
           >
             <Upload size={11} /> Import probe export
           </button>
@@ -213,7 +213,7 @@ const ContextLab: React.FC = () => {
           <div className="space-y-2 max-w-sm">
             <Microscope size={28} className="mx-auto text-zinc-700" />
             <p className="text-[11px] text-zinc-400">No captures yet.</p>
-            <p className="text-[10px] text-zinc-600">
+            <p className="text-[11px] text-zinc-600">
               Run the AID Probe scripts in a real AI Dungeon scenario, export its story cards and import the file here.
             </p>
           </div>
@@ -230,7 +230,7 @@ const ContextLab: React.FC = () => {
                 }`}
               >
                 <div className="text-[11px] font-mono text-zinc-200">Capture #{r.seq}</div>
-                <div className="text-[9px] font-mono text-zinc-500">
+                <div className="text-[10px] font-mono text-zinc-500">
                   action {String(r.context?.info?.actionCount ?? r.input?.info?.actionCount ?? '?')} ·{' '}
                   {r.context?.length ?? 0} chars{r.input ? '' : ' · continue'}
                 </div>
@@ -248,7 +248,7 @@ const ContextLab: React.FC = () => {
                 <button
                   key={id}
                   onClick={() => setTab(id)}
-                  className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 ${
+                  className={`px-4 py-2 text-[11px] font-black uppercase tracking-widest border-b-2 ${
                     tab === id ? 'text-emerald-400 border-emerald-400 bg-emerald-500/5' : 'text-zinc-500 border-transparent hover:text-zinc-300'
                   }`}
                 >
@@ -277,8 +277,8 @@ const ContextLab: React.FC = () => {
                   {segments.map((s, i) => (
                     <div key={i} className={`rounded-lg border ${SEG_CLASS[s.id]}`}>
                       <div className="flex items-center gap-2 px-3 py-1 border-b border-inherit">
-                        <span className="text-[10px] font-black uppercase tracking-widest">{SEGMENT_LABELS[s.id]}</span>
-                        <span className="text-[9px] font-mono text-zinc-500">
+                        <span className="text-[11px] font-black uppercase tracking-widest">{SEGMENT_LABELS[s.id]}</span>
+                        <span className="text-[10px] font-mono text-zinc-500">
                           chars {s.from}–{s.to} ({s.to - s.from})
                         </span>
                       </div>
@@ -289,7 +289,7 @@ const ContextLab: React.FC = () => {
                   ))}
                   {record?.output && (
                     <div className="rounded-lg border border-zinc-700/50">
-                      <div className="px-3 py-1 border-b border-zinc-700/50 text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                      <div className="px-3 py-1 border-b border-zinc-700/50 text-[11px] font-black uppercase tracking-widest text-zinc-400">
                         Model output (Output hook received)
                       </div>
                       <pre className="px-3 py-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono text-zinc-300">

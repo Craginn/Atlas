@@ -333,10 +333,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({
     <div className="h-full flex flex-col bg-[#0a0a0c] text-zinc-300">
       <div className="h-10 shrink-0 flex items-center px-3 gap-2 border-b border-zinc-800/50">
         <TerminalIcon size={13} className="text-purple-400" />
-        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+        <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">
           Terminal
         </span>
-        <span className="ml-auto flex items-center gap-3 text-[10px] font-mono">
+        <span className="ml-auto flex items-center gap-3 text-[11px] font-mono">
           {mode === 'pipe' && (
             <span
               className="flex items-center gap-1 text-amber-400/80"

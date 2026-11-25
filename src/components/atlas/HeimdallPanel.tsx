@@ -31,8 +31,8 @@ const ChannelBox = ({ icon: Icon, label, tone, value, sub, empty }: {
     <div className={`rounded-lg border p-2.5 ${tones[tone]}`}>
       <div className="flex items-center gap-1.5 mb-1">
         <Icon size={12} />
-        <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
-        {sub && <span className="ml-auto text-[9px] font-mono opacity-70">{sub}</span>}
+        <span className="text-[11px] font-black uppercase tracking-widest">{label}</span>
+        {sub && <span className="ml-auto text-[10px] font-mono opacity-70">{sub}</span>}
       </div>
       <div className={`text-xs font-mono whitespace-pre-wrap break-words ${has ? 'text-zinc-200' : 'text-zinc-600 italic'}`}>
         {has ? value : empty}
@@ -140,13 +140,13 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
           <TabButton label="Code Logs" icon={Activity} active={activeTab === 'trace'} onClick={() => setActiveTab('trace')} className={activeTab === 'trace' ? 'bg-zinc-700/50 text-white' : 'text-zinc-400 hover:bg-zinc-800/50'} />
         </div>
         {hasExecutionError && (
-          <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10 text-red-400 text-[10px] font-bold uppercase tracking-wider">
+          <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10 text-red-400 text-[11px] font-bold uppercase tracking-wider">
             <AlertTriangle size={12} />
             Engine Stopped
           </span>
         )}
         {hasScriptErrors && (
-          <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
+          <span className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-400 text-[11px] font-bold uppercase tracking-wider">
             <AlertTriangle size={12} />
             {scriptErrors.length} Caught Error{scriptErrors.length > 1 ? 's' : ''}
           </span>
@@ -160,7 +160,7 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
           hasExecutionError ? 'bg-red-950/20 border-red-500/30' : 'bg-amber-950/20 border-amber-500/30'
         }`}>
           {hasScriptErrors && (
-            <p className="text-[10px] text-amber-300/90 font-sans px-0.5">
+            <p className="text-[11px] text-amber-300/90 font-sans px-0.5">
               A script caught {scriptErrors.length > 1 ? 'these errors' : 'this error'} and kept going — the turn finished, but
               something it tried to do failed:
             </p>
@@ -170,13 +170,13 @@ const HeimdallPanel: React.FC<HeimdallPanelProps> = ({ lastResult, isProcessing,
             <div>
               <button
                 onClick={() => setShowSuggestions(s => !s)}
-                className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-red-400 hover:text-red-200"
+                className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-red-400 hover:text-red-200"
               >
                 {showSuggestions ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                 Checker details
               </button>
               {showSuggestions && (
-                <pre className="mt-1.5 px-2 py-1.5 rounded-md border border-red-500/25 bg-black/40 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[10px] leading-snug text-red-200/90">
+                <pre className="mt-1.5 px-2 py-1.5 rounded-md border border-red-500/25 bg-black/40 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-snug text-red-200/90">
                   {lastResult.executionError.details}
                 </pre>
               )}

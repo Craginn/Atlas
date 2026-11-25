@@ -17,7 +17,7 @@ import {
 } from '@codemirror/view';
 import { RangeSet, StateEffect, StateField, type Text } from '@codemirror/state';
 import { indentationMarkers } from '@replit/codemirror-indentation-markers';
-import { Copy, Search, AlertCircle, ChevronRight } from 'lucide-react';
+import { Copy, Search, AlertCircle, ChevronRight, ChevronLeft, CheckCircle2, Check } from 'lucide-react';
 import { validateScriptSyntax, AID_GLOBALS } from '@/services/offlineSimulationService';
 import { atlasTheme } from './codeEditorTheme';
 import { enclosingScope, nestingMarks, scopeListener, type ScopeCrumb } from './editor/nesting';
@@ -105,6 +105,10 @@ interface CodeBufferProps {
    * the debugger panels. `nonce` changes per request so the same line re-jumps.
    */
   jumpRequest?: { line: number; column?: number; nonce: number } | null;
+  /** One line about what this script is for, shown beside its name. */
+  subtitle?: string;
+  /** On narrow screens: a "Files" button back to the script list. */
+  onShowFiles?: () => void;
 }
 
 /** An error to mark in the editor. `column` (1-based) adds an underline at the exact spot. */
@@ -202,12 +206,14 @@ class GutterErrorWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
-const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadOnly = false, isActive, color, findRequest, runtimeErrors, jumpRequest }) => {
+const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadOnly = false, isActive, findRequest, runtimeErrors, jumpRequest, subtitle, onShowFiles }) => {
   const safeValue = value || '';
   const cmRef = useRef<ReactCodeMirrorRef>(null);
   // The view is created after the first effects run, so anything dispatched on mount must wait for it.
   const [editorReady, setEditorReady] = useState(false);
   const [scope, setScope] = useState<ScopeCrumb[]>([]);
+  const [cursor, setCursor] = useState({ line: 1, column: 1, lines: 0 });
+  const [copied, setCopied] = useState(false);
 
   // ── Validation (drives the red bar) ────────────────────────────────────────
   // A full parse of the script, so it waits for a pause in typing instead of
@@ -253,7 +259,7 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
         activeLight: 'rgba(0,0,0,0.3)',
       },
     }),
-    scopeListener(setScope),
+    scopeListener(setScope, setCursor),
     autocompletion({ override: [aidCompletionSource], activateOnTyping: true }),
     keymap.of([
       ...closeBracketsKeymap,
@@ -334,52 +340,69 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
 
   if (!isActive) return null;
 
+  const copy = () => {
+    void navigator.clipboard.writeText(safeValue);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
+  const problemCount = (runtimeErrors?.length ?? 0) + validation.errors.length;
+
   return (
     <div className="flex flex-col h-full bg-[#020617] overflow-hidden">
-      <div
-        className={`h-10 px-6 flex items-center justify-between border-b shrink-0 transition-colors ${
-          hasErrors ? 'bg-red-950/50 border-red-500/50' : 'bg-zinc-950/40 border-zinc-800/40'
-        }`}
-      >
-        <div className="flex items-center space-x-2 min-w-0">
-          <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-tighter shrink-0">
-            {isReadOnly ? 'PROTECTED_BUNDLE' : 'EDITABLE_JS_MODULE'}
-          </span>
-          <div className="w-1 h-1 rounded-full bg-zinc-800 shrink-0" />
-          <span className={`text-[9px] font-mono uppercase font-bold shrink-0 ${hasErrors ? 'text-red-400' : color}`}>{title}</span>
-          {firstError && (
+      {/* One header: what this script is, whether it has problems, and the two actions. */}
+      <div className="h-11 px-4 flex items-center gap-3 border-b border-zinc-800/60 bg-[#060912] shrink-0 min-w-0">
+        {onShowFiles && (
+          <button
+            onClick={onShowFiles}
+            className="flex items-center gap-1 -ml-1.5 px-1.5 py-1 rounded text-xs text-zinc-400 hover:text-white hover:bg-white/5 shrink-0"
+          >
+            <ChevronLeft size={14} /> Files
+          </button>
+        )}
+        <div className="min-w-0 flex items-baseline gap-2">
+          <span className="text-sm font-semibold text-zinc-100 shrink-0">{title}</span>
+          {subtitle && <span className="text-xs text-zinc-500 truncate hidden sm:inline">{subtitle}</span>}
+          {isReadOnly && <span className="text-[11px] px-1.5 rounded bg-zinc-800 text-zinc-400 shrink-0">read-only</span>}
+        </div>
+
+        <div className="ml-auto flex items-center gap-1 shrink-0 min-w-0">
+          {firstError ? (
             <button
               onClick={() => jumpToLine(firstError.line, firstError.column)}
-              title={`${firstError.message}\nClick to go to the line.`}
-              className="flex items-center gap-1 min-w-0 text-left text-[10px] font-mono font-bold text-red-300 hover:text-red-100 transition-colors"
+              title={`${firstError.message}
+Click to go to the line.`}
+              className="flex items-center gap-1.5 min-w-0 max-w-[26rem] px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-xs text-red-200 hover:bg-red-500/20 transition-colors"
             >
-              <AlertCircle size={11} className="shrink-0" />
+              <AlertCircle size={13} className="shrink-0 text-red-400" />
               <span className="truncate">
-                {firstError.line > 0 ? `Line ${firstError.line}${firstError.column ? `:${firstError.column}` : ''} — ` : ''}
+                {firstError.line > 0 ? `Line ${firstError.line}: ` : ''}
                 {(firstError.title ?? firstError.message).replace(/`/g, '')}
               </span>
+              {problemCount > 1 && <span className="shrink-0 text-red-300/70">+{problemCount - 1}</span>}
             </button>
+          ) : (
+            <span className="flex items-center gap-1.5 px-2 py-1 text-xs text-emerald-400/80" title="No syntax errors, and no errors from the last run">
+              <CheckCircle2 size={13} /> No problems
+            </span>
           )}
-        </div>
-        <div className="flex items-center gap-4 shrink-0 pl-3">
           <button
             onClick={openFind}
-            className="flex items-center space-x-1.5 text-zinc-600 hover:text-zinc-400 transition-colors"
-            title="Find (Ctrl+F)"
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition-colors"
+            title="Find and replace (Ctrl+F)"
           >
-            <Search size={10} />
-            <span className="text-[9px] font-bold uppercase tracking-tighter">Find</span>
+            <Search size={13} /> <span className="hidden md:inline">Find</span>
           </button>
           <button
-            onClick={() => navigator.clipboard.writeText(safeValue)}
-            className="flex items-center space-x-1.5 text-zinc-600 hover:text-zinc-400 transition-colors"
+            onClick={copy}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition-colors"
+            title="Copy the whole script"
           >
-            <Copy size={10} />
-            <span className="text-[9px] font-bold uppercase tracking-tighter">Copy Code</span>
+            {copied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+            <span className="hidden md:inline">{copied ? 'Copied' : 'Copy'}</span>
           </button>
         </div>
       </div>
-      <ScopeBar scope={scope} onJump={jumpToPos} />
+
       <div className="flex-1 min-h-0 overflow-hidden">
         <CodeMirror
           ref={cmRef}
@@ -394,6 +417,8 @@ const CodeBuffer: React.FC<CodeBufferProps> = ({ title, value, onChange, isReadO
           className="atlas-code-editor h-full"
         />
       </div>
+
+      <StatusBar scope={scope} cursor={cursor} onJump={jumpToPos} />
     </div>
   );
 };
@@ -420,30 +445,38 @@ const CRUMB_COLORS: Record<ScopeCrumb['kind'], string> = {
 };
 
 /**
- * Where the cursor is, structurally: the chain of enclosing functions, control
- * blocks and object literals, outermost first. Click a crumb to jump to it.
+ * Bottom status bar: where the cursor is structurally (the chain of enclosing
+ * functions, control blocks and objects — click one to jump to it) and where
+ * it is by line and column.
  */
-const ScopeBar: React.FC<{ scope: ScopeCrumb[]; onJump: (pos: number) => void }> = ({ scope, onJump }) => (
-  <div className="h-7 px-4 flex items-center gap-1 border-b border-zinc-800/40 bg-black/30 shrink-0 overflow-x-auto whitespace-nowrap text-[10px] font-mono custom-scrollbar">
-    <span className="text-zinc-600 uppercase tracking-tighter text-[9px] mr-1 shrink-0" title="Nesting depth at the cursor">
-      depth {scope.length}
+const StatusBar: React.FC<{
+  scope: ScopeCrumb[];
+  cursor: { line: number; column: number; lines: number };
+  onJump: (pos: number) => void;
+}> = ({ scope, cursor, onJump }) => (
+  <div className="h-7 px-3 flex items-center gap-1 border-t border-zinc-800/60 bg-[#060912] shrink-0 whitespace-nowrap text-[11px] font-mono">
+    <div className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto custom-scrollbar">
+      {scope.length === 0 ? (
+        <span className="text-zinc-600">top level</span>
+      ) : (
+        scope.map((c, i) => (
+          <React.Fragment key={`${c.pos}-${i}`}>
+            {i > 0 && <ChevronRight size={11} className="text-zinc-700 shrink-0" />}
+            <button
+              onClick={() => onJump(c.pos)}
+              className={`${CRUMB_COLORS[c.kind]} hover:underline shrink-0 max-w-[16rem] truncate`}
+              title={`Jump to ${c.label}`}
+            >
+              {c.label}
+            </button>
+          </React.Fragment>
+        ))
+      )}
+    </div>
+    <span className="shrink-0 pl-3 text-zinc-500 tabular-nums">
+      Ln {cursor.line}, Col {cursor.column}
+      {cursor.lines > 0 && <span className="text-zinc-600"> · {cursor.lines} lines</span>}
     </span>
-    {scope.length === 0 ? (
-      <span className="text-zinc-700 italic">top level</span>
-    ) : (
-      scope.map((c, i) => (
-        <React.Fragment key={`${c.pos}-${i}`}>
-          {i > 0 && <ChevronRight size={10} className="text-zinc-700 shrink-0" />}
-          <button
-            onClick={() => onJump(c.pos)}
-            className={`${CRUMB_COLORS[c.kind]} hover:underline shrink-0 max-w-[16rem] truncate`}
-            title={`Jump to ${c.label}`}
-          >
-            {c.label}
-          </button>
-        </React.Fragment>
-      ))
-    )}
   </div>
 );
 

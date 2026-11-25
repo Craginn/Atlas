@@ -27,6 +27,13 @@ interface AtlasDesktop {
     command: string,
     onLine: (line: { kind: 'out' | 'err'; text: string }) => void,
   ): { done: Promise<number>; abort(): void };
+  /** OS-encrypted storage for the user's own secrets (electron/main.mjs). */
+  secrets?: {
+    available(): Promise<boolean>;
+    get(key: string): Promise<string | null>;
+    set(key: string, value: string): Promise<boolean>;
+    delete(key: string): Promise<boolean>;
+  };
 }
 
 declare global {

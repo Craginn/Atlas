@@ -36,7 +36,7 @@ const DocsView: React.FC = () => {
       <div className={`${listVisible ? 'flex' : 'hidden'} w-full md:w-72 md:flex shrink-0 border-r border-zinc-800/50 flex-col`}>
         <div className="h-12 flex items-center px-4 space-x-2 border-b border-zinc-800/50 shrink-0">
           <Book size={14} className="text-purple-400" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">AID Docs</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">AID Docs</span>
         </div>
         <div className="p-3 border-b border-zinc-800/50">
           <div className="flex items-center space-x-2 bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1.5">
@@ -52,7 +52,7 @@ const DocsView: React.FC = () => {
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-3">
           {grouped.map(([section, docs]) => (
             <div key={section}>
-              <div className="text-[9px] font-black uppercase tracking-widest text-zinc-600 px-2 mb-1">{section}</div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-600 px-2 mb-1">{section}</div>
               {docs.map(d => (
                 <button
                   key={d.key}

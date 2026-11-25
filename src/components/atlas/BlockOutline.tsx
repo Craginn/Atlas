@@ -80,8 +80,8 @@ const BlockOutline: React.FC<Props> = ({ roots, shown, onOpen, onHide, onShowAll
     <div className="flex flex-col min-h-0 flex-1">
       <div className="px-2 pt-2 pb-1.5 space-y-1.5 border-b border-zinc-800/50">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Outline</span>
-          <span className="text-[9px] font-mono text-zinc-600">{shownCount}/{roots.length} on canvas</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Outline</span>
+          <span className="text-[10px] font-mono text-zinc-600">{shownCount}/{roots.length} on canvas</span>
         </div>
         <div className="relative">
           <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -102,7 +102,7 @@ const BlockOutline: React.FC<Props> = ({ roots, shown, onOpen, onHide, onShowAll
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
-              className={`px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider border ${
+              className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider border ${
                 filter === f.id ? 'border-cyan-500/50 text-cyan-200 bg-cyan-500/10' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
               }`}
             >
@@ -110,7 +110,7 @@ const BlockOutline: React.FC<Props> = ({ roots, shown, onOpen, onHide, onShowAll
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 text-[9px]">
+        <div className="flex items-center gap-2 text-[10px]">
           <select
             value={sort}
             onChange={e => setSort(e.target.value as Sort)}
@@ -138,10 +138,10 @@ const BlockOutline: React.FC<Props> = ({ roots, shown, onOpen, onHide, onShowAll
               onClick={() => onOpen(r.id)}
               title={describeBlock(r)}
             >
-              <span className="text-[9px] font-mono text-zinc-600 w-6 shrink-0 text-right pt-0.5">{r.loc ? r.loc.start : order + 1}</span>
+              <span className="text-[10px] font-mono text-zinc-600 w-6 shrink-0 text-right pt-0.5">{r.loc ? r.loc.start : order + 1}</span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1">
-                  <span className="text-[8px] font-black uppercase tracking-wider text-zinc-500 shrink-0">{meta.label.toLowerCase()}</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500 shrink-0">{meta.label.toLowerCase()}</span>
                   {problemRoots.has(r.id) && <AlertOctagon size={10} className="text-red-400 shrink-0" />}
                 </div>
                 <div className={`text-[11px] truncate ${on ? 'text-cyan-100' : 'text-zinc-300'}`}>{nameOf(r)}</div>

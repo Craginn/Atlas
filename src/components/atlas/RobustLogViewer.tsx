@@ -275,7 +275,7 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
                             className="group flex flex-col bg-zinc-900/50 rounded border border-zinc-800/50 overflow-hidden"
                           >
                             <div className="flex items-start gap-2 p-2">
-                              <span className="text-zinc-600 text-[10px] font-mono mt-0.5 flex-shrink-0">
+                              <span className="text-zinc-600 text-[11px] font-mono mt-0.5 flex-shrink-0">
                                 {getTimeString(entry.timestamp)}
                               </span>
                               <div
@@ -289,7 +289,7 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => toggleEntry(entry.id)}
-                                  className="h-6 px-2 text-[10px] text-zinc-400 hover:text-white flex-shrink-0 ml-1"
+                                  className="h-6 px-2 text-[11px] text-zinc-400 hover:text-white flex-shrink-0 ml-1"
                                 >
                                   Show all ({entry.originalLength - MAX_MESSAGE_LENGTH} chars)
                                 </Button>
@@ -299,7 +299,7 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => toggleEntry(entry.id)}
-                                  className="h-6 px-2 text-[10px] text-zinc-400 hover:text-white flex-shrink-0"
+                                  className="h-6 px-2 text-[11px] text-zinc-400 hover:text-white flex-shrink-0"
                                 >
                                   Show less
                                 </Button>
@@ -308,7 +308,7 @@ export const RobustLogViewer: React.FC<RobustLogViewerProps> = ({
 
                             {isTruncated && (
                               <div className="px-2 pb-2">
-                                <div className="flex items-center gap-1 text-[10px] text-zinc-500">
+                                <div className="flex items-center gap-1 text-[11px] text-zinc-500">
                                   <AlertCircle className="h-3 w-3" />
                                   <span>Message truncated at {MAX_MESSAGE_LENGTH} characters</span>
                                 </div>

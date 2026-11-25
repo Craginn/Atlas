@@ -50,16 +50,16 @@ const RecipePicker: React.FC<Props> = ({ recipes, current, kind, onInsert, onClo
           {recipes.map(r => (
             <button key={r.id} onClick={() => pick(r)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-violet-500/10">
               <div className="text-zinc-100">{r.label}</div>
-              <div className="text-[10px] text-zinc-500 leading-snug"><RichText text={r.why} /></div>
+              <div className="text-[11px] text-zinc-500 leading-snug"><RichText text={r.why} /></div>
             </button>
           ))}
         </div>
       ) : (
         <div className="p-3 space-y-2.5">
-          <p className="text-[10px] text-zinc-400 leading-snug"><RichText text={picked.why} /></p>
+          <p className="text-[11px] text-zinc-400 leading-snug"><RichText text={picked.why} /></p>
           {picked.inputs.map(input => (
             <label key={input.key} className="block">
-              <span className="text-[9px] uppercase tracking-widest text-zinc-500">{input.label}</span>
+              <span className="text-[10px] uppercase tracking-widest text-zinc-500">{input.label}</span>
               {input.options ? (
                 <select
                   value={values[input.key] ?? ''}
@@ -83,7 +83,7 @@ const RecipePicker: React.FC<Props> = ({ recipes, current, kind, onInsert, onClo
             </label>
           ))}
           {canCombine && (
-            <div className="flex items-center gap-1.5 text-[10px]">
+            <div className="flex items-center gap-1.5 text-[11px]">
               <span className="text-zinc-500">Existing condition:</span>
               {(['replace', 'and', 'or'] as const).map(c => (
                 <button
@@ -97,8 +97,8 @@ const RecipePicker: React.FC<Props> = ({ recipes, current, kind, onInsert, onClo
             </div>
           )}
           <div>
-            <span className="text-[9px] uppercase tracking-widest text-zinc-500">Code it writes</span>
-            <pre className="mt-0.5 px-2 py-1 rounded bg-black/60 border border-zinc-800 font-mono text-[10px] text-emerald-200 whitespace-pre-wrap break-all">{final}</pre>
+            <span className="text-[10px] uppercase tracking-widest text-zinc-500">Code it writes</span>
+            <pre className="mt-0.5 px-2 py-1 rounded bg-black/60 border border-zinc-800 font-mono text-[11px] text-emerald-200 whitespace-pre-wrap break-all">{final}</pre>
           </div>
           <button
             onClick={() => { onInsert(final); onClose(); }}

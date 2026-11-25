@@ -58,14 +58,14 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
         <div className="h-12 flex items-center justify-between px-6 border-b border-zinc-800/50 shrink-0">
           <div className="flex items-center space-x-2">
             <Layers size={14} className="text-emerald-400" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Story Cards</span>
-            <span className="text-[9px] font-mono text-zinc-600">{cards.length}</span>
+            <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Story Cards</span>
+            <span className="text-[10px] font-mono text-zinc-600">{cards.length}</span>
           </div>
           <div className="flex items-center space-x-2">
-            <button onClick={addSample} className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest text-emerald-300 bg-emerald-600/15 hover:bg-emerald-600/25 transition-colors">
+            <button onClick={addSample} className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-emerald-300 bg-emerald-600/15 hover:bg-emerald-600/25 transition-colors">
               <Sparkles size={12} /><span>Sample</span>
             </button>
-            <button onClick={add} className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest text-zinc-200 bg-zinc-700 hover:bg-zinc-600 transition-colors">
+            <button onClick={add} className="flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-[11px] font-bold uppercase tracking-widest text-zinc-200 bg-zinc-700 hover:bg-zinc-600 transition-colors">
               <Plus size={12} /><span>New Card</span>
             </button>
           </div>
@@ -91,12 +91,12 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
                     <select
                       value={card.type}
                       onChange={(e) => update(card.id, { type: e.target.value as StoryCard['type'] })}
-                      className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-300 focus:outline-none"
+                      className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-widest text-emerald-300 focus:outline-none"
                     >
                       {CARD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                     {active && (
-                      <span className="flex items-center space-x-1 text-[8px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded px-1.5 py-0.5">
+                      <span className="flex items-center space-x-1 text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded px-1.5 py-0.5">
                         <Zap size={9} /><span>TRIGGERED</span>
                       </span>
                     )}
@@ -107,7 +107,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
                 </div>
 
                 <div>
-                  <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Name <span className="text-zinc-700">(your reference — not sent to AI)</span></label>
+                  <label className="block text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Name <span className="text-zinc-700">(your reference — not sent to AI)</span></label>
                   <input
                     value={card.title}
                     onChange={(e) => update(card.id, { title: e.target.value })}
@@ -117,7 +117,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
                 </div>
 
                  <div>
-                   <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Entry <span className="text-emerald-500/60">(sent to AI as "World Lore:")</span></label>
+                   <label className="block text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Entry <span className="text-emerald-500/60">(sent to the AI under "World Lore:" when triggered)</span></label>
                    <textarea
                      value={card.content}
                      onChange={(e) => update(card.id, { content: e.target.value })}
@@ -128,7 +128,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
 
 
                 <div>
-                  <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Triggers <span className="text-zinc-700">(comma-separated; case-insensitive substring)</span></label>
+                  <label className="block text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Triggers <span className="text-zinc-700">(comma-separated; case-insensitive substring)</span></label>
                   <input
                     value={card.keywords.join(',')}
                     onChange={(e) => update(card.id, { keywords: e.target.value.split(',') })}
@@ -138,7 +138,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
                 </div>
 
                 <div>
-                  <label className="block text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Notes <span className="text-zinc-700">(private — not sent to AI)</span></label>
+                  <label className="block text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-1">Notes <span className="text-zinc-700">(private — not sent to AI)</span></label>
                   <input
                     value={card.notes}
                     onChange={(e) => update(card.id, { notes: e.target.value })}
@@ -165,7 +165,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
           className="h-12 flex items-center px-6 border-b border-zinc-800/50 shrink-0 space-x-2 w-full text-left md:cursor-default"
         >
           <Zap size={14} className="text-amber-400" />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">Trigger Simulator</span>
+          <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400">Trigger Simulator</span>
           {isMobile && (collapsed
             ? <ChevronUp size={16} className="ml-auto text-zinc-400" />
             : <ChevronDown size={16} className="ml-auto text-zinc-400" />)}
@@ -184,7 +184,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
           />
 
           <div>
-            <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-2">
+            <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2">
               Activated ({matches.length})
             </div>
             {matches.length === 0 ? (
@@ -195,11 +195,11 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
                   <div key={m.card.id} className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-emerald-300">{m.card.title || '(unnamed card)'}</span>
-                      <span className="text-[8px] font-mono text-emerald-500/70 uppercase">{m.card.type}</span>
+                      <span className="text-[10px] font-mono text-emerald-500/70 uppercase">{m.card.type}</span>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1">
                       {m.matchedKeywords.map((k, i) => (
-                        <span key={i} className="text-[9px] font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">{JSON.stringify(k)}</span>
+                        <span key={i} className="text-[10px] font-mono text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">{JSON.stringify(k)}</span>
                       ))}
                     </div>
                   </div>
@@ -210,7 +210,7 @@ const StoryCardsView: React.FC<StoryCardsViewProps> = ({ cards, setCards }) => {
 
           {worldLore && (
             <div>
-              <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-widest mb-2">Assembled context block</div>
+              <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-2">Assembled context block</div>
               <pre className="text-[11px] font-mono text-zinc-300 bg-black/50 border border-zinc-800 rounded-lg p-3 whitespace-pre-wrap break-words">{worldLore}</pre>
             </div>
           )}

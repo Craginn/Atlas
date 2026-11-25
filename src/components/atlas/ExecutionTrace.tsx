@@ -56,29 +56,29 @@ const HookSection: React.FC<{ entry: TraceEntry; index: number }> = ({ entry, in
         {collapsed
           ? <ChevronRight size={12} className="text-zinc-500 shrink-0" />
           : <ChevronDown size={12} className="text-zinc-500 shrink-0" />}
-        <span className="text-[9px] font-mono text-zinc-600 shrink-0">{index + 1}</span>
-        <span className={`text-[10px] font-black uppercase tracking-widest ${failed ? 'text-red-400' : 'text-blue-300/80'}`}>
+        <span className="text-[10px] font-mono text-zinc-600 shrink-0">{index + 1}</span>
+        <span className={`text-[11px] font-black uppercase tracking-widest ${failed ? 'text-red-400' : 'text-blue-300/80'}`}>
           {entry.scriptName}
         </span>
         {failed && <AlertTriangle size={11} className="text-red-400 shrink-0" />}
         <span className="ml-auto flex items-center gap-2 shrink-0">
           {entry.stateChanged && (
-            <span className="text-[9px] font-mono text-emerald-400/70 uppercase">state changed</span>
+            <span className="text-[10px] font-mono text-emerald-400/70 uppercase">state changed</span>
           )}
-          <span className="text-[9px] font-mono text-zinc-600">{body.length} line{body.length === 1 ? '' : 's'}</span>
+          <span className="text-[10px] font-mono text-zinc-600">{body.length} line{body.length === 1 ? '' : 's'}</span>
         </span>
       </button>
 
       {!collapsed && (
         <div className="px-2.5 pb-2.5 space-y-2">
           {ranLibrary && (
-            <p className="text-[9px] font-mono text-zinc-600 italic">
+            <p className="text-[10px] font-mono text-zinc-600 italic">
               Library ran first, in this hook's scope
             </p>
           )}
 
           {body.length === 0 ? (
-            <p className="text-[10px] font-mono text-zinc-600 italic">(no output)</p>
+            <p className="text-[11px] font-mono text-zinc-600 italic">(no output)</p>
           ) : (
             <div className="space-y-1">
               {body.map((line, i) => {
@@ -129,7 +129,7 @@ const ExecutionTrace: React.FC<{ trace: TraceEntry[]; className?: string }> = ({
 
   return (
     <div className={`overflow-y-auto custom-scrollbar p-2.5 space-y-2 ${className}`}>
-      <p className="text-[9px] font-mono uppercase tracking-widest text-zinc-600">
+      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-600">
         Pipeline · {trace.length} hook{trace.length === 1 ? '' : 's'} in fire order
       </p>
       {trace.map((entry, i) => (

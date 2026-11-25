@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useDeferredValue } from 'react';
-import { WorldState, Script, StoryCard, SentinelReport, SimulationMode, KnowledgeBase, LastSimData, HistoryEntry } from '@/types';
+import { WorldState, Script, SentinelReport, SimulationMode, KnowledgeBase, LastSimData, HistoryEntry } from '@/types';
 import { INITIAL_WORLD_STATE, DEFAULT_SCRIPTS } from '@/constants';
 import AILogicEditor from '@/components/atlas/AILogicEditor';
 import Sentinel from '@/components/atlas/Sentinel';
@@ -12,9 +12,19 @@ import StoryCardsView from '@/components/atlas/StoryCardsView';
 import TerminalView from '@/components/atlas/TerminalView';
 import BlockCanvas from '@/components/atlas/BlockCanvas';
 import ContextLab from '@/components/atlas/ContextLab';
+import ViewErrorBoundary from '@/components/atlas/ViewErrorBoundary';
+import { APP_VERSION } from '@/services/appVersion';
+import { useGitHubSync } from '@/hooks/use-github-sync';
+import { GitBranch } from 'lucide-react';
+
+const VIEW_NAMES: Record<string, string> = {
+  simulation: 'Simulation Engine', state: 'State Editor', logic: 'JS Code Editor', blocks: 'Block Canvas',
+  sentinel: 'Sentinel Debugger', plot: 'Plot Essentials', docs: 'AID Docs', cards: 'Story Cards',
+  terminal: 'Terminal', lab: 'Context Lab',
+};
 import {
-  ExternalLink, Code2, ShieldCheck, Cpu, Database, PanelLeft,
-  Activity, Terminal, Book, Settings, FlaskConical, FileText, Layers,
+  Code2, ShieldCheck, Cpu, Database, PanelLeft,
+  Terminal, Book, Settings, FlaskConical, FileText, Layers,
   Menu, X, Blocks, Microscope
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -50,12 +60,15 @@ const SCRIPT_NAME_TO_SLOT: Record<string, 'library' | 'input' | 'context' | 'out
   'Output Modifier': 'output',
 };
 
-const ProjectExplorer = ({ view, setView, onOpenSettings, onClose }: {
+const ProjectExplorer = ({ view, setView, onOpenSettings, onClose, github, onOpenGitHub }: {
   view: ViewType;
   setView: (v: ViewType) => void;
   onOpenSettings: () => void;
   /** Supplied only on mobile, where the explorer is a dismissable drawer. */
   onClose?: () => void;
+  /** The user's linked scripts repo, if any, and how many changes are waiting to push. */
+  github: { repo: string | null; toPush: number };
+  onOpenGitHub: () => void;
 }) => {
   const menuItems = [
     { id: 'simulation' as const, icon: Terminal, label: 'Simulation Engine' },
@@ -80,7 +93,7 @@ const ProjectExplorer = ({ view, setView, onOpenSettings, onClose }: {
         </div>
         <div>
           <h1 className="font-bold tracking-tight text-sm italic text-zinc-200">Aid Atlas</h1>
-          <div className="text-[9px] font-mono text-zinc-600 -mt-1">IDE SYSTEM</div>
+          <div className="text-[11px] text-zinc-500 -mt-0.5">AI Dungeon script lab</div>
         </div>
         {onClose && (
           <button
@@ -127,10 +140,19 @@ const ProjectExplorer = ({ view, setView, onOpenSettings, onClose }: {
         </div>
       </div>
       <div className="p-2 border-t border-zinc-800/50 shrink-0">
-        <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-center space-x-2 p-2 rounded-md text-xs text-zinc-500 hover:bg-zinc-900/50 hover:text-zinc-300 transition-colors">
-          <ExternalLink size={14} />
-          <span>View Source</span>
-        </a>
+        <button
+          onClick={onOpenGitHub}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-200 transition-colors"
+          title={github.repo ? 'Pull and push your scripts' : 'Keep your scripts in your own GitHub repository'}
+        >
+          <GitBranch size={14} className="shrink-0" />
+          <span className="truncate">{github.repo ?? 'Link your scripts to GitHub'}</span>
+          {github.toPush > 0 && (
+            <span className="ml-auto shrink-0 px-1.5 rounded bg-sky-500/15 text-sky-300 text-[11px]" title="Changed here, not pushed yet">
+              {github.toPush} to push
+            </span>
+          )}
+        </button>
       </div>
     </div>
   );
@@ -141,18 +163,13 @@ const StatusBar = ({ panels, setPanels }: {
   setPanels: React.Dispatch<React.SetStateAction<{ left: boolean }>>;
 }) => {
   return (
-  <div className="safe-bottom bg-[#0c0c0f] border-t border-zinc-800/50 h-6 box-content px-4 flex items-center justify-between text-[10px] font-mono text-zinc-500 shrink-0">
+  <div className="safe-bottom bg-[#0c0c0f] border-t border-zinc-800/50 h-6 box-content px-4 flex items-center justify-between text-[11px] text-zinc-500 shrink-0">
     <div className="flex items-center space-x-4">
       {/* The app is offline-only: scripts run locally and the AI reply is the
           user's stand-in from the Director's AI Call box. */}
       <div className="flex items-center text-zinc-400" title="Offline engine: scripts run locally and the AI reply is your stand-in text">
-        <Cpu size={10} className="mr-1.5" />
-        <span>ENGINE: LOCAL</span>
-      </div>
-      {/* Secondary readouts are noise on a phone-width status bar. */}
-      <div className="hidden sm:flex items-center space-x-1 uppercase tracking-tighter text-zinc-600">
-        <Activity size={10} />
-        <span>STATUS: NOMINAL</span>
+        <Cpu size={11} className="mr-1.5" />
+        <span>Offline — scripts run on this computer</span>
       </div>
     </div>
     <div className="flex items-center space-x-4">
@@ -165,7 +182,7 @@ const StatusBar = ({ panels, setPanels }: {
         <PanelLeft size={12} />
       </button>
       <div className="hidden md:block w-px h-3 bg-zinc-700" />
-      <span className="text-zinc-600">v2.1.0-STABLE</span>
+      <span className="text-zinc-600">v{APP_VERSION}</span>
     </div>
   </div>
   );
@@ -182,11 +199,23 @@ const Index: React.FC = () => {
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBase>(INITIAL_KNOWLEDGE_BASE);
   const [view, setView] = useState<ViewType>('simulation');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // The user's own scripts repo: pull/push the four script files.
+  const github = useGitHubSync(scripts, setScripts);
+  const githubSummary = useMemo(() => ({
+    repo: github.linked ? `${github.config.owner}/${github.config.repo}` : null,
+    toPush: github.localChanges.length,
+  }), [github.linked, github.config.owner, github.config.repo, github.localChanges.length]);
+  const openSettings = useCallback((tab: 'linking' | 'github' | 'layout' | 'debug') => {
+    setSettingsTab(tab);
+    setIsSettingsOpen(true);
+  }, []);
   // The only simulation mode: scripts run locally and the AI reply is the
   // user's stand-in text. There is no remote generation.
   const engine: SimulationMode = 'local';
   const [lastSimData, setLastSimData] = useState<LastSimData | null>(null);
   const [panels, setPanels] = useState({ left: true });
+  const [settingsTab, setSettingsTab] = useState<'linking' | 'github' | 'layout' | 'debug'>('linking');
   // Ask the dev server once whether an interactive shell bridge is reachable, so
   // the terminal's /sh knows up front whether it can run anything here.
   useEffect(() => { void refreshShellStatus(); }, []);
@@ -299,6 +328,19 @@ const Index: React.FC = () => {
     setFileLinkingConfig(updated);
     return updated;
   }, [linkedFiles, fileHandles, fileLinkingConfig]);
+
+  /**
+   * Start over: clear the story history, the saved state and the last run, as
+   * if the adventure had just been created. Scripts, Plot Essentials and story
+   * cards are kept.
+   */
+  const startNewAdventure = useCallback(() => {
+    if (!window.confirm('Start a new adventure? This clears the story history and the saved state (scripts, Plot Essentials and story cards are kept).')) return;
+    setHistory([]);
+    setWorldState(INITIAL_WORLD_STATE);
+    setPreviousWorldState(null);
+    setLastSimData(null);
+  }, []);
 
   const handleSetWorldState = useCallback((newState: WorldState) => {
     setWorldState(ws => {
@@ -534,6 +576,8 @@ const Index: React.FC = () => {
       case 'simulation':
         return (
           <SimulationEngine
+            turn={history.reduce((n, e) => Math.max(n, e.turn ?? 0), 0)}
+            onNewAdventure={startNewAdventure}
             onExecute={handleRunSimulation}
             isProcessing={lastSimData?.isProcessing ?? false}
             lastResult={lastSimData}
@@ -547,7 +591,7 @@ const Index: React.FC = () => {
       case 'state':
         return <StateEditor worldState={worldState} setWorldState={handleSetWorldState} previousWorldState={previousWorldState} stateTrace={lastSimData?.stateTrace} hasError={!!lastSimData?.executionError} history={history} textTransforms={lastSimData?.textTransforms} />;
       case 'logic':
-        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} runtimeErrorsByScriptId={runtimeErrorsByScriptId} jumpRequest={jumpRequest} />;
+        return <AILogicEditor scripts={scripts} setScripts={setScripts} activeScriptId={activeScriptId} setActiveScriptId={setActiveScriptId} runtimeErrorsByScriptId={runtimeErrorsByScriptId} jumpRequest={jumpRequest} sync={github} onOpenGitHub={() => openSettings('github')} />;
       case 'blocks':
         // Same `scripts` state as the JS Code Editor — the canvas parses that
         // code into blocks and writes generated code back, so the two views are
@@ -623,13 +667,13 @@ const Index: React.FC = () => {
           </button>
           <FlaskConical className="text-purple-400 shrink-0" size={14} />
           <span className="font-bold italic text-sm text-zinc-200">Aid Atlas</span>
-          <span className="ml-auto text-[10px] font-mono text-blue-400 truncate">{view}.js</span>
+          <span className="ml-auto text-xs text-zinc-400 truncate">{VIEW_NAMES[view] ?? view}</span>
         </div>
       )}
       <div className="flex-1 flex overflow-hidden relative">
         {!isMobile && panels.left && (
           <div className="w-64 shrink-0">
-            <ProjectExplorer view={view} setView={selectView} onOpenSettings={() => setIsSettingsOpen(true)} />
+            <ProjectExplorer view={view} setView={selectView} onOpenSettings={() => openSettings('linking')} github={githubSummary} onOpenGitHub={() => openSettings('github')} />
           </div>
         )}
         {isMobile && mobileNavOpen && (
@@ -642,20 +686,20 @@ const Index: React.FC = () => {
               <ProjectExplorer
                 view={view}
                 setView={selectView}
-                onOpenSettings={() => { setIsSettingsOpen(true); setMobileNavOpen(false); }}
+                onOpenSettings={() => { openSettings('linking'); setMobileNavOpen(false); }}
                 onClose={() => setMobileNavOpen(false)}
+                github={githubSummary}
+                onOpenGitHub={() => { openSettings('github'); setMobileNavOpen(false); }}
               />
             </div>
           </>
         )}
         <div className="flex-1 flex flex-col overflow-hidden bg-zinc-950 min-w-0">
-          {/* The mobile top bar already names the active view. */}
-          <div className="hidden md:flex h-9 p-3 bg-zinc-900 border-b border-zinc-800/50 text-[10px] text-zinc-400 font-semibold items-center space-x-2 shrink-0">
-            <span className="text-zinc-600 select-none">{'aid atlas > src >'}</span>
-            <span className="text-blue-400 select-none">{view}.js</span>
-          </div>
           <div className="flex-1 overflow-hidden">
-            {renderView()}
+            {/* key: switching views also clears a crashed view. */}
+            <ViewErrorBoundary key={view} viewName={VIEW_NAMES[view] ?? view}>
+              {renderView()}
+            </ViewErrorBoundary>
           </div>
         </div>
       </div>
@@ -665,6 +709,8 @@ const Index: React.FC = () => {
         fileLinkingConfig={fileLinkingConfig} onSave={handleSaveSettings}
         onReloadFromDisk={reReadLinkedFiles}
         scripts={scripts} setScripts={setScripts}
+        sync={github}
+        initialTab={settingsTab}
       />
     </div>
   );

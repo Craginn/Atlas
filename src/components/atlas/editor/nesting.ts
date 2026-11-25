@@ -227,18 +227,34 @@ export const enclosingScope = ViewPlugin.fromClass(
  * animation frame and skipped when the path is unchanged, so moving the cursor
  * inside one function never re-renders the editor chrome.
  */
-export function scopeListener(onChange: (crumbs: ScopeCrumb[]) => void) {
+export function scopeListener(
+  onChange: (crumbs: ScopeCrumb[]) => void,
+  /** Cursor line/column (1-based) and line count, for a status bar. */
+  onCursor?: (pos: { line: number; column: number; lines: number }) => void,
+) {
   let frame = 0;
   let lastKey = '';
+  let lastCursor = '';
   return EditorView.updateListener.of(u => {
     if (!u.selectionSet && !u.docChanged && syntaxTree(u.startState) === syntaxTree(u.state)) return;
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(() => {
-      const crumbs = scopePath(u.view.state, u.view.state.selection.main.head);
+      const state = u.view.state;
+      const head = state.selection.main.head;
+      const crumbs = scopePath(state, head);
       const key = crumbs.map(c => `${c.label}@${c.pos}`).join('|');
       if (key !== lastKey) {
         lastKey = key;
         onChange(crumbs);
+      }
+      if (onCursor) {
+        const line = state.doc.lineAt(head);
+        const cursor = { line: line.number, column: head - line.from + 1, lines: state.doc.lines };
+        const ck = `${cursor.line}:${cursor.column}:${cursor.lines}`;
+        if (ck !== lastCursor) {
+          lastCursor = ck;
+          onCursor(cursor);
+        }
       }
     });
   });
